@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "pm2": "pm2 start npm --name \"movie_quiz\" -- start"
+    "pm2": "pm2 start npm --name \"movie_quizz\" -- start"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
