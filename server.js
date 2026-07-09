@@ -33,7 +33,7 @@ const STATIC_LISTS = {
   now_playing: {
     pathAndQuery: "movie/now_playing",
     pages: 4,
-    label: "Au Moviema",
+    label: "Au cinéma",
     group: "liste",
   },
   upcoming: {
@@ -253,11 +253,9 @@ app.get("/api/pool-size", (req, res) => {
 
 app.get("/api/quiz-batch", async (req, res) => {
   if (!reservoirReady) {
-    return res
-      .status(503)
-      .json({
-        error: "Réservoir en cours de préparation, réessaie dans un instant.",
-      });
+    return res.status(503).json({
+      error: "Réservoir en cours de préparation, réessaie dans un instant.",
+    });
   }
 
   const requestedCategories = (req.query.categories || "popular")
