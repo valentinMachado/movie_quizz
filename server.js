@@ -1,6 +1,6 @@
-import 'dotenv/config';
-import express from 'express';
-import path from 'node:path';
+import "dotenv/config";
+import express from "express";
+import path from "node:path";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,17 +13,47 @@ const MAX_IMAGES_PER_FILM = 6;
 const IMAGE_FETCH_CONCURRENCY = 8;
 
 if (!TMDB_KEY) {
-  console.error('TMDB_API_KEY manquante dans .env');
+  console.error("TMDB_API_KEY manquante dans .env");
   process.exit(1);
 }
 
 const STATIC_LISTS = {
-  popular:       { pathAndQuery: 'movie/popular',       pages: 6, label: 'Populaires',            group: 'liste' },
-  top_rated:     { pathAndQuery: 'movie/top_rated',     pages: 6, label: 'Mieux notés',            group: 'liste' },
-  now_playing:   { pathAndQuery: 'movie/now_playing',   pages: 4, label: 'Au cinéma',              group: 'liste' },
-  upcoming:      { pathAndQuery: 'movie/upcoming',      pages: 4, label: 'À venir',                group: 'liste' },
-  trending_day:  { pathAndQuery: 'trending/movie/day',  pages: 3, label: 'Tendances du jour',      group: 'liste' },
-  trending_week: { pathAndQuery: 'trending/movie/week', pages: 4, label: 'Tendances de la semaine', group: 'liste' }
+  popular: {
+    pathAndQuery: "movie/popular",
+    pages: 6,
+    label: "Populaires",
+    group: "liste",
+  },
+  top_rated: {
+    pathAndQuery: "movie/top_rated",
+    pages: 6,
+    label: "Mieux notés",
+    group: "liste",
+  },
+  now_playing: {
+    pathAndQuery: "movie/now_playing",
+    pages: 4,
+    label: "Au Moviema",
+    group: "liste",
+  },
+  upcoming: {
+    pathAndQuery: "movie/upcoming",
+    pages: 4,
+    label: "À venir",
+    group: "liste",
+  },
+  trending_day: {
+    pathAndQuery: "trending/movie/day",
+    pages: 3,
+    label: "Tendances du jour",
+    group: "liste",
+  },
+  trending_week: {
+    pathAndQuery: "trending/movie/week",
+    pages: 4,
+    label: "Tendances de la semaine",
+    group: "liste",
+  },
 };
 
 let CATEGORIES = { ...STATIC_LISTS };
@@ -41,12 +71,12 @@ function toEntry(m) {
     id: m.id,
     title: m.title,
     imageUrl: `https://image.tmdb.org/t/p/w1280${m.backdrop_path}`,
-    posterUrl: `https://image.tmdb.org/t/p/w500${m.poster_path}`
+    posterUrl: `https://image.tmdb.org/t/p/w500${m.poster_path}`,
   };
 }
 
 function urlFor(pathAndQuery, page) {
-  const sep = pathAndQuery.includes('?') ? '&' : '?';
+  const sep = pathAndQuery.includes("?") ? "&" : "?";
   return `https://api.themoviedb.org/3/${pathAndQuery}${sep}api_key=${TMDB_KEY}&language=fr-FR&page=${page}`;
 }
 
@@ -54,18 +84,18 @@ async function buildCategoryDefs() {
   const defs = { ...STATIC_LISTS };
   try {
     const genreData = await tmdbJSON(
-      `https://api.themoviedb.org/3/genre/movie/list?api_key=${TMDB_KEY}&language=fr-FR`
+      `https://api.themoviedb.org/3/genre/movie/list?api_key=${TMDB_KEY}&language=fr-FR`,
     );
     for (const g of genreData.genres || []) {
       defs[`genre_${g.id}`] = {
         pathAndQuery: `discover/movie?with_genres=${g.id}&sort_by=popularity.desc`,
         pages: 3,
         label: g.name,
-        group: 'genre'
+        group: "genre",
       };
     }
   } catch (e) {
-    console.error('Erreur récupération des genres:', e.message);
+    console.error("Erreur récupération des genres:", e.message);
   }
   return defs;
 }
@@ -94,8 +124,12 @@ async function refreshReservoir() {
     }
   }
   reservoirByCategory = next;
-  reservoirReady = Object.values(reservoirByCategory).some(list => list.length > 0);
-  console.log(`Réservoir rafraîchi : ${Object.keys(CATEGORIES).length} catégories.`);
+  reservoirReady = Object.values(reservoirByCategory).some(
+    (list) => list.length > 0,
+  );
+  console.log(
+    `Réservoir rafraîchi : ${Object.keys(CATEGORIES).length} catégories.`,
+  );
 }
 
 refreshReservoir();
@@ -127,86 +161,141 @@ async function mapWithConcurrency(items, limit, fn) {
       results[my] = await fn(items[my], my);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
   return results;
 }
 
-// TMDb trie les backdrops par vote_average décroissant : les premiers sont
-// souvent très proches du poster officiel (key art). On privilégie donc la
-// queue de la liste (moins "iconique", plus "scène du film") avant de mélanger.
-function pickVariedBackdrops(backdrops, need) {
-  if (backdrops.length <= need) return shuffle(backdrops);
-  const tailStart = Math.floor(backdrops.length * 0.3); // on saute le premier tiers
-  const tail = backdrops.slice(tailStart);
-  const pool = tail.length >= need ? tail : backdrops;
-  return shuffle(pool).slice(0, need);
+// TMDb marque chaque backdrop d'un iso_639_1 : null = version "textless"
+// (sans titre/texte incrusté), une valeur (ex: "en") = version localisée avec
+// texte. On n'utilise QUE les textless, jamais de repli sur une version avec
+// texte — un film sans version textless disponible est tout simplement écarté
+// par l'appelant (fetchExtraBackdrops renvoie []).
+function pickFromPool(pool, need) {
+  let ordered = pool;
+  if (ordered.length > need) {
+    // les mieux notées ressemblent souvent au poster officiel (key art) :
+    // on pioche plutôt dans la queue de la liste avant de mélanger
+    const tailStart = Math.floor(ordered.length * 0.3);
+    const tail = ordered.slice(tailStart);
+    ordered = tail.length >= need ? tail : ordered;
+  }
+  const shuffled = shuffle(ordered);
+  const result = [];
+  for (let i = 0; i < need; i++) result.push(shuffled[i % shuffled.length]);
+  return result;
 }
 
 // récupère jusqu'à `need` backdrops différents pour un film donné
 // (seulement appelé pour les films effectivement tirés dans un quiz, pas sur tout le réservoir)
 async function fetchExtraBackdrops(movie, need) {
-  if (need <= 1) return [movie.imageUrl];
   try {
-    const data = await tmdbJSON(`https://api.themoviedb.org/3/movie/${movie.id}/images?api_key=${TMDB_KEY}`);
-    const backdrops = (data.backdrops || []).filter(b => b.file_path);
-    const urls = pickVariedBackdrops(backdrops, need).map(b => `https://image.tmdb.org/t/p/w1280${b.file_path}`);
-    while (urls.length < need) urls.push(movie.imageUrl);
-    return urls;
+    const data = await tmdbJSON(
+      `https://api.themoviedb.org/3/movie/${movie.id}/images?api_key=${TMDB_KEY}`,
+    );
+    const backdrops = (data.backdrops || []).filter((b) => b.file_path);
+    const textless = backdrops.filter((b) => b.iso_639_1 === null);
+    if (textless.length === 0) return []; // aucune version sans texte : ce film est écarté
+    return pickFromPool(textless, need).map(
+      (b) => `https://image.tmdb.org/t/p/w1280${b.file_path}`,
+    );
   } catch (e) {
-    return Array(need).fill(movie.imageUrl);
+    return [];
   }
 }
 
-app.get('/api/categories', (req, res) => {
+async function selectMoviesWithBackdrops(
+  candidatesShuffled,
+  count,
+  imagesPerFilm,
+) {
+  const result = [];
+  let idx = 0;
+  const batchSize = Math.max(count, 20);
+  while (result.length < count && idx < candidatesShuffled.length) {
+    const batch = candidatesShuffled.slice(idx, idx + batchSize);
+    idx += batchSize;
+    const withImages = await mapWithConcurrency(
+      batch,
+      IMAGE_FETCH_CONCURRENCY,
+      async (m) => {
+        const imageUrls = await fetchExtraBackdrops(m, imagesPerFilm);
+        return imageUrls.length > 0
+          ? { id: m.id, title: m.title, posterUrl: m.posterUrl, imageUrls }
+          : null;
+      },
+    );
+    for (const item of withImages) {
+      if (item && result.length < count) result.push(item);
+    }
+  }
+  return result;
+}
+
+app.get("/api/categories", (req, res) => {
   const list = Object.entries(CATEGORIES).map(([key, def]) => ({
     key,
     label: def.label,
     group: def.group,
-    available: (reservoirByCategory[key] || []).length
+    available: (reservoirByCategory[key] || []).length,
   }));
   res.json({ categories: list, minCount: MIN_COUNT, maxCount: MAX_COUNT });
 });
 
-app.get('/api/pool-size', (req, res) => {
-  const requestedCategories = (req.query.categories || '')
-    .split(',').map(s => s.trim()).filter(c => CATEGORIES[c]);
+app.get("/api/pool-size", (req, res) => {
+  const requestedCategories = (req.query.categories || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((c) => CATEGORIES[c]);
   res.json({ available: mergedPool(requestedCategories).length });
 });
 
-app.get('/api/quiz-batch', async (req, res) => {
+app.get("/api/quiz-batch", async (req, res) => {
   if (!reservoirReady) {
-    return res.status(503).json({ error: 'Réservoir en cours de préparation, réessaie dans un instant.' });
+    return res
+      .status(503)
+      .json({
+        error: "Réservoir en cours de préparation, réessaie dans un instant.",
+      });
   }
 
-  const requestedCategories = (req.query.categories || 'popular')
-    .split(',').map(s => s.trim()).filter(c => CATEGORIES[c]);
-  if (requestedCategories.length === 0) requestedCategories.push('popular');
+  const requestedCategories = (req.query.categories || "popular")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((c) => CATEGORIES[c]);
+  if (requestedCategories.length === 0) requestedCategories.push("popular");
 
   const imagesPerFilm = Math.min(
     MAX_IMAGES_PER_FILM,
-    Math.max(MIN_IMAGES_PER_FILM, parseInt(req.query.imagesPerFilm, 10) || 1)
+    Math.max(MIN_IMAGES_PER_FILM, parseInt(req.query.imagesPerFilm, 10) || 1),
   );
 
   const all = mergedPool(requestedCategories);
-  const count = Math.min(MAX_COUNT, Math.max(MIN_COUNT, parseInt(req.query.count, 10) || 50), all.length || MIN_COUNT);
+  const count = Math.min(
+    MAX_COUNT,
+    Math.max(MIN_COUNT, parseInt(req.query.count, 10) || 50),
+    all.length || MIN_COUNT,
+  );
 
-  const excludeIds = new Set((req.query.exclude || '').split(',').filter(Boolean).map(Number));
+  const excludeIds = new Set(
+    (req.query.exclude || "").split(",").filter(Boolean).map(Number),
+  );
 
-  let candidates = all.filter(m => !excludeIds.has(m.id));
+  let candidates = all.filter((m) => !excludeIds.has(m.id));
   let recycled = false;
   if (candidates.length < count) {
     candidates = all;
     recycled = true;
   }
 
-  const picked = shuffle(candidates).slice(0, count);
+  const picked = shuffle(candidates);
 
-  const withImages = await mapWithConcurrency(picked, IMAGE_FETCH_CONCURRENCY, async (m) => ({
-    id: m.id,
-    title: m.title,
-    posterUrl: m.posterUrl,
-    imageUrls: await fetchExtraBackdrops(m, imagesPerFilm)
-  }));
+  const withImages = await selectMoviesWithBackdrops(
+    picked,
+    count,
+    imagesPerFilm,
+  );
 
   res.json({
     movies: withImages,
@@ -215,10 +304,10 @@ app.get('/api/quiz-batch', async (req, res) => {
     delivered: withImages.length,
     imagesPerFilm,
     categories: requestedCategories,
-    poolSize: all.length
+    poolSize: all.length,
   });
 });
 
-app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(path.join(process.cwd(), "public")));
 
-app.listen(PORT, () => console.log(`Ciné Quiz sur http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Movie Quiz sur http://localhost:${PORT}`));
