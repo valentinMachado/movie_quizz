@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Movie Quiz</title>
+<style>
+  :root{
+    --bg:#0a0a0b; --panel:#151517; --cream:#ede8de; --amber:#e8a33d; --green:#4c8a5c; --muted:#6b6b70;
+    --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% -10%,#1a1a1d 0%,var(--bg) 60%);
+    color:var(--cream);font-family:var(--sans);display:flex;align-items:center;justify-content:center;padding:32px 16px}
+  .rig{width:100%;max-width:760px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber);margin:0 0 6px}
+  h1{font-size:clamp(28px,5vw,40px);margin:0 0 24px;font-weight:800;letter-spacing:-0.02em}
+  .card{background:var(--panel);border:1px solid #232326;border-radius:4px;overflow:hidden}
+
+  .settings{padding:18px 20px;border-bottom:1px solid #232326;display:flex;flex-direction:column;gap:16px}
+  .settings-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .settings-label{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);min-width:110px}
+  input[type="number"]{
+    width:70px;background:#0e0e10;border:1px solid #2a2a2e;color:var(--cream);
+    font-family:var(--mono);font-size:14px;padding:8px 10px;border-radius:3px;outline:none;
+  }
+  input[type="number"]:focus{border-color:var(--amber)}
+  input[type="range"]{ accent-color: var(--amber); flex:1 1 140px; }
+  .chip-group{display:flex;flex-direction:column;gap:6px}
+  .chip-group-label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;max-height:150px;overflow-y:auto;padding:2px}
+  .chip{
+    font-family:var(--mono); font-size:12px; padding:6px 11px; border-radius:20px;
+    border:1px solid #2a2a2e; color:var(--muted); cursor:pointer; user-select:none; white-space:nowrap;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .chip.active{ border-color:var(--amber); color:var(--amber); background:rgba(232,163,61,0.08); }
+  .chip .count{ opacity:.6; margin-left:4px; }
+  .duration-hint{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+  .frame-wrap{position:relative;background:#000}
+  canvas{display:block;width:100%;height:auto;aspect-ratio:16/9}
+  .progress{height:3px;background:#232326}
+  .progress-bar{height:100%;width:0%;background:var(--amber);transition:width .15s}
+  .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:18px 20px;border-top:1px solid #232326}
+  button{font-family:var(--mono);font-size:13px;letter-spacing:.04em;text-transform:uppercase;padding:10px 18px;
+    border-radius:3px;border:1px solid var(--amber);background:transparent;color:var(--amber);cursor:pointer}
+  button:hover:not(:disabled){background:var(--amber);color:#0a0a0b}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  .status{font-family:var(--mono);font-size:12px;color:var(--muted);padding:0 20px 18px}
+  .status.rec{color:var(--green)}
+  .status.rec::before{content:"● "}
+  .status.err{color:#d9694f}
+  .result{padding:20px;border-top:1px solid #232326;display:none}
+  .result.show{display:block}
+  .result video{width:100%;border-radius:3px;background:#000}
+  .result-row{display:flex;gap:12px;margin-top:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .result-row a{font-family:var(--mono);font-size:12px;color:var(--amber);text-decoration:none;border-bottom:1px solid var(--amber)}
+  .answers{font-family:var(--mono);font-size:12px;color:var(--muted);padding:0 20px 20px;line-height:1.8;max-height:200px;overflow-y:auto}
+  .answers span{color:var(--cream)}
+  .hint{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="rig">
+  <p class="eyebrow">Ciné Quiz</p>
+  <h1>Configure ton quiz</h1>
+
+  <div class="card">
+    <div class="settings">
+      <div class="settings-row">
+        <span class="settings-label">Nombre de films</span>
+        <input type="range" id="countRange" min="5" max="100" step="1" value="50">
+        <input type="number" id="countNumber" min="5" max="100" value="50">
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Images / film</span>
+        <input type="range" id="imagesPerFilmRange" min="1" max="6" step="1" value="3">
+        <input type="number" id="imagesPerFilmNumber" min="1" max="6" value="3">
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Temps / image</span>
+        <input type="range" id="imageSecRange" min="2" max="15" step="1" value="5">
+        <input type="number" id="imageSecNumber" min="2" max="15" value="5"><span class="settings-label" style="min-width:auto">sec</span>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Temps réponse</span>
+        <input type="range" id="revealSecRange" min="2" max="15" step="1" value="5">
+        <input type="number" id="revealSecNumber" min="2" max="15" value="5"><span class="settings-label" style="min-width:auto">sec</span>
+      </div>
+
+      <div class="chip-group">
+        <span class="chip-group-label">Listes</span>
+        <div id="chipsListes" class="chips"><span class="settings-label" style="min-width:auto">chargement…</span></div>
+      </div>
+      <div class="chip-group">
+        <span class="chip-group-label">Genres</span>
+        <div id="chipsGenres" class="chips"></div>
+      </div>
+
+      <div id="durationHint" class="duration-hint">Durée estimée : — · max disponible : —</div>
+    </div>
+
+    <div class="frame-wrap">
+      <canvas id="canvas" width="1280" height="720"></canvas>
+    </div>
+    <div class="progress"><div id="progressBar" class="progress-bar"></div></div>
+    <div class="controls">
+      <button id="btnLoad">Préparer le quiz</button>
+      <button id="btnRecord" disabled>Lancer la vidéo</button>
+    </div>
+    <div id="status" class="status">Récupération des catégories…</div>
+
+    <div id="result" class="result">
+      <video id="resultVideo" controls></video>
+      <div class="result-row">
+        <a id="downloadLink" download="cine-quiz.webm">↓ Télécharger le .webm</a>
+        <button id="btnAgain">Nouveau quiz (sans doublons)</button>
+      </div>
+    </div>
+    <div id="answers" class="answers"></div>
+  </div>
+
+  <p class="hint">
+    Chaque film passe par plusieurs images à deviner (durée : films × (images/film × temps/image + temps réponse)),
+    puis un écran réponse avec l'affiche et le titre. Tout est préchargé avant l'enregistrement.
+  </p>
+</div>
+
+<script>
+const CFG = { preloadConcurrency: 8 };
+const STORAGE_PREFIX = 'cinequiz_seen_';
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const countRange = document.getElementById('countRange');
+const countNumber = document.getElementById('countNumber');
+const imagesPerFilmRange = document.getElementById('imagesPerFilmRange');
+const imagesPerFilmNumber = document.getElementById('imagesPerFilmNumber');
+const imageSecRange = document.getElementById('imageSecRange');
+const imageSecNumber = document.getElementById('imageSecNumber');
+const revealSecRange = document.getElementById('revealSecRange');
+const revealSecNumber = document.getElementById('revealSecNumber');
+const chipsListes = document.getElementById('chipsListes');
+const chipsGenres = document.getElementById('chipsGenres');
+const durationHint = document.getElementById('durationHint');
+const btnLoad = document.getElementById('btnLoad');
+const btnRecord = document.getElementById('btnRecord');
+const btnAgain = document.getElementById('btnAgain');
+const statusEl = document.getElementById('status');
+const progressBar = document.getElementById('progressBar');
+const resultEl = document.getElementById('result');
+const resultVideo = document.getElementById('resultVideo');
+const downloadLink = document.getElementById('downloadLink');
+const answersEl = document.getElementById('answers');
+
+let availableCategories = [];
+let selectedCategories = new Set();
+let currentMaxAvailable = 100;
+let movies = [];          // [{ title, backdropImgs:[...], posterImg }]
+let timeline = [];
+let totalDurationMs = 0;
+let mediaRecorder, chunks = [];
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = 'status' + (cls ? ' ' + cls : '');
+}
+function setProgress(pct) { progressBar.style.width = pct + '%'; }
+
+function currentCount() { return parseInt(countNumber.value, 10) || 5; }
+function currentImagesPerFilm() { return parseInt(imagesPerFilmNumber.value, 10) || 1; }
+function currentImageSec() { return parseInt(imageSecNumber.value, 10) || 5; }
+function currentRevealSec() { return parseInt(revealSecNumber.value, 10) || 5; }
+
+function formatDuration(totalSec) {
+  const m = Math.floor(totalSec / 60), s = Math.round(totalSec % 60);
+  return `${m} min ${s.toString().padStart(2, '0')}`;
+}
+function totalDurationSec() {
+  // nombre_de_films x (images_par_film x temps_image + temps_reveal)
+  return currentCount() * (currentImagesPerFilm() * currentImageSec() + currentRevealSec());
+}
+function updateDurationHint() {
+  durationHint.textContent = `Durée estimée : ${formatDuration(totalDurationSec())} · max disponible : ${currentMaxAvailable}`;
+}
+
+function storageKey() {
+  const cats = [...selectedCategories].sort().join('+') || 'none';
+  return STORAGE_PREFIX + cats;
+}
+function getSeenIds() {
+  try { return JSON.parse(localStorage.getItem(storageKey()) || '[]'); }
+  catch { return []; }
+}
+function addSeenIds(ids) {
+  const current = new Set(getSeenIds());
+  ids.forEach(id => current.add(id));
+  localStorage.setItem(storageKey(), JSON.stringify([...current]));
+}
+function clearSeenIds() { localStorage.removeItem(storageKey()); }
+
+async function loadCategories() {
+  const res = await fetch('/api/categories');
+  const data = await res.json();
+  availableCategories = data.categories;
+  selectedCategories = new Set(
+    availableCategories.filter(c => c.key === 'popular' || c.key === 'top_rated').map(c => c.key)
+  );
+  renderChips();
+  await updatePoolSize();
+}
+
+function renderChips() {
+  const groups = { liste: chipsListes, genre: chipsGenres };
+  chipsListes.innerHTML = '';
+  chipsGenres.innerHTML = '';
+
+  for (const cat of availableCategories) {
+    const container = groups[cat.group] || chipsListes;
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (selectedCategories.has(cat.key) ? ' active' : '');
+    chip.innerHTML = `${cat.label}<span class="count">${cat.available}</span>`;
+    chip.addEventListener('click', async () => {
+      if (selectedCategories.has(cat.key)) {
+        if (selectedCategories.size === 1) return;
+        selectedCategories.delete(cat.key);
+      } else {
+        selectedCategories.add(cat.key);
+      }
+      renderChips();
+      await updatePoolSize();
+    });
+    container.appendChild(chip);
+  }
+}
+
+async function updatePoolSize() {
+  const categories = [...selectedCategories].join(',');
+  try {
+    const res = await fetch(`/api/pool-size?categories=${categories}`);
+    const data = await res.json();
+    currentMaxAvailable = Math.max(5, data.available);
+  } catch {
+    currentMaxAvailable = 100;
+  }
+  const clampedMax = Math.min(100, currentMaxAvailable);
+  countRange.max = clampedMax;
+  countNumber.max = clampedMax;
+  if (currentCount() > clampedMax) {
+    countNumber.value = clampedMax;
+    countRange.value = clampedMax;
+  }
+  updateDurationHint();
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Image illisible: ' + src));
+    img.src = src;
+  });
+}
+
+async function preloadAll(picked) {
+  // (images de devinette + 1 poster) par film
+  const totalTasks = picked.reduce((sum, m) => sum + m.imageUrls.length + 1, 0);
+  const results = new Array(picked.length);
+  let done = 0;
+
+  function bump() {
+    done++;
+    setStatus(`Préchargement ${done}/${totalTasks}…`);
+    setProgress((done / totalTasks) * 100);
+  }
+
+  let idx = 0;
+  async function worker() {
+    while (idx < picked.length) {
+      const my = idx++;
+      const m = picked[my];
+      const [backdropImgs, posterImg] = await Promise.all([
+        Promise.all(m.imageUrls.map(url => loadImage(url).then(img => { bump(); return img; }))),
+        loadImage(m.posterUrl).then(img => { bump(); return img; })
+      ]);
+      results[my] = { title: m.title, backdropImgs, posterImg };
+    }
+  }
+
+  await Promise.all(Array.from({ length: CFG.preloadConcurrency }, worker));
+  return results;
+}
+
+function buildTimeline(imageMs, revealMs) {
+  const tl = [];
+  let t = 0;
+  movies.forEach((m, i) => {
+    const filmGuessStart = t;
+    const filmGuessDur = m.backdropImgs.length * imageMs;
+    m.backdropImgs.forEach((_, imgIdx) => {
+      tl.push({ type: 'guess', movieIdx: i, imgIdx, start: t, dur: imageMs, filmGuessStart, filmGuessDur });
+      t += imageMs;
+    });
+    tl.push({ type: 'reveal', movieIdx: i, start: t, dur: revealMs });
+    t += revealMs;
+  });
+  return { timeline: tl, total: t };
+}
+
+async function loadQuiz() {
+  btnLoad.disabled = true;
+  btnRecord.disabled = true;
+  resultEl.classList.remove('show');
+  answersEl.textContent = '';
+  setProgress(0);
+
+  try {
+    const count = Math.min(100, Math.max(5, currentCount()));
+    const imagesPerFilm = Math.min(6, Math.max(1, currentImagesPerFilm()));
+    const categories = [...selectedCategories].join(',');
+    const exclude = getSeenIds().join(',');
+
+    setStatus(`Récupération d\u2019un lot de ${count} films (${imagesPerFilm} images chacun)…`);
+    const res = await fetch(
+      `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}`
+    );
+    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    const data = await res.json();
+
+    if (data.recycled) {
+      clearSeenIds();
+      setStatus('Réservoir épuisé pour ces catégories, historique réinitialisé.');
+    }
+    if (data.delivered < data.requested) {
+      setStatus(`Seulement ${data.delivered} films disponibles pour ces catégories.`);
+    }
+
+    movies = await preloadAll(data.movies);
+    addSeenIds(data.movies.map(m => m.id));
+
+    const built = buildTimeline(currentImageSec() * 1000, currentRevealSec() * 1000);
+    timeline = built.timeline;
+    totalDurationMs = built.total;
+
+    drawSegment(timeline[0], 0);
+    setStatus(`Quiz prêt — ${movies.length} films en mémoire, aucun chargement à venir.`);
+    btnRecord.textContent = `Lancer la vidéo (${formatDuration(totalDurationMs / 1000)})`;
+    btnRecord.disabled = false;
+  } catch (e) {
+    console.error(e);
+    setStatus('Erreur : ' + e.message, 'err');
+  } finally {
+    btnLoad.disabled = false;
+  }
+}
+
+function drawCover(img, x, y, w, h) {
+  const ir = img.width / img.height, cr = w / h;
+  let sw, sh, sx, sy;
+  if (ir > cr) { sh = img.height; sw = sh * cr; sy = 0; sx = (img.width - sw) / 2; }
+  else { sw = img.width; sh = sw / cr; sx = 0; sy = (img.height - sh) / 2; }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+function drawSprockets() {
+  const holeR = 6, gap = 34, y1 = 18, y2 = canvas.height - 18;
+  ctx.fillStyle = '#0a0a0b';
+  for (let x = gap / 2; x < canvas.width; x += gap) {
+    ctx.beginPath(); ctx.arc(x, y1, holeR, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y2, holeR, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawBars(color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, 34);
+  ctx.fillRect(0, canvas.height - 34, canvas.width, 34);
+  drawSprockets();
+}
+
+function drawGlobalProgress(frac) {
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(0, 34, canvas.width, 5);
+  ctx.fillStyle = '#e8a33d';
+  ctx.fillRect(0, 34, canvas.width * Math.min(1, Math.max(0, frac)), 5);
+}
+
+function drawFilmstrip(m, upToIdx) {
+  const thumbW = 118, thumbH = 66, gap = 10, startY = 56, x = canvas.width - thumbW - 18;
+  for (let j = 0; j < upToIdx; j++) {
+    const y = startY + j * (thumbH + gap);
+    if (y + thumbH > canvas.height - 50) break;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#0a0a0b';
+    ctx.fillRect(x - 4, y - 4, thumbW + 8, thumbH + 8);
+    drawCover(m.backdropImgs[j], x, y, thumbW, thumbH);
+    ctx.strokeStyle = '#e8a33d';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, thumbW, thumbH);
+    ctx.restore();
+  }
+}
+
+function drawGuess(m, seg, withinMs) {
+  const filmIdx = seg.movieIdx, imgIdx = seg.imgIdx;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawCover(m.backdropImgs[imgIdx], 0, 0, canvas.width, canvas.height);
+
+  const g = ctx.createLinearGradient(0, canvas.height * 0.62, 0, canvas.height);
+  g.addColorStop(0, 'rgba(10,10,11,0)');
+  g.addColorStop(1, 'rgba(10,10,11,0.88)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, canvas.height * 0.62, canvas.width, canvas.height * 0.38);
+
+  drawBars('#e8a33d');
+
+  const filmElapsed = (seg.start - seg.filmGuessStart) + withinMs;
+  drawGlobalProgress(filmElapsed / seg.filmGuessDur);
+
+  if (m.backdropImgs.length > 1) drawFilmstrip(m, imgIdx);
+
+  ctx.font = '600 26px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#ede8de';
+  ctx.textAlign = 'left';
+  ctx.fillText(`FILM ${filmIdx + 1} / ${movies.length}`, 50, canvas.height - 58);
+}
+
+function drawReveal(m, filmIdx) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0a0a0b';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const posterH = canvas.height - 220;
+  const posterW = posterH * (2 / 3);
+  const px = (canvas.width - posterW) / 2;
+  const py = 90;
+  if (m.posterImg) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 30;
+    ctx.drawImage(m.posterImg, px, py, posterW, posterH);
+    ctx.restore();
+  }
+
+  drawBars('#4c8a5c');
+
+  ctx.font = '600 20px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#4c8a5c';
+  ctx.textAlign = 'center';
+  ctx.fillText('RÉPONSE', canvas.width / 2, 62);
+
+  ctx.font = '700 34px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#ede8de';
+  ctx.textAlign = 'center';
+  ctx.fillText(m.title, canvas.width / 2, canvas.height - 55);
+
+  ctx.font = '600 22px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#6b6b70';
+  ctx.textAlign = 'left';
+  ctx.fillText(`FILM ${filmIdx + 1} / ${movies.length}`, 50, canvas.height - 58);
+}
+
+function drawSegment(seg, withinMs) {
+  const m = movies[seg.movieIdx];
+  if (!m) return;
+  if (seg.type === 'guess') drawGuess(m, seg, withinMs);
+  else drawReveal(m, seg.movieIdx);
+}
+
+function findSegment(elapsed) {
+  for (const seg of timeline) {
+    if (elapsed < seg.start + seg.dur) return seg;
+  }
+  return timeline[timeline.length - 1];
+}
+
+function startRecording() {
+  if (movies.length === 0) return;
+  chunks = [];
+  btnRecord.disabled = true;
+  btnLoad.disabled = true;
+  resultEl.classList.remove('show');
+
+  const stream = canvas.captureStream(30);
+  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+    ? 'video/webm;codecs=vp9' : 'video/webm';
+  mediaRecorder = new MediaRecorder(stream, { mimeType });
+  mediaRecorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    resultVideo.src = url;
+    downloadLink.href = url;
+    resultEl.classList.add('show');
+    answersEl.innerHTML = movies.map((m, i) => `<span>${i + 1}. ${m.title}</span>`).join('<br>');
+    setStatus('Vidéo générée — prête à être rejouée ou téléchargée.');
+    btnRecord.disabled = false;
+    btnLoad.disabled = false;
+  };
+
+  mediaRecorder.start();
+  setStatus(`Enregistrement en cours (${formatDuration(totalDurationMs / 1000)})…`, 'rec');
+
+  const startTs = performance.now();
+  function frame(now) {
+    const elapsed = now - startTs;
+    if (elapsed >= totalDurationMs) {
+      const last = timeline[timeline.length - 1];
+      drawSegment(last, last.dur);
+      mediaRecorder.stop();
+      return;
+    }
+    const seg = findSegment(elapsed);
+    drawSegment(seg, elapsed - seg.start);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+countRange.addEventListener('input', () => { countNumber.value = countRange.value; updateDurationHint(); });
+countNumber.addEventListener('input', () => {
+  const max = parseInt(countNumber.max, 10) || 100;
+  const v = Math.min(max, Math.max(5, parseInt(countNumber.value, 10) || 5));
+  countRange.value = v;
+  updateDurationHint();
+});
+imagesPerFilmRange.addEventListener('input', () => { imagesPerFilmNumber.value = imagesPerFilmRange.value; updateDurationHint(); });
+imagesPerFilmNumber.addEventListener('input', () => { imagesPerFilmRange.value = imagesPerFilmNumber.value; updateDurationHint(); });
+imageSecRange.addEventListener('input', () => { imageSecNumber.value = imageSecRange.value; updateDurationHint(); });
+imageSecNumber.addEventListener('input', () => { imageSecRange.value = imageSecNumber.value; updateDurationHint(); });
+revealSecRange.addEventListener('input', () => { revealSecNumber.value = revealSecRange.value; updateDurationHint(); });
+revealSecNumber.addEventListener('input', () => { revealSecRange.value = revealSecNumber.value; updateDurationHint(); });
+
+btnLoad.addEventListener('click', loadQuiz);
+btnRecord.addEventListener('click', startRecording);
+btnAgain.addEventListener('click', () => { resultEl.classList.remove('show'); loadQuiz(); });
+
+updateDurationHint();
+loadCategories()
+  .then(() => setStatus('Prêt — choisis tes réglages puis clique sur « Préparer le quiz ».'))
+  .catch(e => setStatus('Erreur catégories : ' + e.message, 'err'));
+</script>
+</body>
+</html>
