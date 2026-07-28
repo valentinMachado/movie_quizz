@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import path from "node:path";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,42 +18,123 @@ if (!TMDB_KEY) {
   process.exit(1);
 }
 
+// --- compteur de quiz générés, persisté sur disque (survit aux redémarrages) ---
+const STATS_PATH = path.join(process.cwd(), "stats.json");
+
+function loadStats() {
+  try {
+    if (existsSync(STATS_PATH)) {
+      const raw = JSON.parse(readFileSync(STATS_PATH, "utf8"));
+      return {
+        totalGenerated: raw.totalGenerated || 0,
+        categoryUsage: raw.categoryUsage || {},
+      };
+    }
+  } catch (e) {
+    console.error("Erreur lecture stats.json:", e.message);
+  }
+  return { totalGenerated: 0, categoryUsage: {} };
+}
+
+let stats = loadStats();
+
+function saveStats() {
+  try {
+    writeFileSync(STATS_PATH, JSON.stringify(stats));
+  } catch (e) {
+    console.error("Erreur écriture stats.json:", e.message);
+  }
+}
+
 const STATIC_LISTS = {
   popular: {
     pathAndQuery: "movie/popular",
-    pages: 6,
+    pages: 15,
     label: "Populaires",
     group: "liste",
   },
   top_rated: {
     pathAndQuery: "movie/top_rated",
-    pages: 6,
+    pages: 15,
     label: "Mieux notés",
     group: "liste",
   },
   now_playing: {
     pathAndQuery: "movie/now_playing",
-    pages: 4,
+    pages: 6,
     label: "Au cinéma",
     group: "liste",
   },
   upcoming: {
     pathAndQuery: "movie/upcoming",
-    pages: 4,
+    pages: 6,
     label: "À venir",
     group: "liste",
   },
   trending_day: {
     pathAndQuery: "trending/movie/day",
-    pages: 3,
+    pages: 5,
     label: "Tendances du jour",
     group: "liste",
   },
   trending_week: {
     pathAndQuery: "trending/movie/week",
-    pages: 4,
+    pages: 6,
     label: "Tendances de la semaine",
     group: "liste",
+  },
+};
+
+// catégories par décennie, construites via /discover avec un filtre de date
+const DECADE_LISTS = {
+  before_1970: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.lte=1969-12-31&sort_by=popularity.desc",
+    pages: 5,
+    label: "Avant 1970",
+    group: "decade",
+  },
+  decade_1970: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.gte=1970-01-01&primary_release_date.lte=1979-12-31&sort_by=popularity.desc",
+    pages: 5,
+    label: "Années 1970",
+    group: "decade",
+  },
+  decade_1980: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.gte=1980-01-01&primary_release_date.lte=1989-12-31&sort_by=popularity.desc",
+    pages: 6,
+    label: "Années 1980",
+    group: "decade",
+  },
+  decade_1990: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.gte=1990-01-01&primary_release_date.lte=1999-12-31&sort_by=popularity.desc",
+    pages: 6,
+    label: "Années 1990",
+    group: "decade",
+  },
+  decade_2000: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.gte=2000-01-01&primary_release_date.lte=2009-12-31&sort_by=popularity.desc",
+    pages: 6,
+    label: "Années 2000",
+    group: "decade",
+  },
+  decade_2010: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.gte=2010-01-01&primary_release_date.lte=2019-12-31&sort_by=popularity.desc",
+    pages: 6,
+    label: "Années 2010",
+    group: "decade",
+  },
+  decade_2020: {
+    pathAndQuery:
+      "discover/movie?primary_release_date.gte=2020-01-01&sort_by=popularity.desc",
+    pages: 6,
+    label: "Années 2020",
+    group: "decade",
   },
 };
 
@@ -60,7 +142,28 @@ let CATEGORIES = { ...STATIC_LISTS };
 let reservoirByCategory = {};
 let reservoirReady = false;
 
+// throttle global : reste sous ~38 requêtes / 10s, marge sous la limite
+// habituelle de TMDb (40-50/10s), s'applique à TOUS les appels TMDb
+// (rafraîchissement du réservoir ET récupération des backdrops par film).
+// Passe par une queue pour rester correct même avec des appels concurrents
+// (mapWithConcurrency lance plusieurs fetchExtraBackdrops en parallèle).
+let lastTmdbCallTs = 0;
+let tmdbGateQueue = Promise.resolve();
+const TMDB_MIN_INTERVAL_MS = 260;
+
+function tmdbGate() {
+  const turn = tmdbGateQueue.then(async () => {
+    const now = Date.now();
+    const wait = Math.max(0, lastTmdbCallTs + TMDB_MIN_INTERVAL_MS - now);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastTmdbCallTs = Date.now();
+  });
+  tmdbGateQueue = turn;
+  return turn;
+}
+
 async function tmdbJSON(url) {
+  await tmdbGate();
   const res = await fetch(url);
   if (!res.ok) throw new Error(`TMDb ${res.status} sur ${url}`);
   return res.json();
@@ -81,7 +184,7 @@ function urlFor(pathAndQuery, page) {
 }
 
 async function buildCategoryDefs() {
-  const defs = { ...STATIC_LISTS };
+  const defs = { ...STATIC_LISTS, ...DECADE_LISTS };
   try {
     const genreData = await tmdbJSON(
       `https://api.themoviedb.org/3/genre/movie/list?api_key=${TMDB_KEY}&language=fr-FR`,
@@ -89,7 +192,7 @@ async function buildCategoryDefs() {
     for (const g of genreData.genres || []) {
       defs[`genre_${g.id}`] = {
         pathAndQuery: `discover/movie?with_genres=${g.id}&sort_by=popularity.desc`,
-        pages: 3,
+        pages: 6,
         label: g.name,
         group: "genre",
       };
@@ -170,13 +273,10 @@ async function mapWithConcurrency(items, limit, fn) {
 // TMDb marque chaque backdrop d'un iso_639_1 : null = version "textless"
 // (sans titre/texte incrusté), une valeur (ex: "en") = version localisée avec
 // texte. On n'utilise QUE les textless, jamais de repli sur une version avec
-// texte — un film sans version textless disponible est tout simplement écarté
-// par l'appelant (fetchExtraBackdrops renvoie []).
+// texte — un film sans version textless disponible est écarté par l'appelant.
 function pickFromPool(pool, need) {
   let ordered = pool;
   if (ordered.length > need) {
-    // les mieux notées ressemblent souvent au poster officiel (key art) :
-    // on pioche plutôt dans la queue de la liste avant de mélanger
     const tailStart = Math.floor(ordered.length * 0.3);
     const tail = ordered.slice(tailStart);
     ordered = tail.length >= need ? tail : ordered;
@@ -187,8 +287,6 @@ function pickFromPool(pool, need) {
   return result;
 }
 
-// récupère jusqu'à `need` backdrops différents pour un film donné
-// (seulement appelé pour les films effectivement tirés dans un quiz, pas sur tout le réservoir)
 async function fetchExtraBackdrops(movie, need) {
   try {
     const data = await tmdbJSON(
@@ -196,7 +294,7 @@ async function fetchExtraBackdrops(movie, need) {
     );
     const backdrops = (data.backdrops || []).filter((b) => b.file_path);
     const textless = backdrops.filter((b) => b.iso_639_1 === null);
-    if (textless.length === 0) return []; // aucune version sans texte : ce film est écarté
+    if (textless.length === 0) return [];
     return pickFromPool(textless, need).map(
       (b) => `https://image.tmdb.org/t/p/w1280${b.file_path}`,
     );
@@ -251,11 +349,25 @@ app.get("/api/pool-size", (req, res) => {
   res.json({ available: mergedPool(requestedCategories).length });
 });
 
+app.get("/api/stats", (req, res) => {
+  const topCategories = Object.entries(stats.categoryUsage)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([key, count]) => ({
+      key,
+      label: CATEGORIES[key]?.label || key,
+      count,
+    }));
+  res.json({ totalGenerated: stats.totalGenerated, topCategories });
+});
+
 app.get("/api/quiz-batch", async (req, res) => {
   if (!reservoirReady) {
-    return res.status(503).json({
-      error: "Réservoir en cours de préparation, réessaie dans un instant.",
-    });
+    return res
+      .status(503)
+      .json({
+        error: "Réservoir en cours de préparation, réessaie dans un instant.",
+      });
   }
 
   const requestedCategories = (req.query.categories || "popular")
@@ -288,12 +400,18 @@ app.get("/api/quiz-batch", async (req, res) => {
   }
 
   const picked = shuffle(candidates);
-
   const withImages = await selectMoviesWithBackdrops(
     picked,
     count,
     imagesPerFilm,
   );
+
+  // un appel qui produit un lot compte comme un quiz généré, persisté sur disque
+  stats.totalGenerated++;
+  for (const cat of requestedCategories) {
+    stats.categoryUsage[cat] = (stats.categoryUsage[cat] || 0) + 1;
+  }
+  saveStats();
 
   res.json({
     movies: withImages,
@@ -303,6 +421,7 @@ app.get("/api/quiz-batch", async (req, res) => {
     imagesPerFilm,
     categories: requestedCategories,
     poolSize: all.length,
+    totalGenerated: stats.totalGenerated,
   });
 });
 
