@@ -256,6 +256,18 @@ const TV_DECADE_LISTS = {
   },
 };
 
+// acteurs/actrices — même clé TMDb, endpoint /person. Pas de genres ni
+// décennies pertinents pour les personnes, donc une seule liste large.
+const PERSON_STATIC_LISTS = {
+  person_popular: {
+    pathAndQuery: "person/popular",
+    pages: 20,
+    label: "Acteurs populaires",
+    group: "liste",
+    mediaType: "person",
+  },
+};
+
 let CATEGORIES = { ...STATIC_LISTS };
 let reservoirByCategory = {};
 let reservoirReady = false;
@@ -288,6 +300,15 @@ async function tmdbJSON(url) {
 }
 
 function toEntry(m, mediaType) {
+  if (mediaType === "person") {
+    return {
+      id: m.id,
+      title: m.name,
+      mediaType,
+      imageUrl: `https://image.tmdb.org/t/p/w1280${m.profile_path}`,
+      posterUrl: `https://image.tmdb.org/t/p/w500${m.profile_path}`,
+    };
+  }
   return {
     id: m.id,
     title: mediaType === "tv" ? m.name : m.title,
@@ -308,6 +329,7 @@ async function buildCategoryDefs() {
     ...DECADE_LISTS,
     ...TV_STATIC_LISTS,
     ...TV_DECADE_LISTS,
+    ...PERSON_STATIC_LISTS,
   };
   try {
     const genreData = await tmdbJSON(
@@ -349,7 +371,11 @@ async function fetchCategory(def) {
   for (let page = 1; page <= def.pages; page++) {
     const data = await tmdbJSON(urlFor(def.pathAndQuery, page));
     for (const m of data.results || []) {
-      if (!m.backdrop_path || !m.poster_path || seen.has(m.id)) continue;
+      const valid =
+        def.mediaType === "person"
+          ? Boolean(m.profile_path)
+          : Boolean(m.backdrop_path) && Boolean(m.poster_path);
+      if (!valid || seen.has(m.id)) continue;
       seen.set(m.id, toEntry(m, def.mediaType));
     }
   }
@@ -379,32 +405,13 @@ async function refreshReservoir() {
 refreshReservoir();
 setInterval(refreshReservoir, REFRESH_MS).unref();
 
-function shuffle(arr, rng) {
-  const random = rng || Math.random;
+function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
+    const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
-
-// PRNG déterministe (mulberry32) : même seed => même séquence, sert à rendre
-// la sélection des films reproductible (partage d'un "code" de quiz)
-function mulberry32(seed) {
-  let s = seed | 0;
-  return function () {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function hashStringToInt(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++)
-    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-  return h;
 }
 
 function mergedPool(categoryKeys) {
@@ -464,7 +471,12 @@ function cacheSet(key, value) {
 }
 
 async function fetchRawBackdrops(movie) {
-  const kind = movie.mediaType === "tv" ? "tv" : "movie";
+  const kind =
+    movie.mediaType === "tv"
+      ? "tv"
+      : movie.mediaType === "person"
+        ? "person"
+        : "movie";
   const cacheKey = `backdrops:${kind}:${movie.id}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
@@ -472,7 +484,8 @@ async function fetchRawBackdrops(movie) {
   const data = await tmdbJSON(
     `https://api.themoviedb.org/3/${kind}/${movie.id}/images?api_key=${TMDB_KEY}`,
   );
-  const backdrops = (data.backdrops || []).filter((b) => b.file_path);
+  const raw = kind === "person" ? data.profiles || [] : data.backdrops || [];
+  const backdrops = raw.filter((b) => b.file_path);
   cacheSet(cacheKey, backdrops);
   return backdrops;
 }
@@ -546,9 +559,14 @@ async function fetchExtraBackdrops(movie, need, useEpisodeStills) {
     );
     if (textless.length === 0) return [];
 
-    // 1) ratio standard en priorité (moins de bannières/collages promo)
-    const standardRatio = textless.filter(isStandardRatio);
-    const ratioPool = standardRatio.length > 0 ? standardRatio : textless;
+    // 1) ratio standard en priorité (moins de bannières/collages promo) —
+    // ne s'applique pas aux photos de profil (portrait par nature, pas 16:9)
+    const ratioPool =
+      movie.mediaType === "person"
+        ? textless
+        : textless.filter(isStandardRatio).length > 0
+          ? textless.filter(isStandardRatio)
+          : textless;
 
     // 2) images ayant reçu des votes communautaires en priorité (le contenu
     // promo bulk-uploadé par les studios n'est en général jamais voté)
@@ -679,19 +697,7 @@ app.get("/api/quiz-batch", async (req, res) => {
     recycled = true;
   }
 
-  // seed : si fourni (numérique ou "code" texte), rend le TIRAGE DES FILMS
-  // reproductible pour un même pool/réglages — pratique pour partager un
-  // quiz à rejouer. Le choix précis des images par film n'est pas garanti
-  // identique (dépend de l'ordre des réponses réseau, non déterministe).
-  const seedParam = req.query.seed;
-  const seed = seedParam
-    ? /^-?\d+$/.test(seedParam)
-      ? parseInt(seedParam, 10)
-      : hashStringToInt(seedParam)
-    : Math.floor(Math.random() * 2 ** 31);
-  const rng = mulberry32(seed);
-
-  const picked = shuffle(candidates, rng);
+  const picked = shuffle(candidates);
   const { movies: withImages, excludedCount } = await selectMoviesWithBackdrops(
     picked,
     count,
@@ -716,76 +722,9 @@ app.get("/api/quiz-batch", async (req, res) => {
     categories: requestedCategories,
     poolSize: all.length,
     totalGenerated: stats.totalGenerated,
-    seed,
   });
 });
 
 app.use(express.static(path.join(process.cwd(), "public")));
-
-// --- mini leaderboard local, auto-déclaratif (pas d'anti-triche, juste pour
-// le fun entre amis) ---
-const SCORES_PATH = path.join(process.cwd(), "scores.json");
-const MAX_SCORES = 200;
-
-function loadScores() {
-  try {
-    if (existsSync(SCORES_PATH))
-      return JSON.parse(readFileSync(SCORES_PATH, "utf8"));
-  } catch (e) {
-    console.error("Erreur lecture scores.json:", e.message);
-  }
-  return [];
-}
-let scores = loadScores();
-function saveScores() {
-  try {
-    writeFileSync(SCORES_PATH, JSON.stringify(scores.slice(-MAX_SCORES)));
-  } catch (e) {
-    console.error("Erreur écriture scores.json:", e.message);
-  }
-}
-
-app.use(express.json());
-
-app.post("/api/scores", (req, res) => {
-  const { name, score, total } = req.body || {};
-  const cleanName = typeof name === "string" ? name.trim().slice(0, 30) : "";
-  const cleanScore = Number.isFinite(score)
-    ? Math.max(0, Math.round(score))
-    : NaN;
-  const cleanTotal = Number.isFinite(total)
-    ? Math.max(1, Math.round(total))
-    : NaN;
-
-  if (
-    !cleanName ||
-    Number.isNaN(cleanScore) ||
-    Number.isNaN(cleanTotal) ||
-    cleanScore > cleanTotal
-  ) {
-    return res
-      .status(400)
-      .json({
-        error: "Score invalide (nom, score, total requis, score <= total).",
-      });
-  }
-
-  scores.push({
-    name: cleanName,
-    score: cleanScore,
-    total: cleanTotal,
-    date: new Date().toISOString(),
-  });
-  saveScores();
-  res.json({ ok: true });
-});
-
-app.get("/api/scores", (req, res) => {
-  const top = scores
-    .slice()
-    .sort((a, b) => b.score / b.total - a.score / a.total || b.score - a.score)
-    .slice(0, 20);
-  res.json({ scores: top });
-});
 
 app.listen(PORT, () => console.log(`Movie Quiz sur http://localhost:${PORT}`));

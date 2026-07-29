@@ -378,19 +378,6 @@
             <div id="chipsEpisodeStills" class="chips"></div>
           </div>
 
-          <div class="settings-row">
-            <span class="settings-label">Code du quiz</span>
-            <input
-              type="text"
-              id="seedInput"
-              placeholder="(auto si vide)"
-              style="width: 140px"
-            />
-            <span class="settings-label" style="min-width: auto"
-              >colle un code pour rejouer un quiz déjà généré</span
-            >
-          </div>
-
           <div class="chip-group">
             <span class="chip-group-label">Presets</span>
             <div id="chipsPresets" class="chips"></div>
@@ -444,39 +431,6 @@
           </button>
         </div>
         <div id="answers" class="answers"></div>
-      </div>
-
-      <div class="card" style="margin-top: 16px">
-        <div class="settings">
-          <span class="chip-group-label"
-            >Classement (entre amis, auto-déclaratif)</span
-          >
-          <div class="settings-row">
-            <input
-              type="text"
-              id="scoreName"
-              placeholder="Ton nom"
-              style="width: 120px"
-            />
-            <input
-              type="number"
-              id="scoreValue"
-              placeholder="Score"
-              min="0"
-              style="width: 70px"
-            />
-            <span class="settings-label" style="min-width: auto">/</span>
-            <input
-              type="number"
-              id="scoreTotal"
-              placeholder="Total"
-              min="1"
-              style="width: 70px"
-            />
-            <button id="btnSubmitScore" class="ghost">Enregistrer</button>
-          </div>
-          <div id="leaderboard" class="answers show"></div>
-        </div>
       </div>
 
       <p class="hint">
@@ -580,18 +534,6 @@
       const chipsContentType = document.getElementById("chipsContentType");
       const chipsDifficulty = document.getElementById("chipsDifficulty");
       const chipsEpisodeStills = document.getElementById("chipsEpisodeStills");
-      const seedInput = document.getElementById("seedInput");
-      const scoreName = document.getElementById("scoreName");
-      const scoreValue = document.getElementById("scoreValue");
-      const scoreTotal = document.getElementById("scoreTotal");
-      const btnSubmitScore = document.getElementById("btnSubmitScore");
-      const leaderboardEl = document.getElementById("leaderboard");
-
-      let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv'}
-      let useEpisodeStills = false;
-      function typeActive(mediaType) {
-        return activeContentTypes.has(mediaType);
-      }
       const durationHint = document.getElementById("durationHint");
       const btnGenerate = document.getElementById("btnGenerate");
       const btnAgain = document.getElementById("btnAgain");
@@ -602,6 +544,26 @@
       const downloadLink = document.getElementById("downloadLink");
       const answersEl = document.getElementById("answers");
       const statsLine = document.getElementById("statsLine");
+
+      // état de la session en cours
+      let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv','person'}
+      let useEpisodeStills = false;
+      let availableCategories = [];
+      let selectedCategories = new Set();
+      let currentMaxAvailable = 100;
+      let movies = [];
+      let timeline = [];
+      let totalDurationMs = 0;
+      let answersRevealed = false;
+
+      function typeActive(mediaType) {
+        return activeContentTypes.has(mediaType);
+      }
+
+      const supportsFastEncode =
+        Mediabunny !== null &&
+        typeof VideoEncoder === "function" &&
+        typeof VideoFrame === "function";
 
       async function refreshStats() {
         try {
@@ -620,63 +582,6 @@
           statsLine.textContent = "Quiz générés au total : —";
         }
       }
-
-      async function refreshLeaderboard() {
-        try {
-          const res = await fetch("/api/scores");
-          const data = await res.json();
-          if (!data.scores || data.scores.length === 0) {
-            leaderboardEl.innerHTML =
-              '<span style="color: var(--muted)">Aucun score enregistré pour l\u2019instant.</span>';
-            return;
-          }
-          leaderboardEl.innerHTML = data.scores
-            .map(
-              (s, i) =>
-                `<span>${i + 1}. ${s.name} — ${s.score}/${s.total}</span>`,
-            )
-            .join("<br>");
-        } catch {
-          leaderboardEl.textContent = "Classement indisponible.";
-        }
-      }
-
-      btnSubmitScore.addEventListener("click", async () => {
-        const name = scoreName.value.trim();
-        const score = parseInt(scoreValue.value, 10);
-        const total = parseInt(scoreTotal.value, 10);
-        if (!name || Number.isNaN(score) || Number.isNaN(total)) {
-          setStatus("Renseigne un nom, un score et un total valides.", "err");
-          return;
-        }
-        try {
-          const res = await fetch("/api/scores", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, score, total }),
-          });
-          if (!res.ok)
-            throw new Error((await res.json()).error || res.statusText);
-          scoreValue.value = "";
-          scoreTotal.value = "";
-          await refreshLeaderboard();
-        } catch (e) {
-          setStatus("Erreur score : " + e.message, "err");
-        }
-      });
-
-      const supportsFastEncode =
-        Mediabunny !== null &&
-        typeof VideoEncoder === "function" &&
-        typeof VideoFrame === "function";
-
-      let availableCategories = [];
-      let selectedCategories = new Set();
-      let currentMaxAvailable = 100;
-      let movies = [];
-      let timeline = [];
-      let totalDurationMs = 0;
-      let answersRevealed = false;
 
       function setStatus(text, cls) {
         statusEl.textContent = text;
@@ -776,7 +681,7 @@
         }
         if (Array.isArray(s.contentTypes)) {
           const valid = s.contentTypes.filter(
-            (t) => t === "movie" || t === "tv",
+            (t) => t === "movie" || t === "tv" || t === "person",
           );
           if (valid.length) activeContentTypes = new Set(valid);
         }
@@ -814,6 +719,7 @@
         const options = [
           { key: "movie", label: "Films" },
           { key: "tv", label: "Séries" },
+          { key: "person", label: "Acteurs" },
         ];
         for (const opt of options) {
           const chip = document.createElement("span");
@@ -838,6 +744,7 @@
               const fallback = [
                 ...(typeActive("movie") ? ["popular", "top_rated"] : []),
                 ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
+                ...(typeActive("person") ? ["person_popular"] : []),
               ];
               selectedCategories = new Set(
                 fallback.filter((k) =>
@@ -1364,7 +1271,6 @@
           );
           const categories = [...selectedCategories].join(",");
           const exclude = getSeenIds().join(",");
-          const seed = seedInput.value.trim();
           const episodeStillsParam = useEpisodeStills ? "1" : "0";
 
           setStatus(
@@ -1372,14 +1278,11 @@
           );
           setStagePlaceholder("Récupération de la liste des films…");
           const res = await fetch(
-            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}&episodeStills=${episodeStillsParam}` +
-              (seed ? `&seed=${encodeURIComponent(seed)}` : ""),
+            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}&episodeStills=${episodeStillsParam}`,
           );
           if (!res.ok)
             throw new Error((await res.json()).error || res.statusText);
           const data = await res.json();
-
-          if (data.seed !== undefined) seedInput.value = data.seed;
 
           if (data.recycled) {
             clearSeenIds();
@@ -1504,7 +1407,6 @@
 
       updateDurationHint();
       refreshStats();
-      refreshLeaderboard();
       loadCategories()
         .then(() =>
           setStatus(
