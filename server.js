@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TMDB_KEY = process.env.TMDB_API_KEY;
-const REFRESH_MS = 20 * 60 * 1000; // 20 min
+const REFRESH_MS = 30 * 60 * 1000; // 30 min (vu le volume de catégories films+séries)
 const MIN_COUNT = 5;
 const MAX_COUNT = 100;
 const MIN_IMAGES_PER_FILM = 1;
@@ -52,36 +52,42 @@ const STATIC_LISTS = {
     pages: 15,
     label: "Populaires",
     group: "liste",
+    mediaType: "movie",
   },
   top_rated: {
     pathAndQuery: "movie/top_rated",
     pages: 15,
     label: "Mieux notés",
     group: "liste",
+    mediaType: "movie",
   },
   now_playing: {
     pathAndQuery: "movie/now_playing",
     pages: 6,
     label: "Au cinéma",
     group: "liste",
+    mediaType: "movie",
   },
   upcoming: {
     pathAndQuery: "movie/upcoming",
     pages: 6,
     label: "À venir",
     group: "liste",
+    mediaType: "movie",
   },
   trending_day: {
     pathAndQuery: "trending/movie/day",
     pages: 5,
     label: "Tendances du jour",
     group: "liste",
+    mediaType: "movie",
   },
   trending_week: {
     pathAndQuery: "trending/movie/week",
     pages: 6,
     label: "Tendances de la semaine",
     group: "liste",
+    mediaType: "movie",
   },
 };
 
@@ -93,6 +99,7 @@ const DECADE_LISTS = {
     pages: 5,
     label: "Avant 1970",
     group: "decade",
+    mediaType: "movie",
   },
   decade_1970: {
     pathAndQuery:
@@ -100,6 +107,7 @@ const DECADE_LISTS = {
     pages: 5,
     label: "Années 1970",
     group: "decade",
+    mediaType: "movie",
   },
   decade_1980: {
     pathAndQuery:
@@ -107,6 +115,7 @@ const DECADE_LISTS = {
     pages: 6,
     label: "Années 1980",
     group: "decade",
+    mediaType: "movie",
   },
   decade_1990: {
     pathAndQuery:
@@ -114,6 +123,7 @@ const DECADE_LISTS = {
     pages: 6,
     label: "Années 1990",
     group: "decade",
+    mediaType: "movie",
   },
   decade_2000: {
     pathAndQuery:
@@ -121,6 +131,7 @@ const DECADE_LISTS = {
     pages: 6,
     label: "Années 2000",
     group: "decade",
+    mediaType: "movie",
   },
   decade_2010: {
     pathAndQuery:
@@ -128,6 +139,7 @@ const DECADE_LISTS = {
     pages: 6,
     label: "Années 2010",
     group: "decade",
+    mediaType: "movie",
   },
   decade_2020: {
     pathAndQuery:
@@ -135,6 +147,112 @@ const DECADE_LISTS = {
     pages: 6,
     label: "Années 2020",
     group: "decade",
+    mediaType: "movie",
+  },
+};
+
+// équivalents séries TV (endpoints /tv et /discover/tv, first_air_date au lieu de primary_release_date)
+const TV_STATIC_LISTS = {
+  tv_popular: {
+    pathAndQuery: "tv/popular",
+    pages: 10,
+    label: "Populaires (Séries)",
+    group: "liste",
+    mediaType: "tv",
+  },
+  tv_top_rated: {
+    pathAndQuery: "tv/top_rated",
+    pages: 10,
+    label: "Mieux notées (Séries)",
+    group: "liste",
+    mediaType: "tv",
+  },
+  tv_on_the_air: {
+    pathAndQuery: "tv/on_the_air",
+    pages: 4,
+    label: "En cours de diffusion",
+    group: "liste",
+    mediaType: "tv",
+  },
+  tv_airing_today: {
+    pathAndQuery: "tv/airing_today",
+    pages: 4,
+    label: "À l'antenne aujourd'hui",
+    group: "liste",
+    mediaType: "tv",
+  },
+  tv_trending_day: {
+    pathAndQuery: "trending/tv/day",
+    pages: 4,
+    label: "Tendances du jour (Séries)",
+    group: "liste",
+    mediaType: "tv",
+  },
+  tv_trending_week: {
+    pathAndQuery: "trending/tv/week",
+    pages: 5,
+    label: "Tendances de la semaine (Séries)",
+    group: "liste",
+    mediaType: "tv",
+  },
+};
+
+const TV_DECADE_LISTS = {
+  tv_before_1970: {
+    pathAndQuery:
+      "discover/tv?first_air_date.lte=1969-12-31&sort_by=popularity.desc",
+    pages: 4,
+    label: "Avant 1970 (Séries)",
+    group: "decade",
+    mediaType: "tv",
+  },
+  tv_decade_1970: {
+    pathAndQuery:
+      "discover/tv?first_air_date.gte=1970-01-01&first_air_date.lte=1979-12-31&sort_by=popularity.desc",
+    pages: 4,
+    label: "Années 1970 (Séries)",
+    group: "decade",
+    mediaType: "tv",
+  },
+  tv_decade_1980: {
+    pathAndQuery:
+      "discover/tv?first_air_date.gte=1980-01-01&first_air_date.lte=1989-12-31&sort_by=popularity.desc",
+    pages: 5,
+    label: "Années 1980 (Séries)",
+    group: "decade",
+    mediaType: "tv",
+  },
+  tv_decade_1990: {
+    pathAndQuery:
+      "discover/tv?first_air_date.gte=1990-01-01&first_air_date.lte=1999-12-31&sort_by=popularity.desc",
+    pages: 5,
+    label: "Années 1990 (Séries)",
+    group: "decade",
+    mediaType: "tv",
+  },
+  tv_decade_2000: {
+    pathAndQuery:
+      "discover/tv?first_air_date.gte=2000-01-01&first_air_date.lte=2009-12-31&sort_by=popularity.desc",
+    pages: 5,
+    label: "Années 2000 (Séries)",
+    group: "decade",
+    mediaType: "tv",
+  },
+  tv_decade_2010: {
+    pathAndQuery:
+      "discover/tv?first_air_date.gte=2010-01-01&first_air_date.lte=2019-12-31&sort_by=popularity.desc",
+    pages: 5,
+    label: "Années 2010 (Séries)",
+    group: "decade",
+    mediaType: "tv",
+  },
+  tv_decade_2020: {
+    pathAndQuery:
+      "discover/tv?first_air_date.gte=2020-01-01&sort_by=popularity.desc",
+    pages: 5,
+    label: "Années 2020 (Séries)",
+    group: "decade",
+    mediaType: "tv",
   },
 };
 
@@ -169,10 +287,11 @@ async function tmdbJSON(url) {
   return res.json();
 }
 
-function toEntry(m) {
+function toEntry(m, mediaType) {
   return {
     id: m.id,
-    title: m.title,
+    title: mediaType === "tv" ? m.name : m.title,
+    mediaType,
     imageUrl: `https://image.tmdb.org/t/p/w1280${m.backdrop_path}`,
     posterUrl: `https://image.tmdb.org/t/p/w500${m.poster_path}`,
   };
@@ -184,7 +303,12 @@ function urlFor(pathAndQuery, page) {
 }
 
 async function buildCategoryDefs() {
-  const defs = { ...STATIC_LISTS, ...DECADE_LISTS };
+  const defs = {
+    ...STATIC_LISTS,
+    ...DECADE_LISTS,
+    ...TV_STATIC_LISTS,
+    ...TV_DECADE_LISTS,
+  };
   try {
     const genreData = await tmdbJSON(
       `https://api.themoviedb.org/3/genre/movie/list?api_key=${TMDB_KEY}&language=fr-FR`,
@@ -195,10 +319,27 @@ async function buildCategoryDefs() {
         pages: 6,
         label: g.name,
         group: "genre",
+        mediaType: "movie",
       };
     }
   } catch (e) {
-    console.error("Erreur récupération des genres:", e.message);
+    console.error("Erreur récupération des genres films:", e.message);
+  }
+  try {
+    const tvGenreData = await tmdbJSON(
+      `https://api.themoviedb.org/3/genre/tv/list?api_key=${TMDB_KEY}&language=fr-FR`,
+    );
+    for (const g of tvGenreData.genres || []) {
+      defs[`tv_genre_${g.id}`] = {
+        pathAndQuery: `discover/tv?with_genres=${g.id}&sort_by=popularity.desc`,
+        pages: 5,
+        label: `${g.name} (Séries)`,
+        group: "genre",
+        mediaType: "tv",
+      };
+    }
+  } catch (e) {
+    console.error("Erreur récupération des genres séries:", e.message);
   }
   return defs;
 }
@@ -209,7 +350,7 @@ async function fetchCategory(def) {
     const data = await tmdbJSON(urlFor(def.pathAndQuery, page));
     for (const m of data.results || []) {
       if (!m.backdrop_path || !m.poster_path || seen.has(m.id)) continue;
-      seen.set(m.id, toEntry(m));
+      seen.set(m.id, toEntry(m, def.mediaType));
     }
   }
   return [...seen.values()];
@@ -277,7 +418,9 @@ async function mapWithConcurrency(items, limit, fn) {
 function pickFromPool(pool, need) {
   let ordered = pool;
   if (ordered.length > need) {
-    const tailStart = Math.floor(ordered.length * 0.3);
+    // les mieux notées ressemblent souvent au poster officiel (key art) :
+    // on saute une bonne partie du haut de liste avant de mélanger
+    const tailStart = Math.floor(ordered.length * 0.45);
     const tail = ordered.slice(tailStart);
     ordered = tail.length >= need ? tail : ordered;
   }
@@ -287,15 +430,33 @@ function pickFromPool(pool, need) {
   return result;
 }
 
+// écarte les formats trop éloignés d'un vrai backdrop 16:9 — les visuels
+// promo/bannières/collages ont souvent un ratio différent d'une capture du film
+function isStandardRatio(b) {
+  return b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85;
+}
+
 async function fetchExtraBackdrops(movie, need) {
   try {
+    const kind = movie.mediaType === "tv" ? "tv" : "movie";
     const data = await tmdbJSON(
-      `https://api.themoviedb.org/3/movie/${movie.id}/images?api_key=${TMDB_KEY}`,
+      `https://api.themoviedb.org/3/${kind}/${movie.id}/images?api_key=${TMDB_KEY}`,
     );
     const backdrops = (data.backdrops || []).filter((b) => b.file_path);
     const textless = backdrops.filter((b) => b.iso_639_1 === null);
     if (textless.length === 0) return [];
-    return pickFromPool(textless, need).map(
+
+    // 1) ratio standard en priorité (moins de bannières/collages promo)
+    const standardRatio = textless.filter(isStandardRatio);
+    const ratioPool = standardRatio.length > 0 ? standardRatio : textless;
+
+    // 2) images ayant reçu des votes communautaires en priorité (le contenu
+    // promo bulk-uploadé par les studios n'est en général jamais voté)
+    const voted = ratioPool.filter((b) => b.vote_count > 0);
+    const finalPool =
+      voted.length >= Math.min(need, ratioPool.length) ? voted : ratioPool;
+
+    return pickFromPool(finalPool, need).map(
       (b) => `https://image.tmdb.org/t/p/w1280${b.file_path}`,
     );
   } catch (e) {
@@ -320,7 +481,13 @@ async function selectMoviesWithBackdrops(
       async (m) => {
         const imageUrls = await fetchExtraBackdrops(m, imagesPerFilm);
         return imageUrls.length > 0
-          ? { id: m.id, title: m.title, posterUrl: m.posterUrl, imageUrls }
+          ? {
+              id: m.id,
+              title: m.title,
+              posterUrl: m.posterUrl,
+              mediaType: m.mediaType,
+              imageUrls,
+            }
           : null;
       },
     );
@@ -336,6 +503,7 @@ app.get("/api/categories", (req, res) => {
     key,
     label: def.label,
     group: def.group,
+    mediaType: def.mediaType,
     available: (reservoirByCategory[key] || []).length,
   }));
   res.json({ categories: list, minCount: MIN_COUNT, maxCount: MAX_COUNT });

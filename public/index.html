@@ -291,6 +291,10 @@
       <div class="card">
         <div class="settings">
           <div class="settings-row">
+            <span class="settings-label">Type</span>
+            <div id="chipsContentType" class="chips"></div>
+          </div>
+          <div class="settings-row">
             <span class="settings-label">Nombre de films</span>
             <input
               type="range"
@@ -442,6 +446,11 @@
         },
         { label: "Horreur", categories: ["genre_27"] },
         { label: "Comédies", categories: ["genre_35"] },
+        {
+          label: "Séries récentes",
+          categories: ["tv_trending_week", "tv_on_the_air"],
+        },
+        { label: "Séries 90s", categories: ["tv_decade_1990", "tv_popular"] },
       ];
 
       // canvas de rendu, jamais attaché au DOM : sert uniquement de source aux frames encodées
@@ -465,6 +474,12 @@
       const chipsDecades = document.getElementById("chipsDecades");
       const chipsGenres = document.getElementById("chipsGenres");
       const chipsPresets = document.getElementById("chipsPresets");
+      const chipsContentType = document.getElementById("chipsContentType");
+
+      let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv'}
+      function typeActive(mediaType) {
+        return activeContentTypes.has(mediaType);
+      }
       const durationHint = document.getElementById("durationHint");
       const btnGenerate = document.getElementById("btnGenerate");
       const btnAgain = document.getElementById("btnAgain");
@@ -567,6 +582,7 @@
           imagesPerFilm: currentImagesPerFilm(),
           imageSec: currentImageSec(),
           revealSec: currentRevealSec(),
+          contentTypes: [...activeContentTypes],
           categories: [...selectedCategories],
         };
         try {
@@ -599,6 +615,12 @@
           revealSecNumber.value = s.revealSec;
           revealSecRange.value = s.revealSec;
         }
+        if (Array.isArray(s.contentTypes)) {
+          const valid = s.contentTypes.filter(
+            (t) => t === "movie" || t === "tv",
+          );
+          if (valid.length) activeContentTypes = new Set(valid);
+        }
         if (Array.isArray(s.categories) && s.categories.length) {
           const valid = s.categories.filter((c) =>
             availableCategories.some((ac) => ac.key === c),
@@ -617,9 +639,56 @@
             .map((c) => c.key),
         );
         applySavedSettings();
+        renderContentTypeChips();
         renderChips();
         renderPresets();
         await updatePoolSize();
+      }
+
+      function renderContentTypeChips() {
+        chipsContentType.innerHTML = "";
+        const options = [
+          { key: "movie", label: "Films" },
+          { key: "tv", label: "Séries" },
+        ];
+        for (const opt of options) {
+          const chip = document.createElement("span");
+          chip.className = "chip" + (typeActive(opt.key) ? " active" : "");
+          chip.textContent = opt.label;
+          chip.addEventListener("click", async () => {
+            if (activeContentTypes.has(opt.key)) {
+              if (activeContentTypes.size === 1) return; // garder au moins un type actif
+              activeContentTypes.delete(opt.key);
+            } else {
+              activeContentTypes.add(opt.key);
+            }
+            renderContentTypeChips();
+
+            selectedCategories = new Set(
+              [...selectedCategories].filter((k) => {
+                const cat = availableCategories.find((c) => c.key === k);
+                return cat && typeActive(cat.mediaType);
+              }),
+            );
+            if (selectedCategories.size === 0) {
+              const fallback = [
+                ...(typeActive("movie") ? ["popular", "top_rated"] : []),
+                ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
+              ];
+              selectedCategories = new Set(
+                fallback.filter((k) =>
+                  availableCategories.some((c) => c.key === k),
+                ),
+              );
+            }
+
+            renderChips();
+            renderPresets();
+            await updatePoolSize();
+            saveSettings();
+          });
+          chipsContentType.appendChild(chip);
+        }
       }
 
       function renderPresets() {
@@ -629,6 +698,13 @@
             availableCategories.some((ac) => ac.key === c),
           );
           if (valid.length === 0) continue;
+          // n'affiche que les presets compatibles avec le type de contenu actuel
+          const compatible = valid.every((c) => {
+            const cat = availableCategories.find((ac) => ac.key === c);
+            return typeActive(cat.mediaType);
+          });
+          if (!compatible) continue;
+
           const chip = document.createElement("span");
           chip.className = "chip";
           chip.textContent = preset.label;
@@ -652,7 +728,11 @@
         chipsDecades.innerHTML = "";
         chipsGenres.innerHTML = "";
 
-        for (const cat of availableCategories) {
+        const visible = availableCategories.filter((c) =>
+          typeActive(c.mediaType),
+        );
+
+        for (const cat of visible) {
           const container = groups[cat.group] || chipsListes;
           const chip = document.createElement("span");
           chip.className =
@@ -912,7 +992,7 @@
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "left";
         ctx.fillText(
-          `FILM ${filmIdx + 1} / ${movies.length}`,
+          `N° ${filmIdx + 1} / ${movies.length}`,
           50,
           canvas.height - 58,
         );
@@ -949,7 +1029,7 @@
         ctx.fillStyle = "#6b6b70";
         ctx.textAlign = "left";
         ctx.fillText(
-          `FILM ${filmIdx + 1} / ${movies.length}`,
+          `N° ${filmIdx + 1} / ${movies.length}`,
           50,
           canvas.height - 58,
         );
