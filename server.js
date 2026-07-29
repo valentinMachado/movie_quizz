@@ -379,13 +379,32 @@ async function refreshReservoir() {
 refreshReservoir();
 setInterval(refreshReservoir, REFRESH_MS).unref();
 
-function shuffle(arr) {
+function shuffle(arr, rng) {
+  const random = rng || Math.random;
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+// PRNG déterministe (mulberry32) : même seed => même séquence, sert à rendre
+// la sélection des films reproductible (partage d'un "code" de quiz)
+function mulberry32(seed) {
+  let s = seed | 0;
+  return function () {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashStringToInt(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++)
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return h;
 }
 
 function mergedPool(categoryKeys) {
@@ -430,20 +449,101 @@ function pickFromPool(pool, need) {
   return result;
 }
 
+// cache générique par clé, TTL 6h — évite de re-taper l'API pour un titre
+// (ou une saison/épisode) déjà consulté dans un quiz précédent
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const apiCache = new Map(); // key -> { value, expiresAt }
+
+function cacheGet(key) {
+  const c = apiCache.get(key);
+  if (c && c.expiresAt > Date.now()) return c.value;
+  return null;
+}
+function cacheSet(key, value) {
+  apiCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+async function fetchRawBackdrops(movie) {
+  const kind = movie.mediaType === "tv" ? "tv" : "movie";
+  const cacheKey = `backdrops:${kind}:${movie.id}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const data = await tmdbJSON(
+    `https://api.themoviedb.org/3/${kind}/${movie.id}/images?api_key=${TMDB_KEY}`,
+  );
+  const backdrops = (data.backdrops || []).filter((b) => b.file_path);
+  cacheSet(cacheKey, backdrops);
+  return backdrops;
+}
+
+// mode optionnel "captures d'épisodes" pour les séries : pioche une saison et
+// un épisode au hasard, renvoie ses stills textless (ou null si rien d'exploitable,
+// l'appelant retombe alors sur les backdrops globaux de la série)
+async function fetchEpisodeTextlessStills(movie) {
+  try {
+    const showKey = `tvshow:${movie.id}`;
+    let seasons = cacheGet(showKey);
+    if (!seasons) {
+      const showData = await tmdbJSON(
+        `https://api.themoviedb.org/3/tv/${movie.id}?api_key=${TMDB_KEY}`,
+      );
+      seasons = (showData.seasons || []).filter(
+        (s) => s.season_number > 0 && s.episode_count > 0,
+      );
+      cacheSet(showKey, seasons);
+    }
+    if (seasons.length === 0) return null;
+    const season = seasons[Math.floor(Math.random() * seasons.length)];
+
+    const seasonKey = `tvseason:${movie.id}:${season.season_number}`;
+    let episodeNumbers = cacheGet(seasonKey);
+    if (!episodeNumbers) {
+      const seasonData = await tmdbJSON(
+        `https://api.themoviedb.org/3/tv/${movie.id}/season/${season.season_number}?api_key=${TMDB_KEY}`,
+      );
+      episodeNumbers = (seasonData.episodes || []).map((e) => e.episode_number);
+      cacheSet(seasonKey, episodeNumbers);
+    }
+    if (episodeNumbers.length === 0) return null;
+    const episodeNumber =
+      episodeNumbers[Math.floor(Math.random() * episodeNumbers.length)];
+
+    const episodeKey = `tvepisode:${movie.id}:${season.season_number}:${episodeNumber}`;
+    let stills = cacheGet(episodeKey);
+    if (!stills) {
+      const epData = await tmdbJSON(
+        `https://api.themoviedb.org/3/tv/${movie.id}/season/${season.season_number}/episode/${episodeNumber}/images?api_key=${TMDB_KEY}`,
+      );
+      stills = (epData.stills || []).filter((s) => s.file_path);
+      cacheSet(episodeKey, stills);
+    }
+    const textless = stills.filter((s) => s.iso_639_1 === null);
+    return textless.length > 0 ? textless : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // écarte les formats trop éloignés d'un vrai backdrop 16:9 — les visuels
 // promo/bannières/collages ont souvent un ratio différent d'une capture du film
 function isStandardRatio(b) {
   return b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85;
 }
 
-async function fetchExtraBackdrops(movie, need) {
+async function fetchExtraBackdrops(movie, need, useEpisodeStills) {
   try {
-    const kind = movie.mediaType === "tv" ? "tv" : "movie";
-    const data = await tmdbJSON(
-      `https://api.themoviedb.org/3/${kind}/${movie.id}/images?api_key=${TMDB_KEY}`,
+    let backdrops = null;
+    if (useEpisodeStills && movie.mediaType === "tv") {
+      backdrops = await fetchEpisodeTextlessStills(movie);
+    }
+    if (!backdrops) {
+      backdrops = await fetchRawBackdrops(movie);
+    }
+
+    const textless = backdrops.filter(
+      (b) => b.iso_639_1 === null || b.iso_639_1 === undefined,
     );
-    const backdrops = (data.backdrops || []).filter((b) => b.file_path);
-    const textless = backdrops.filter((b) => b.iso_639_1 === null);
     if (textless.length === 0) return [];
 
     // 1) ratio standard en priorité (moins de bannières/collages promo)
@@ -468,8 +568,10 @@ async function selectMoviesWithBackdrops(
   candidatesShuffled,
   count,
   imagesPerFilm,
+  useEpisodeStills,
 ) {
   const result = [];
+  let excludedCount = 0;
   let idx = 0;
   const batchSize = Math.max(count, 20);
   while (result.length < count && idx < candidatesShuffled.length) {
@@ -479,7 +581,11 @@ async function selectMoviesWithBackdrops(
       batch,
       IMAGE_FETCH_CONCURRENCY,
       async (m) => {
-        const imageUrls = await fetchExtraBackdrops(m, imagesPerFilm);
+        const imageUrls = await fetchExtraBackdrops(
+          m,
+          imagesPerFilm,
+          useEpisodeStills,
+        );
         return imageUrls.length > 0
           ? {
               id: m.id,
@@ -492,10 +598,14 @@ async function selectMoviesWithBackdrops(
       },
     );
     for (const item of withImages) {
-      if (item && result.length < count) result.push(item);
+      if (!item) {
+        excludedCount++;
+        continue;
+      }
+      if (result.length < count) result.push(item);
     }
   }
-  return result;
+  return { movies: result, excludedCount };
 }
 
 app.get("/api/categories", (req, res) => {
@@ -548,6 +658,8 @@ app.get("/api/quiz-batch", async (req, res) => {
     MAX_IMAGES_PER_FILM,
     Math.max(MIN_IMAGES_PER_FILM, parseInt(req.query.imagesPerFilm, 10) || 1),
   );
+  const useEpisodeStills =
+    req.query.episodeStills === "1" || req.query.episodeStills === "true";
 
   const all = mergedPool(requestedCategories);
   const count = Math.min(
@@ -567,11 +679,24 @@ app.get("/api/quiz-batch", async (req, res) => {
     recycled = true;
   }
 
-  const picked = shuffle(candidates);
-  const withImages = await selectMoviesWithBackdrops(
+  // seed : si fourni (numérique ou "code" texte), rend le TIRAGE DES FILMS
+  // reproductible pour un même pool/réglages — pratique pour partager un
+  // quiz à rejouer. Le choix précis des images par film n'est pas garanti
+  // identique (dépend de l'ordre des réponses réseau, non déterministe).
+  const seedParam = req.query.seed;
+  const seed = seedParam
+    ? /^-?\d+$/.test(seedParam)
+      ? parseInt(seedParam, 10)
+      : hashStringToInt(seedParam)
+    : Math.floor(Math.random() * 2 ** 31);
+  const rng = mulberry32(seed);
+
+  const picked = shuffle(candidates, rng);
+  const { movies: withImages, excludedCount } = await selectMoviesWithBackdrops(
     picked,
     count,
     imagesPerFilm,
+    useEpisodeStills,
   );
 
   // un appel qui produit un lot compte comme un quiz généré, persisté sur disque
@@ -586,13 +711,81 @@ app.get("/api/quiz-batch", async (req, res) => {
     recycled,
     requested: count,
     delivered: withImages.length,
+    excludedCount,
     imagesPerFilm,
     categories: requestedCategories,
     poolSize: all.length,
     totalGenerated: stats.totalGenerated,
+    seed,
   });
 });
 
 app.use(express.static(path.join(process.cwd(), "public")));
+
+// --- mini leaderboard local, auto-déclaratif (pas d'anti-triche, juste pour
+// le fun entre amis) ---
+const SCORES_PATH = path.join(process.cwd(), "scores.json");
+const MAX_SCORES = 200;
+
+function loadScores() {
+  try {
+    if (existsSync(SCORES_PATH))
+      return JSON.parse(readFileSync(SCORES_PATH, "utf8"));
+  } catch (e) {
+    console.error("Erreur lecture scores.json:", e.message);
+  }
+  return [];
+}
+let scores = loadScores();
+function saveScores() {
+  try {
+    writeFileSync(SCORES_PATH, JSON.stringify(scores.slice(-MAX_SCORES)));
+  } catch (e) {
+    console.error("Erreur écriture scores.json:", e.message);
+  }
+}
+
+app.use(express.json());
+
+app.post("/api/scores", (req, res) => {
+  const { name, score, total } = req.body || {};
+  const cleanName = typeof name === "string" ? name.trim().slice(0, 30) : "";
+  const cleanScore = Number.isFinite(score)
+    ? Math.max(0, Math.round(score))
+    : NaN;
+  const cleanTotal = Number.isFinite(total)
+    ? Math.max(1, Math.round(total))
+    : NaN;
+
+  if (
+    !cleanName ||
+    Number.isNaN(cleanScore) ||
+    Number.isNaN(cleanTotal) ||
+    cleanScore > cleanTotal
+  ) {
+    return res
+      .status(400)
+      .json({
+        error: "Score invalide (nom, score, total requis, score <= total).",
+      });
+  }
+
+  scores.push({
+    name: cleanName,
+    score: cleanScore,
+    total: cleanTotal,
+    date: new Date().toISOString(),
+  });
+  saveScores();
+  res.json({ ok: true });
+});
+
+app.get("/api/scores", (req, res) => {
+  const top = scores
+    .slice()
+    .sort((a, b) => b.score / b.total - a.score / a.total || b.score - a.score)
+    .slice(0, 20);
+  res.json({ scores: top });
+});
 
 app.listen(PORT, () => console.log(`Movie Quiz sur http://localhost:${PORT}`));

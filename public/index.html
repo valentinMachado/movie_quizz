@@ -82,7 +82,8 @@
         color: var(--muted);
         min-width: 110px;
       }
-      input[type="number"] {
+      input[type="number"],
+      input[type="text"] {
         width: 70px;
         background: #0e0e10;
         border: 1px solid #2a2a2e;
@@ -93,7 +94,8 @@
         border-radius: 3px;
         outline: none;
       }
-      input[type="number"]:focus {
+      input[type="number"]:focus,
+      input[type="text"]:focus {
         border-color: var(--amber);
       }
       input[type="range"] {
@@ -295,6 +297,10 @@
             <div id="chipsContentType" class="chips"></div>
           </div>
           <div class="settings-row">
+            <span class="settings-label">Difficulté</span>
+            <div id="chipsDifficulty" class="chips"></div>
+          </div>
+          <div class="settings-row">
             <span class="settings-label">Nombre de films</span>
             <input
               type="range"
@@ -367,6 +373,24 @@
             /><span class="settings-label" style="min-width: auto">sec</span>
           </div>
 
+          <div class="settings-row">
+            <span class="settings-label">Séries</span>
+            <div id="chipsEpisodeStills" class="chips"></div>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">Code du quiz</span>
+            <input
+              type="text"
+              id="seedInput"
+              placeholder="(auto si vide)"
+              style="width: 140px"
+            />
+            <span class="settings-label" style="min-width: auto"
+              >colle un code pour rejouer un quiz déjà généré</span
+            >
+          </div>
+
           <div class="chip-group">
             <span class="chip-group-label">Presets</span>
             <div id="chipsPresets" class="chips"></div>
@@ -422,6 +446,39 @@
         <div id="answers" class="answers"></div>
       </div>
 
+      <div class="card" style="margin-top: 16px">
+        <div class="settings">
+          <span class="chip-group-label"
+            >Classement (entre amis, auto-déclaratif)</span
+          >
+          <div class="settings-row">
+            <input
+              type="text"
+              id="scoreName"
+              placeholder="Ton nom"
+              style="width: 120px"
+            />
+            <input
+              type="number"
+              id="scoreValue"
+              placeholder="Score"
+              min="0"
+              style="width: 70px"
+            />
+            <span class="settings-label" style="min-width: auto">/</span>
+            <input
+              type="number"
+              id="scoreTotal"
+              placeholder="Total"
+              min="1"
+              style="width: 70px"
+            />
+            <button id="btnSubmitScore" class="ghost">Enregistrer</button>
+          </div>
+          <div id="leaderboard" class="answers show"></div>
+        </div>
+      </div>
+
       <p class="hint">
         Le rendu se fait sur un canvas invisible, image par image, encodé
         directement via WebCodecs/Mediabunny (bien plus rapide que le temps
@@ -431,7 +488,18 @@
     </div>
 
     <script type="module">
-      import * as Mediabunny from "https://cdn.jsdelivr.net/npm/mediabunny/+esm";
+      // import dynamique : si le CDN jsDelivr est indisponible/lent, on ne
+      // casse pas toute la page — on bascule proprement sur le repli temps
+      // réel (qui n'a pas besoin de Mediabunny) avec un message clair.
+      let Mediabunny = null;
+      let mediabunnyLoadError = null;
+      try {
+        Mediabunny =
+          await import("https://cdn.jsdelivr.net/npm/mediabunny/+esm");
+      } catch (e) {
+        mediabunnyLoadError = e;
+        console.error("Mediabunny indisponible (CDN down ?):", e);
+      }
 
       const CFG = { preloadConcurrency: 8, fps: 4, splashMs: 3000 };
       const STORAGE_PREFIX = "moviequiz_seen_";
@@ -451,6 +519,41 @@
           categories: ["tv_trending_week", "tv_on_the_air"],
         },
         { label: "Séries 90s", categories: ["tv_decade_1990", "tv_popular"] },
+        {
+          label: "Halloween (Films + Séries)",
+          categories: ["genre_27", "tv_genre_9648"],
+        },
+        {
+          label: "Tout confondu, populaires",
+          categories: ["popular", "top_rated", "tv_popular", "tv_top_rated"],
+        },
+      ];
+
+      const DIFFICULTIES = [
+        {
+          label: "Facile",
+          count: 10,
+          imagesPerFilm: 2,
+          imageSec: 8,
+          revealSec: 6,
+          categories: ["popular", "top_rated"],
+        },
+        {
+          label: "Normal",
+          count: 20,
+          imagesPerFilm: 3,
+          imageSec: 5,
+          revealSec: 5,
+          categories: ["popular", "top_rated", "trending_week"],
+        },
+        {
+          label: "Expert",
+          count: 40,
+          imagesPerFilm: 4,
+          imageSec: 3,
+          revealSec: 4,
+          categories: null,
+        },
       ];
 
       // canvas de rendu, jamais attaché au DOM : sert uniquement de source aux frames encodées
@@ -475,8 +578,17 @@
       const chipsGenres = document.getElementById("chipsGenres");
       const chipsPresets = document.getElementById("chipsPresets");
       const chipsContentType = document.getElementById("chipsContentType");
+      const chipsDifficulty = document.getElementById("chipsDifficulty");
+      const chipsEpisodeStills = document.getElementById("chipsEpisodeStills");
+      const seedInput = document.getElementById("seedInput");
+      const scoreName = document.getElementById("scoreName");
+      const scoreValue = document.getElementById("scoreValue");
+      const scoreTotal = document.getElementById("scoreTotal");
+      const btnSubmitScore = document.getElementById("btnSubmitScore");
+      const leaderboardEl = document.getElementById("leaderboard");
 
       let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv'}
+      let useEpisodeStills = false;
       function typeActive(mediaType) {
         return activeContentTypes.has(mediaType);
       }
@@ -509,8 +621,54 @@
         }
       }
 
+      async function refreshLeaderboard() {
+        try {
+          const res = await fetch("/api/scores");
+          const data = await res.json();
+          if (!data.scores || data.scores.length === 0) {
+            leaderboardEl.innerHTML =
+              '<span style="color: var(--muted)">Aucun score enregistré pour l\u2019instant.</span>';
+            return;
+          }
+          leaderboardEl.innerHTML = data.scores
+            .map(
+              (s, i) =>
+                `<span>${i + 1}. ${s.name} — ${s.score}/${s.total}</span>`,
+            )
+            .join("<br>");
+        } catch {
+          leaderboardEl.textContent = "Classement indisponible.";
+        }
+      }
+
+      btnSubmitScore.addEventListener("click", async () => {
+        const name = scoreName.value.trim();
+        const score = parseInt(scoreValue.value, 10);
+        const total = parseInt(scoreTotal.value, 10);
+        if (!name || Number.isNaN(score) || Number.isNaN(total)) {
+          setStatus("Renseigne un nom, un score et un total valides.", "err");
+          return;
+        }
+        try {
+          const res = await fetch("/api/scores", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, score, total }),
+          });
+          if (!res.ok)
+            throw new Error((await res.json()).error || res.statusText);
+          scoreValue.value = "";
+          scoreTotal.value = "";
+          await refreshLeaderboard();
+        } catch (e) {
+          setStatus("Erreur score : " + e.message, "err");
+        }
+      });
+
       const supportsFastEncode =
-        typeof VideoEncoder === "function" && typeof VideoFrame === "function";
+        Mediabunny !== null &&
+        typeof VideoEncoder === "function" &&
+        typeof VideoFrame === "function";
 
       let availableCategories = [];
       let selectedCategories = new Set();
@@ -583,6 +741,7 @@
           imageSec: currentImageSec(),
           revealSec: currentRevealSec(),
           contentTypes: [...activeContentTypes],
+          useEpisodeStills,
           categories: [...selectedCategories],
         };
         try {
@@ -621,6 +780,9 @@
           );
           if (valid.length) activeContentTypes = new Set(valid);
         }
+        if (typeof s.useEpisodeStills === "boolean") {
+          useEpisodeStills = s.useEpisodeStills;
+        }
         if (Array.isArray(s.categories) && s.categories.length) {
           const valid = s.categories.filter((c) =>
             availableCategories.some((ac) => ac.key === c),
@@ -640,6 +802,8 @@
         );
         applySavedSettings();
         renderContentTypeChips();
+        renderDifficultyChips();
+        renderEpisodeStillsToggle();
         renderChips();
         renderPresets();
         await updatePoolSize();
@@ -716,6 +880,51 @@
           });
           chipsPresets.appendChild(chip);
         }
+      }
+
+      function renderDifficultyChips() {
+        chipsDifficulty.innerHTML = "";
+        for (const diff of DIFFICULTIES) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = diff.label;
+          chip.addEventListener("click", async () => {
+            countNumber.value = diff.count;
+            countRange.value = diff.count;
+            imagesPerFilmNumber.value = diff.imagesPerFilm;
+            imagesPerFilmRange.value = diff.imagesPerFilm;
+            imageSecNumber.value = diff.imageSec;
+            imageSecRange.value = diff.imageSec;
+            revealSecNumber.value = diff.revealSec;
+            revealSecRange.value = diff.revealSec;
+            if (diff.categories) {
+              const valid = diff.categories.filter((c) =>
+                availableCategories.some(
+                  (ac) => ac.key === c && typeActive(ac.mediaType),
+                ),
+              );
+              if (valid.length) selectedCategories = new Set(valid);
+            }
+            renderChips();
+            updateDurationHint();
+            await updatePoolSize();
+            saveSettings();
+          });
+          chipsDifficulty.appendChild(chip);
+        }
+      }
+
+      function renderEpisodeStillsToggle() {
+        chipsEpisodeStills.innerHTML = "";
+        const chip = document.createElement("span");
+        chip.className = "chip" + (useEpisodeStills ? " active" : "");
+        chip.textContent = "Captures d'épisodes (au lieu du visuel global)";
+        chip.addEventListener("click", () => {
+          useEpisodeStills = !useEpisodeStills;
+          renderEpisodeStillsToggle();
+          saveSettings();
+        });
+        chipsEpisodeStills.appendChild(chip);
       }
 
       function renderChips() {
@@ -1155,22 +1364,32 @@
           );
           const categories = [...selectedCategories].join(",");
           const exclude = getSeenIds().join(",");
+          const seed = seedInput.value.trim();
+          const episodeStillsParam = useEpisodeStills ? "1" : "0";
 
           setStatus(
             `Récupération d\u2019un lot de ${count} films (${imagesPerFilm} images chacun)…`,
           );
           setStagePlaceholder("Récupération de la liste des films…");
           const res = await fetch(
-            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}`,
+            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}&episodeStills=${episodeStillsParam}` +
+              (seed ? `&seed=${encodeURIComponent(seed)}` : ""),
           );
           if (!res.ok)
             throw new Error((await res.json()).error || res.statusText);
           const data = await res.json();
 
+          if (data.seed !== undefined) seedInput.value = data.seed;
+
           if (data.recycled) {
             clearSeenIds();
             setStatus(
               "Réservoir épuisé pour ces catégories, historique réinitialisé.",
+            );
+          }
+          if (data.excludedCount > 0) {
+            setStatus(
+              `${data.excludedCount} film(s) écarté(s) faute d\u2019image sans texte exploitable.`,
             );
           }
 
@@ -1285,12 +1504,15 @@
 
       updateDurationHint();
       refreshStats();
+      refreshLeaderboard();
       loadCategories()
         .then(() =>
           setStatus(
             supportsFastEncode
               ? "Prêt — choisis tes réglages puis clique sur « Générer le quizz »."
-              : "Prêt (rendu temps réel, WebCodecs non supporté par ce navigateur).",
+              : mediabunnyLoadError
+                ? "Prêt (rendu temps réel — la dépendance de rendu rapide n'a pas pu être chargée, réessaie plus tard)."
+                : "Prêt (rendu temps réel, WebCodecs non supporté par ce navigateur).",
           ),
         )
         .catch((e) => setStatus("Erreur catégories : " + e.message, "err"));
