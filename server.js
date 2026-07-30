@@ -18,6 +18,17 @@ if (!TMDB_KEY) {
   process.exit(1);
 }
 
+// IGDB (jeux vidéo) est optionnel : sans identifiants Twitch, le serveur
+// démarre quand même, simplement sans la catégorie Jeux vidéo.
+const IGDB_CLIENT_ID = process.env.IGDB_CLIENT_ID;
+const IGDB_CLIENT_SECRET = process.env.IGDB_CLIENT_SECRET;
+const igdbEnabled = Boolean(IGDB_CLIENT_ID && IGDB_CLIENT_SECRET);
+if (!igdbEnabled) {
+  console.warn(
+    "IGDB_CLIENT_ID/IGDB_CLIENT_SECRET absents dans .env : catégorie Jeux vidéo désactivée.",
+  );
+}
+
 // --- compteur de quiz générés, persisté sur disque (survit aux redémarrages) ---
 const STATS_PATH = path.join(process.cwd(), "stats.json");
 
@@ -268,6 +279,87 @@ const PERSON_STATIC_LISTS = {
   },
 };
 
+// jeux vidéo (IGDB) — structure différente de TMDb : `igdbWhere`/`igdbSort`
+// au lieu de `pathAndQuery`, paginé par offset (voir fetchGameCategory)
+const GAME_STATIC_LISTS = {
+  game_popular: {
+    igdbWhere: "cover != null & screenshots != null",
+    igdbSort: "total_rating_count desc",
+    pages: 8,
+    label: "Jeux populaires",
+    group: "liste",
+    mediaType: "game",
+  },
+  game_top_rated: {
+    igdbWhere: "cover != null & screenshots != null & total_rating_count > 50",
+    igdbSort: "total_rating desc",
+    pages: 8,
+    label: "Jeux les mieux notés",
+    group: "liste",
+    mediaType: "game",
+  },
+  game_recent: {
+    igdbWhere:
+      "cover != null & screenshots != null & first_release_date != null",
+    igdbSort: "first_release_date desc",
+    pages: 6,
+    label: "Sorties récentes",
+    group: "liste",
+    mediaType: "game",
+  },
+};
+
+const GAME_DECADE_LISTS = {
+  game_before_1980: {
+    igdbWhere: `cover != null & screenshots != null & first_release_date < ${unixYear(1980)}`,
+    igdbSort: "total_rating_count desc",
+    pages: 3,
+    label: "Avant 1980 (Jeux)",
+    group: "decade",
+    mediaType: "game",
+  },
+  game_decade_1980: {
+    igdbWhere: `cover != null & screenshots != null & first_release_date >= ${unixYear(1980)} & first_release_date < ${unixYear(1990)}`,
+    igdbSort: "total_rating_count desc",
+    pages: 4,
+    label: "Années 1980 (Jeux)",
+    group: "decade",
+    mediaType: "game",
+  },
+  game_decade_1990: {
+    igdbWhere: `cover != null & screenshots != null & first_release_date >= ${unixYear(1990)} & first_release_date < ${unixYear(2000)}`,
+    igdbSort: "total_rating_count desc",
+    pages: 5,
+    label: "Années 1990 (Jeux)",
+    group: "decade",
+    mediaType: "game",
+  },
+  game_decade_2000: {
+    igdbWhere: `cover != null & screenshots != null & first_release_date >= ${unixYear(2000)} & first_release_date < ${unixYear(2010)}`,
+    igdbSort: "total_rating_count desc",
+    pages: 5,
+    label: "Années 2000 (Jeux)",
+    group: "decade",
+    mediaType: "game",
+  },
+  game_decade_2010: {
+    igdbWhere: `cover != null & screenshots != null & first_release_date >= ${unixYear(2010)} & first_release_date < ${unixYear(2020)}`,
+    igdbSort: "total_rating_count desc",
+    pages: 5,
+    label: "Années 2010 (Jeux)",
+    group: "decade",
+    mediaType: "game",
+  },
+  game_decade_2020: {
+    igdbWhere: `cover != null & screenshots != null & first_release_date >= ${unixYear(2020)}`,
+    igdbSort: "total_rating_count desc",
+    pages: 5,
+    label: "Années 2020 (Jeux)",
+    group: "decade",
+    mediaType: "game",
+  },
+};
+
 let CATEGORIES = { ...STATIC_LISTS };
 let reservoirByCategory = {};
 let reservoirReady = false;
@@ -292,11 +384,99 @@ function tmdbGate() {
   return turn;
 }
 
-async function tmdbJSON(url) {
+async function tmdbJSON(url, attempt = 1) {
   await tmdbGate();
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`TMDb ${res.status} sur ${url}`);
-  return res.json();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`TMDb ${res.status} sur ${url}`);
+    return await res.json();
+  } catch (e) {
+    const cause = e.cause
+      ? ` (${e.cause.code || e.cause.message || e.cause})`
+      : "";
+    if (attempt < 3) {
+      const delay = 500 * attempt;
+      console.warn(
+        `TMDb échec réseau${cause}, retry ${attempt}/2 dans ${delay}ms…`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+      return tmdbJSON(url, attempt + 1);
+    }
+    e.message = `${e.message}${cause}`;
+    throw e;
+  }
+}
+
+// --- IGDB (jeux vidéo) : auth Twitch (client credentials) + requêtes
+// Apicalypse en POST, throttle séparé (IGDB autorise ~4 req/s) ---
+let igdbToken = null;
+let igdbTokenExpiresAt = 0;
+
+async function getIgdbToken() {
+  if (igdbToken && Date.now() < igdbTokenExpiresAt) return igdbToken;
+  const url = `https://id.twitch.tv/oauth2/token?client_id=${IGDB_CLIENT_ID}&client_secret=${IGDB_CLIENT_SECRET}&grant_type=client_credentials`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`IGDB auth ${res.status}`);
+  const data = await res.json();
+  igdbToken = data.access_token;
+  // renouvelle 5 min avant l'expiration réelle, par sécurité
+  igdbTokenExpiresAt = Date.now() + (data.expires_in - 300) * 1000;
+  return igdbToken;
+}
+
+let lastIgdbCallTs = 0;
+let igdbGateQueue = Promise.resolve();
+const IGDB_MIN_INTERVAL_MS = 280;
+
+function igdbGate() {
+  const turn = igdbGateQueue.then(async () => {
+    const now = Date.now();
+    const wait = Math.max(0, lastIgdbCallTs + IGDB_MIN_INTERVAL_MS - now);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastIgdbCallTs = Date.now();
+  });
+  igdbGateQueue = turn;
+  return turn;
+}
+
+async function igdbQuery(endpoint, body, attempt = 1) {
+  await igdbGate();
+  const token = await getIgdbToken();
+  try {
+    const res = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Client-ID": IGDB_CLIENT_ID,
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "text/plain",
+      },
+      body,
+    });
+    if (!res.ok) throw new Error(`IGDB ${res.status} sur ${endpoint}`);
+    return await res.json();
+  } catch (e) {
+    // "fetch failed" est une erreur réseau générique (reset/coupure de
+    // connexion) plutôt qu'une réponse HTTP d'erreur — souvent transitoire
+    // sur une rafale de requêtes. On retente avec un backoff avant d'abandonner.
+    const cause = e.cause
+      ? ` (${e.cause.code || e.cause.message || e.cause})`
+      : "";
+    if (attempt < 3) {
+      const delay = 500 * attempt;
+      console.warn(
+        `IGDB "${endpoint}" échec réseau${cause}, retry ${attempt}/2 dans ${delay}ms…`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+      return igdbQuery(endpoint, body, attempt + 1);
+    }
+    e.message = `${e.message}${cause}`;
+    throw e;
+  }
+}
+
+function unixYear(year) {
+  return Math.floor(Date.UTC(year, 0, 1) / 1000);
 }
 
 function toEntry(m, mediaType) {
@@ -363,10 +543,52 @@ async function buildCategoryDefs() {
   } catch (e) {
     console.error("Erreur récupération des genres séries:", e.message);
   }
+  if (igdbEnabled) {
+    Object.assign(defs, GAME_STATIC_LISTS, GAME_DECADE_LISTS);
+    try {
+      const genres = await igdbQuery("genres", "fields id,name; limit 50;");
+      for (const g of genres) {
+        defs[`game_genre_${g.id}`] = {
+          igdbWhere: `cover != null & screenshots != null & genres = (${g.id})`,
+          igdbSort: "total_rating_count desc",
+          pages: 4,
+          label: `${g.name} (Jeux)`,
+          group: "genre",
+          mediaType: "game",
+        };
+      }
+    } catch (e) {
+      console.error("Erreur récupération des genres IGDB:", e.message);
+    }
+  }
   return defs;
 }
 
+async function fetchGameCategory(def) {
+  const seen = new Map();
+  const limit = 100;
+  for (let i = 0; i < def.pages; i++) {
+    const offset = i * limit;
+    const body = `fields name,cover.image_id,screenshots.image_id; where ${def.igdbWhere}; sort ${def.igdbSort}; limit ${limit}; offset ${offset};`;
+    const data = await igdbQuery("games", body);
+    for (const g of data) {
+      if (!g.cover?.image_id || !g.screenshots?.length || seen.has(g.id))
+        continue;
+      seen.set(g.id, {
+        id: g.id,
+        title: g.name,
+        mediaType: "game",
+        imageUrl: `https://images.igdb.com/igdb/image/upload/t_1080p/${g.screenshots[0].image_id}.jpg`,
+        posterUrl: `https://images.igdb.com/igdb/image/upload/t_cover_big/${g.cover.image_id}.jpg`,
+      });
+    }
+    if (!data || data.length < limit) break; // dernière page atteinte
+  }
+  return [...seen.values()];
+}
+
 async function fetchCategory(def) {
+  if (def.mediaType === "game") return fetchGameCategory(def);
   const seen = new Map();
   for (let page = 1; page <= def.pages; page++) {
     const data = await tmdbJSON(urlFor(def.pathAndQuery, page));
@@ -470,6 +692,11 @@ function cacheSet(key, value) {
   apiCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
+// toutes les fonctions ci-dessous renvoient un format uniforme :
+// { url, iso_639_1, vote_count, aspect_ratio } — quelle que soit la source
+// (TMDb backdrops/profiles/stills ou captures IGDB), pour que
+// fetchExtraBackdrops puisse les traiter de la même façon.
+
 async function fetchRawBackdrops(movie) {
   const kind =
     movie.mediaType === "tv"
@@ -485,14 +712,51 @@ async function fetchRawBackdrops(movie) {
     `https://api.themoviedb.org/3/${kind}/${movie.id}/images?api_key=${TMDB_KEY}`,
   );
   const raw = kind === "person" ? data.profiles || [] : data.backdrops || [];
-  const backdrops = raw.filter((b) => b.file_path);
+  const backdrops = raw
+    .filter((b) => b.file_path)
+    .map((b) => ({
+      url: `https://image.tmdb.org/t/p/w1280${b.file_path}`,
+      iso_639_1: b.iso_639_1,
+      vote_count: b.vote_count,
+      aspect_ratio: b.aspect_ratio,
+    }));
   cacheSet(cacheKey, backdrops);
   return backdrops;
 }
 
-// mode optionnel "captures d'épisodes" pour les séries : pioche une saison et
-// un épisode au hasard, renvoie ses stills textless (ou null si rien d'exploitable,
-// l'appelant retombe alors sur les backdrops globaux de la série)
+// IGDB n'a pas de notion de texte/langue ni de vote par image : on neutralise
+// ces deux filtres (iso_639_1 null, vote_count à 1) et on fixe un ratio 16:9
+// puisque les captures d'écran le sont quasi systématiquement.
+async function fetchGameScreenshots(gameId) {
+  const cacheKey = `gamescreens:${gameId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const data = await igdbQuery(
+    "games",
+    `fields screenshots.image_id; where id = ${gameId};`,
+  );
+  const screenshots = (data[0]?.screenshots || [])
+    .filter((s) => s.image_id)
+    .map((s) => ({
+      url: `https://images.igdb.com/igdb/image/upload/t_1080p/${s.image_id}.jpg`,
+      iso_639_1: null,
+      vote_count: 1,
+      aspect_ratio: 1.78,
+    }));
+  cacheSet(cacheKey, screenshots);
+  return screenshots;
+}
+
+// écarte les formats trop éloignés d'un vrai backdrop 16:9 — les visuels
+// promo/bannières/collages ont souvent un ratio différent d'une capture du film
+function isStandardRatio(b) {
+  return b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85;
+}
+
+// pour les séries : pioche une saison et un épisode au hasard, renvoie ses
+// stills textless (ou null si rien d'exploitable — l'appelant retombe alors
+// sur les visuels globaux de la série, en dernier recours seulement)
 async function fetchEpisodeTextlessStills(movie) {
   try {
     const showKey = `tvshow:${movie.id}`;
@@ -528,7 +792,14 @@ async function fetchEpisodeTextlessStills(movie) {
       const epData = await tmdbJSON(
         `https://api.themoviedb.org/3/tv/${movie.id}/season/${season.season_number}/episode/${episodeNumber}/images?api_key=${TMDB_KEY}`,
       );
-      stills = (epData.stills || []).filter((s) => s.file_path);
+      stills = (epData.stills || [])
+        .filter((s) => s.file_path)
+        .map((s) => ({
+          url: `https://image.tmdb.org/t/p/w1280${s.file_path}`,
+          iso_639_1: s.iso_639_1,
+          vote_count: s.vote_count,
+          aspect_ratio: s.aspect_ratio,
+        }));
       cacheSet(episodeKey, stills);
     }
     const textless = stills.filter((s) => s.iso_639_1 === null);
@@ -538,19 +809,17 @@ async function fetchEpisodeTextlessStills(movie) {
   }
 }
 
-// écarte les formats trop éloignés d'un vrai backdrop 16:9 — les visuels
-// promo/bannières/collages ont souvent un ratio différent d'une capture du film
-function isStandardRatio(b) {
-  return b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85;
-}
-
-async function fetchExtraBackdrops(movie, need, useEpisodeStills) {
+async function fetchExtraBackdrops(movie, need) {
   try {
-    let backdrops = null;
-    if (useEpisodeStills && movie.mediaType === "tv") {
+    let backdrops;
+    if (movie.mediaType === "tv") {
+      // toujours des captures d'épisode pour les séries ; repli sur les
+      // visuels globaux de la série uniquement si aucun épisode n'a de still exploitable
       backdrops = await fetchEpisodeTextlessStills(movie);
-    }
-    if (!backdrops) {
+      if (!backdrops) backdrops = await fetchRawBackdrops(movie);
+    } else if (movie.mediaType === "game") {
+      backdrops = await fetchGameScreenshots(movie.id);
+    } else {
       backdrops = await fetchRawBackdrops(movie);
     }
 
@@ -574,9 +843,7 @@ async function fetchExtraBackdrops(movie, need, useEpisodeStills) {
     const finalPool =
       voted.length >= Math.min(need, ratioPool.length) ? voted : ratioPool;
 
-    return pickFromPool(finalPool, need).map(
-      (b) => `https://image.tmdb.org/t/p/w1280${b.file_path}`,
-    );
+    return pickFromPool(finalPool, need).map((b) => b.url);
   } catch (e) {
     return [];
   }
@@ -586,7 +853,6 @@ async function selectMoviesWithBackdrops(
   candidatesShuffled,
   count,
   imagesPerFilm,
-  useEpisodeStills,
 ) {
   const result = [];
   let excludedCount = 0;
@@ -599,11 +865,7 @@ async function selectMoviesWithBackdrops(
       batch,
       IMAGE_FETCH_CONCURRENCY,
       async (m) => {
-        const imageUrls = await fetchExtraBackdrops(
-          m,
-          imagesPerFilm,
-          useEpisodeStills,
-        );
+        const imageUrls = await fetchExtraBackdrops(m, imagesPerFilm);
         return imageUrls.length > 0
           ? {
               id: m.id,
@@ -676,8 +938,6 @@ app.get("/api/quiz-batch", async (req, res) => {
     MAX_IMAGES_PER_FILM,
     Math.max(MIN_IMAGES_PER_FILM, parseInt(req.query.imagesPerFilm, 10) || 1),
   );
-  const useEpisodeStills =
-    req.query.episodeStills === "1" || req.query.episodeStills === "true";
 
   const all = mergedPool(requestedCategories);
   const count = Math.min(
@@ -702,7 +962,6 @@ app.get("/api/quiz-batch", async (req, res) => {
     picked,
     count,
     imagesPerFilm,
-    useEpisodeStills,
   );
 
   // un appel qui produit un lot compte comme un quiz généré, persisté sur disque

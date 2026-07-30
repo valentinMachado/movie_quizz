@@ -301,7 +301,7 @@
             <div id="chipsDifficulty" class="chips"></div>
           </div>
           <div class="settings-row">
-            <span class="settings-label">Nombre de films</span>
+            <span class="settings-label">Nombre de titres</span>
             <input
               type="range"
               id="countRange"
@@ -319,7 +319,7 @@
             />
           </div>
           <div class="settings-row">
-            <span class="settings-label">Images / film</span>
+            <span class="settings-label">Images / titre</span>
             <input
               type="range"
               id="imagesPerFilmRange"
@@ -373,11 +373,6 @@
             /><span class="settings-label" style="min-width: auto">sec</span>
           </div>
 
-          <div class="settings-row">
-            <span class="settings-label">Séries</span>
-            <div id="chipsEpisodeStills" class="chips"></div>
-          </div>
-
           <div class="chip-group">
             <span class="chip-group-label">Presets</span>
             <div id="chipsPresets" class="chips"></div>
@@ -427,7 +422,7 @@
             Nouveau quiz (sans doublons)
           </button>
           <button id="btnToggleAnswers" class="ghost">
-            Voir la liste des films
+            Voir la liste des titres
           </button>
         </div>
         <div id="answers" class="answers"></div>
@@ -481,6 +476,18 @@
           label: "Tout confondu, populaires",
           categories: ["popular", "top_rated", "tv_popular", "tv_top_rated"],
         },
+        {
+          label: "Jeux populaires",
+          categories: ["game_popular", "game_top_rated"],
+        },
+        {
+          label: "Rétrogaming",
+          categories: [
+            "game_before_1980",
+            "game_decade_1980",
+            "game_decade_1990",
+          ],
+        },
       ];
 
       const DIFFICULTIES = [
@@ -533,7 +540,6 @@
       const chipsPresets = document.getElementById("chipsPresets");
       const chipsContentType = document.getElementById("chipsContentType");
       const chipsDifficulty = document.getElementById("chipsDifficulty");
-      const chipsEpisodeStills = document.getElementById("chipsEpisodeStills");
       const durationHint = document.getElementById("durationHint");
       const btnGenerate = document.getElementById("btnGenerate");
       const btnAgain = document.getElementById("btnAgain");
@@ -547,7 +553,6 @@
 
       // état de la session en cours
       let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv','person'}
-      let useEpisodeStills = false;
       let availableCategories = [];
       let selectedCategories = new Set();
       let currentMaxAvailable = 100;
@@ -646,7 +651,6 @@
           imageSec: currentImageSec(),
           revealSec: currentRevealSec(),
           contentTypes: [...activeContentTypes],
-          useEpisodeStills,
           categories: [...selectedCategories],
         };
         try {
@@ -681,12 +685,10 @@
         }
         if (Array.isArray(s.contentTypes)) {
           const valid = s.contentTypes.filter(
-            (t) => t === "movie" || t === "tv" || t === "person",
+            (t) =>
+              t === "movie" || t === "tv" || t === "person" || t === "game",
           );
           if (valid.length) activeContentTypes = new Set(valid);
-        }
-        if (typeof s.useEpisodeStills === "boolean") {
-          useEpisodeStills = s.useEpisodeStills;
         }
         if (Array.isArray(s.categories) && s.categories.length) {
           const valid = s.categories.filter((c) =>
@@ -708,7 +710,6 @@
         applySavedSettings();
         renderContentTypeChips();
         renderDifficultyChips();
-        renderEpisodeStillsToggle();
         renderChips();
         renderPresets();
         await updatePoolSize();
@@ -720,6 +721,7 @@
           { key: "movie", label: "Films" },
           { key: "tv", label: "Séries" },
           { key: "person", label: "Acteurs" },
+          { key: "game", label: "Jeux vidéo" },
         ];
         for (const opt of options) {
           const chip = document.createElement("span");
@@ -745,6 +747,7 @@
                 ...(typeActive("movie") ? ["popular", "top_rated"] : []),
                 ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
                 ...(typeActive("person") ? ["person_popular"] : []),
+                ...(typeActive("game") ? ["game_popular"] : []),
               ];
               selectedCategories = new Set(
                 fallback.filter((k) =>
@@ -819,19 +822,6 @@
           });
           chipsDifficulty.appendChild(chip);
         }
-      }
-
-      function renderEpisodeStillsToggle() {
-        chipsEpisodeStills.innerHTML = "";
-        const chip = document.createElement("span");
-        chip.className = "chip" + (useEpisodeStills ? " active" : "");
-        chip.textContent = "Captures d'épisodes (au lieu du visuel global)";
-        chip.addEventListener("click", () => {
-          useEpisodeStills = !useEpisodeStills;
-          renderEpisodeStillsToggle();
-          saveSettings();
-        });
-        chipsEpisodeStills.appendChild(chip);
       }
 
       function renderChips() {
@@ -931,7 +921,12 @@
                 return img;
               }),
             ]);
-            results[my] = { title: m.title, backdropImgs, posterImg };
+            results[my] = {
+              title: m.title,
+              mediaType: m.mediaType,
+              backdropImgs,
+              posterImg,
+            };
           }
         }
 
@@ -1001,6 +996,32 @@
         }
         ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
       }
+
+      // dessine l'image ENTIÈRE sans rien recadrer (contain-fit) — le fond
+      // est comblé par une version recadrée + assombrie de la même image,
+      // pour éviter des bandes noires nues (surtout utile pour les portraits
+      // d'acteurs qui se faisaient couper en haut/bas avec un simple cover-fit)
+      function drawContain(img, x, y, w, h) {
+        drawCover(img, x, y, w, h);
+        ctx.fillStyle = "rgba(10,10,11,0.55)";
+        ctx.fillRect(x, y, w, h);
+
+        const ir = img.width / img.height,
+          cr = w / h;
+        let dw, dh, dx, dy;
+        if (ir > cr) {
+          dw = w;
+          dh = w / ir;
+          dx = x;
+          dy = y + (h - dh) / 2;
+        } else {
+          dh = h;
+          dw = h * ir;
+          dy = y;
+          dx = x + (w - dw) / 2;
+        }
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
       function drawSprockets() {
         const holeR = 6,
           gap = 34,
@@ -1054,6 +1075,20 @@
           ctx.restore();
         }
       }
+      function contentTypeLabel() {
+        const types = new Set(movies.map((m) => m.mediaType));
+        if (types.size === 1) {
+          const labels = {
+            movie: "FILMS",
+            tv: "SÉRIES",
+            person: "ACTEURS",
+            game: "JEUX",
+          };
+          return labels[[...types][0]] || "TITRES";
+        }
+        return "TITRES";
+      }
+
       function drawSplash() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "#0a0a0b";
@@ -1068,7 +1103,7 @@
         ctx.font = "600 22px ui-monospace, Menlo, monospace";
         ctx.fillStyle = "#e8a33d";
         ctx.fillText(
-          `${movies.length} FILMS À DEVINER`,
+          `${movies.length} ${contentTypeLabel()} À DEVINER`,
           canvas.width / 2,
           canvas.height / 2 + 40,
         );
@@ -1086,7 +1121,7 @@
           ctx.fillStyle = "#111113";
           ctx.fillRect(mainW, 0, colW, canvas.height);
         }
-        drawCover(m.backdropImgs[imgIdx], 0, 0, mainW, canvas.height);
+        drawContain(m.backdropImgs[imgIdx], 0, 0, mainW, canvas.height);
 
         const g = ctx.createLinearGradient(
           0,
@@ -1123,10 +1158,22 @@
         const px = (canvas.width - posterW) / 2;
         const py = 90;
         if (m.posterImg) {
+          const ir = m.posterImg.width / m.posterImg.height;
+          const boxRatio = posterW / posterH;
+          let dw, dh;
+          if (ir > boxRatio) {
+            dw = posterW;
+            dh = posterW / ir;
+          } else {
+            dh = posterH;
+            dw = posterH * ir;
+          }
+          const dx = px + (posterW - dw) / 2;
+          const dy = py + (posterH - dh) / 2;
           ctx.save();
           ctx.shadowColor = "rgba(0,0,0,0.6)";
           ctx.shadowBlur = 30;
-          ctx.drawImage(m.posterImg, px, py, posterW, posterH);
+          ctx.drawImage(m.posterImg, dx, dy, dw, dh);
           ctx.restore();
         }
 
@@ -1271,14 +1318,13 @@
           );
           const categories = [...selectedCategories].join(",");
           const exclude = getSeenIds().join(",");
-          const episodeStillsParam = useEpisodeStills ? "1" : "0";
 
           setStatus(
-            `Récupération d\u2019un lot de ${count} films (${imagesPerFilm} images chacun)…`,
+            `Récupération d\u2019un lot de ${count} titres (${imagesPerFilm} images chacun)…`,
           );
-          setStagePlaceholder("Récupération de la liste des films…");
+          setStagePlaceholder("Récupération de la liste des titres…");
           const res = await fetch(
-            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}&episodeStills=${episodeStillsParam}`,
+            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}`,
           );
           if (!res.ok)
             throw new Error((await res.json()).error || res.statusText);
@@ -1292,7 +1338,7 @@
           }
           if (data.excludedCount > 0) {
             setStatus(
-              `${data.excludedCount} film(s) écarté(s) faute d\u2019image sans texte exploitable.`,
+              `${data.excludedCount} titre(s) écarté(s) faute d\u2019image sans texte exploitable.`,
             );
           }
 
@@ -1398,10 +1444,10 @@
             .map((m, i) => `<span>${i + 1}. ${m.title}</span>`)
             .join("<br>");
           answersEl.classList.add("show");
-          btnToggleAnswers.textContent = "Masquer la liste des films";
+          btnToggleAnswers.textContent = "Masquer la liste des titres";
         } else {
           answersEl.classList.remove("show");
-          btnToggleAnswers.textContent = "Voir la liste des films";
+          btnToggleAnswers.textContent = "Voir la liste des titres";
         }
       });
 
