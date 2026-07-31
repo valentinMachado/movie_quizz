@@ -13,6 +13,12 @@ const MIN_IMAGES_PER_FILM = 1;
 const MAX_IMAGES_PER_FILM = 6;
 const IMAGE_FETCH_CONCURRENCY = 8;
 
+// mode dev (--dev) : réduit le nombre de pages récupérées par catégorie pour
+// démarrer vite en local (moins de requêtes TMDb/IGDB, donc moins d'attente
+// sur le throttle global)
+const DEV_MODE = process.argv.includes("--dev");
+const DEV_MAX_PAGES = 1;
+
 if (!TMDB_KEY) {
   console.error("TMDB_API_KEY manquante dans .env");
   process.exit(1);
@@ -560,6 +566,19 @@ function urlFor(pathAndQuery, page) {
 }
 
 async function buildCategoryDefs() {
+  // mode dev : seulement les listes "populaires" de chaque média, aucun appel
+  // genres/décennies (ce sont eux qui multiplient le nombre de catégories)
+  if (DEV_MODE) {
+    const devDefs = {
+      ...STATIC_LISTS,
+      ...TV_STATIC_LISTS,
+      ...PERSON_STATIC_LISTS,
+      ...MUSIC_STATIC_LISTS,
+    };
+    if (igdbEnabled) Object.assign(devDefs, GAME_STATIC_LISTS);
+    return devDefs;
+  }
+
   const defs = {
     ...STATIC_LISTS,
     ...DECADE_LISTS,
@@ -708,6 +727,11 @@ async function fetchCategory(def) {
 
 async function refreshReservoir() {
   CATEGORIES = await buildCategoryDefs();
+  if (DEV_MODE) {
+    for (const def of Object.values(CATEGORIES)) {
+      if (def.pages) def.pages = Math.min(def.pages, DEV_MAX_PAGES);
+    }
+  }
   const next = {};
   for (const [key, def] of Object.entries(CATEGORIES)) {
     try {
@@ -722,7 +746,11 @@ async function refreshReservoir() {
     (list) => list.length > 0,
   );
   console.log(
-    `Réservoir rafraîchi : ${Object.keys(CATEGORIES).length} catégories.`,
+    `Réservoir rafraîchi : ${Object.keys(CATEGORIES).length} catégories.${
+      DEV_MODE
+        ? ` (mode dev : listes "populaires" uniquement, ${DEV_MAX_PAGES} page/catégorie max)`
+        : ""
+    }`,
   );
 }
 

@@ -645,17 +645,31 @@
       }
       function totalDurationSec() {
         // la musique n'utilise ni images/titre ni temps/image, juste la
-        // longueur de l'extrait — l'estimation est exacte pour un quiz 100%
-        // musique, approximative si mélangé avec d'autres types
-        const onlyMusic =
-          activeContentTypes.size === 1 && activeContentTypes.has("music");
-        if (onlyMusic) {
-          return currentCount() * (currentMusicClipSec() + currentRevealSec());
-        }
-        return (
-          currentCount() *
-          (currentImagesPerFilm() * currentImageSec() + currentRevealSec())
+        // longueur de l'extrait : sa durée par item diffère de celle des
+        // autres médias. Le lot final pioche dans le pool fusionné des
+        // catégories sélectionnées, donc on pondère par la part de musique
+        // dans ce pool plutôt que de tout calculer avec la formule "image"
+        const musicItemSec = currentMusicClipSec() + currentRevealSec();
+        const otherItemSec =
+          currentImagesPerFilm() * currentImageSec() + currentRevealSec();
+
+        const selected = availableCategories.filter((c) =>
+          selectedCategories.has(c.key),
         );
+        const totalAvailable = selected.reduce((s, c) => s + c.available, 0);
+        const musicAvailable = selected
+          .filter((c) => c.mediaType === "music")
+          .reduce((s, c) => s + c.available, 0);
+        const musicFraction =
+          totalAvailable > 0
+            ? musicAvailable / totalAvailable
+            : activeContentTypes.size === 1 && activeContentTypes.has("music")
+              ? 1
+              : 0;
+
+        const avgItemSec =
+          musicFraction * musicItemSec + (1 - musicFraction) * otherItemSec;
+        return currentCount() * avgItemSec;
       }
       function updateDurationHint() {
         durationHint.textContent = `Durée estimée : ${formatDuration(totalDurationSec())} · max disponible : ${currentMaxAvailable}`;
