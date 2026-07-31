@@ -360,6 +360,23 @@ const GAME_DECADE_LISTS = {
   },
 };
 
+// musique — charts Apple Music (RSS, aucune clé), complétés par l'API Lookup
+// iTunes pour récupérer previewUrl (l'extrait audio, absent du flux RSS)
+const MUSIC_STATIC_LISTS = {
+  music_popular_fr: {
+    country: "fr",
+    label: "Populaire (France)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_us: {
+    country: "us",
+    label: "Populaire (US)",
+    group: "liste",
+    mediaType: "music",
+  },
+};
+
 let CATEGORIES = { ...STATIC_LISTS };
 let reservoirByCategory = {};
 let reservoirReady = false;
@@ -561,6 +578,7 @@ async function buildCategoryDefs() {
       console.error("Erreur récupération des genres IGDB:", e.message);
     }
   }
+  Object.assign(defs, MUSIC_STATIC_LISTS);
   return defs;
 }
 
@@ -587,8 +605,53 @@ async function fetchGameCategory(def) {
   return [...seen.values()];
 }
 
+// musique : le flux RSS Apple donne le classement mais pas l'extrait audio —
+// on complète via l'API Lookup iTunes (par lots d'IDs) pour récupérer previewUrl
+async function fetchMusicCategory(def) {
+  const chartUrl = `https://rss.applemarketingtools.com/api/v2/${def.country}/music/most-played/100/songs.json`;
+  const chartRes = await fetch(chartUrl);
+  if (!chartRes.ok)
+    throw new Error(`Apple RSS ${chartRes.status} sur ${chartUrl}`);
+  const chartData = await chartRes.json();
+  const ids = (chartData.feed?.results || []).map((i) => i.id).filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const entries = new Map();
+  const batchSize = 150;
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batchIds = ids.slice(i, i + batchSize).join(",");
+    const lookupRes = await fetch(
+      `https://itunes.apple.com/lookup?id=${batchIds}&entity=song`,
+    );
+    if (!lookupRes.ok) continue;
+    const lookupData = await lookupRes.json();
+    for (const t of lookupData.results || []) {
+      if (
+        !t.previewUrl ||
+        !t.trackName ||
+        !t.artistName ||
+        !t.artworkUrl100 ||
+        entries.has(t.trackId)
+      )
+        continue;
+      entries.set(t.trackId, {
+        id: t.trackId,
+        title: `${t.artistName} — ${t.trackName}`,
+        artist: t.artistName,
+        track: t.trackName,
+        mediaType: "music",
+        previewUrl: t.previewUrl,
+        // artworkUrl100 est en 100x100 par défaut ; on force une résolution plus grande
+        posterUrl: t.artworkUrl100.replace("100x100", "600x600"),
+      });
+    }
+  }
+  return [...entries.values()];
+}
+
 async function fetchCategory(def) {
   if (def.mediaType === "game") return fetchGameCategory(def);
+  if (def.mediaType === "music") return fetchMusicCategory(def);
   const seen = new Map();
   for (let page = 1; page <= def.pages; page++) {
     const data = await tmdbJSON(urlFor(def.pathAndQuery, page));
@@ -865,6 +928,18 @@ async function selectMoviesWithBackdrops(
       batch,
       IMAGE_FETCH_CONCURRENCY,
       async (m) => {
+        if (m.mediaType === "music") {
+          // pas d'image à récupérer : l'extrait audio est déjà connu depuis le réservoir
+          return {
+            id: m.id,
+            title: m.title,
+            artist: m.artist,
+            track: m.track,
+            mediaType: "music",
+            previewUrl: m.previewUrl,
+            posterUrl: m.posterUrl,
+          };
+        }
         const imageUrls = await fetchExtraBackdrops(m, imagesPerFilm);
         return imageUrls.length > 0
           ? {

@@ -372,6 +372,26 @@
               value="5"
             /><span class="settings-label" style="min-width: auto">sec</span>
           </div>
+          <div class="settings-row">
+            <span class="settings-label">Extrait audio</span>
+            <input
+              type="range"
+              id="musicClipSecRange"
+              min="3"
+              max="30"
+              step="1"
+              value="10"
+            />
+            <input
+              type="number"
+              id="musicClipSecNumber"
+              min="3"
+              max="30"
+              value="10"
+            /><span class="settings-label" style="min-width: auto"
+              >sec (musique uniquement, max 30)</span
+            >
+          </div>
 
           <div class="chip-group">
             <span class="chip-group-label">Presets</span>
@@ -488,6 +508,10 @@
             "game_decade_1990",
           ],
         },
+        {
+          label: "Musique populaire",
+          categories: ["music_popular_fr", "music_popular_us"],
+        },
       ];
 
       const DIFFICULTIES = [
@@ -534,6 +558,8 @@
       const imageSecNumber = document.getElementById("imageSecNumber");
       const revealSecRange = document.getElementById("revealSecRange");
       const revealSecNumber = document.getElementById("revealSecNumber");
+      const musicClipSecRange = document.getElementById("musicClipSecRange");
+      const musicClipSecNumber = document.getElementById("musicClipSecNumber");
       const chipsListes = document.getElementById("chipsListes");
       const chipsDecades = document.getElementById("chipsDecades");
       const chipsGenres = document.getElementById("chipsGenres");
@@ -608,6 +634,9 @@
       function currentRevealSec() {
         return parseInt(revealSecNumber.value, 10) || 5;
       }
+      function currentMusicClipSec() {
+        return Math.min(30, parseInt(musicClipSecNumber.value, 10) || 10);
+      }
 
       function formatDuration(totalSec) {
         const m = Math.floor(totalSec / 60),
@@ -615,6 +644,14 @@
         return `${m} min ${s.toString().padStart(2, "0")}`;
       }
       function totalDurationSec() {
+        // la musique n'utilise ni images/titre ni temps/image, juste la
+        // longueur de l'extrait — l'estimation est exacte pour un quiz 100%
+        // musique, approximative si mélangé avec d'autres types
+        const onlyMusic =
+          activeContentTypes.size === 1 && activeContentTypes.has("music");
+        if (onlyMusic) {
+          return currentCount() * (currentMusicClipSec() + currentRevealSec());
+        }
         return (
           currentCount() *
           (currentImagesPerFilm() * currentImageSec() + currentRevealSec())
@@ -650,6 +687,7 @@
           imagesPerFilm: currentImagesPerFilm(),
           imageSec: currentImageSec(),
           revealSec: currentRevealSec(),
+          musicClipSec: currentMusicClipSec(),
           contentTypes: [...activeContentTypes],
           categories: [...selectedCategories],
         };
@@ -683,10 +721,18 @@
           revealSecNumber.value = s.revealSec;
           revealSecRange.value = s.revealSec;
         }
+        if (s.musicClipSec) {
+          musicClipSecNumber.value = s.musicClipSec;
+          musicClipSecRange.value = s.musicClipSec;
+        }
         if (Array.isArray(s.contentTypes)) {
           const valid = s.contentTypes.filter(
             (t) =>
-              t === "movie" || t === "tv" || t === "person" || t === "game",
+              t === "movie" ||
+              t === "tv" ||
+              t === "person" ||
+              t === "game" ||
+              t === "music",
           );
           if (valid.length) activeContentTypes = new Set(valid);
         }
@@ -722,6 +768,7 @@
           { key: "tv", label: "Séries" },
           { key: "person", label: "Acteurs" },
           { key: "game", label: "Jeux vidéo" },
+          { key: "music", label: "Musique" },
         ];
         for (const opt of options) {
           const chip = document.createElement("span");
@@ -748,6 +795,7 @@
                 ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
                 ...(typeActive("person") ? ["person_popular"] : []),
                 ...(typeActive("game") ? ["game_popular"] : []),
+                ...(typeActive("music") ? ["music_popular_fr"] : []),
               ];
               selectedCategories = new Set(
                 fallback.filter((k) =>
@@ -888,9 +936,61 @@
         });
       }
 
+      // --- audio (musique) ---
+      let audioCtx = null;
+      function getAudioCtx() {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: 44100,
+          });
+        }
+        return audioCtx;
+      }
+
+      // découpe un passage aléatoire de `clipSec` dans le buffer décodé (l'extrait
+      // iTunes fait ~30s, on n'en garde qu'une fenêtre pour ne pas dépasser la
+      // durée réglée par l'utilisateur)
+      function trimAudioBuffer(ctx, buffer, clipSec) {
+        const sr = buffer.sampleRate;
+        const totalFrames = buffer.length;
+        const clipFrames = Math.min(totalFrames, Math.round(clipSec * sr));
+        const maxStart = Math.max(0, totalFrames - clipFrames);
+        const startFrame = Math.floor(Math.random() * (maxStart + 1));
+        const trimmed = ctx.createBuffer(
+          buffer.numberOfChannels,
+          clipFrames,
+          sr,
+        );
+        for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+          const srcData = buffer
+            .getChannelData(ch)
+            .subarray(startFrame, startFrame + clipFrames);
+          trimmed.copyToChannel(srcData, ch);
+        }
+        return trimmed;
+      }
+
+      async function loadAndTrimAudio(url, clipSec) {
+        const ctx = getAudioCtx();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Extrait audio illisible: " + url);
+        const arrayBuffer = await res.arrayBuffer();
+        const decoded = await ctx.decodeAudioData(arrayBuffer);
+        return trimAudioBuffer(ctx, decoded, clipSec);
+      }
+
+      // silence de la durée voulue, même format que les extraits musicaux —
+      // sert à combler la piste audio pendant les segments non musicaux
+      function silentBuffer(durMs) {
+        const ctx = getAudioCtx();
+        const frames = Math.max(1, Math.round((durMs / 1000) * ctx.sampleRate));
+        return ctx.createBuffer(2, frames, ctx.sampleRate);
+      }
+
       async function preloadAll(picked) {
         const totalTasks = picked.reduce(
-          (sum, m) => sum + m.imageUrls.length + 1,
+          (sum, m) =>
+            sum + (m.mediaType === "music" ? 2 : m.imageUrls.length + 1),
           0,
         );
         const results = new Array(picked.length);
@@ -907,6 +1007,29 @@
           while (idx < picked.length) {
             const my = idx++;
             const m = picked[my];
+            if (m.mediaType === "music") {
+              const [audioBuffer, posterImg] = await Promise.all([
+                loadAndTrimAudio(m.previewUrl, currentMusicClipSec()).then(
+                  (buf) => {
+                    bump();
+                    return buf;
+                  },
+                ),
+                loadImage(m.posterUrl).then((img) => {
+                  bump();
+                  return img;
+                }),
+              ]);
+              results[my] = {
+                title: m.title,
+                mediaType: "music",
+                artist: m.artist,
+                track: m.track,
+                audioBuffer,
+                posterImg,
+              };
+              continue;
+            }
             const [backdropImgs, posterImg] = await Promise.all([
               Promise.all(
                 m.imageUrls.map((url) =>
@@ -937,7 +1060,7 @@
       }
 
       // le timeline démarre par un écran splash, puis enchaîne les films
-      function buildTimeline(imageMs, revealMs, splashMs) {
+      function buildTimeline(imageMs, revealMs, splashMs, musicClipMs) {
         const tl = [];
         let t = 0;
         if (splashMs > 0) {
@@ -945,6 +1068,23 @@
           t += splashMs;
         }
         movies.forEach((m, i) => {
+          if (m.mediaType === "music") {
+            tl.push({
+              type: "music-guess",
+              movieIdx: i,
+              start: t,
+              dur: musicClipMs,
+            });
+            t += musicClipMs;
+            tl.push({
+              type: "music-reveal",
+              movieIdx: i,
+              start: t,
+              dur: revealMs,
+            });
+            t += revealMs;
+            return;
+          }
           const filmGuessStart = t;
           const filmGuessDur = m.backdropImgs.length * imageMs;
           m.backdropImgs.forEach((_, imgIdx) => {
@@ -1197,14 +1337,96 @@
           canvas.height - 58,
         );
       }
+      function drawMusicGuess(seg, withinMs) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0a0a0b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawBars("#e8a33d");
+
+        ctx.font = "700 46px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#ede8de";
+        ctx.textAlign = "center";
+        ctx.fillText("♪ EN ÉCOUTE…", canvas.width / 2, canvas.height / 2 - 10);
+
+        drawGlobalProgress(withinMs / seg.dur, canvas.width);
+
+        ctx.font = "600 26px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#ede8de";
+        ctx.textAlign = "left";
+        ctx.fillText(
+          `N° ${seg.movieIdx + 1} / ${movies.length}`,
+          50,
+          canvas.height - 58,
+        );
+      }
+
+      function drawMusicReveal(m, filmIdx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0a0a0b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // pochette carrée, contain-fit dans une boîte carrée (même logique
+        // que le poster des autres types, juste un ratio 1:1 au lieu de 2:3)
+        const boxSize = canvas.height - 260;
+        const bx = (canvas.width - boxSize) / 2;
+        const by = 80;
+        if (m.posterImg) {
+          const ir = m.posterImg.width / m.posterImg.height;
+          let dw, dh;
+          if (ir > 1) {
+            dw = boxSize;
+            dh = boxSize / ir;
+          } else {
+            dh = boxSize;
+            dw = boxSize * ir;
+          }
+          const dx = bx + (boxSize - dw) / 2;
+          const dy = by + (boxSize - dh) / 2;
+          ctx.save();
+          ctx.shadowColor = "rgba(0,0,0,0.6)";
+          ctx.shadowBlur = 30;
+          ctx.drawImage(m.posterImg, dx, dy, dw, dh);
+          ctx.restore();
+        }
+
+        drawBars("#4c8a5c");
+        ctx.font = "600 20px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#4c8a5c";
+        ctx.textAlign = "center";
+        ctx.fillText("RÉPONSE", canvas.width / 2, 62);
+
+        ctx.font = "700 32px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#ede8de";
+        ctx.textAlign = "center";
+        ctx.fillText(m.artist, canvas.width / 2, canvas.height - 86);
+
+        ctx.font = "500 24px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#e8a33d";
+        ctx.fillText(m.track, canvas.width / 2, canvas.height - 55);
+
+        ctx.font = "600 22px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#6b6b70";
+        ctx.textAlign = "left";
+        ctx.fillText(
+          `N° ${filmIdx + 1} / ${movies.length}`,
+          50,
+          canvas.height - 58,
+        );
+      }
+
       function drawSegment(seg, withinMs) {
         if (seg.type === "splash") {
           drawSplash();
           return;
         }
+        if (seg.type === "music-guess") {
+          drawMusicGuess(seg, withinMs);
+          return;
+        }
         const m = movies[seg.movieIdx];
         if (!m) return;
         if (seg.type === "guess") drawGuess(m, seg, withinMs);
+        else if (seg.type === "music-reveal") drawMusicReveal(m, seg.movieIdx);
         else drawReveal(m, seg.movieIdx);
       }
       function findSegment(elapsed) {
@@ -1236,7 +1458,26 @@
         });
         output.addVideoTrack(videoSource);
 
+        const audioSource = new Mediabunny.AudioBufferSource({
+          codec: "aac",
+          bitrate: Mediabunny.QUALITY_HIGH,
+        });
+        output.addAudioTrack(audioSource);
+
         await output.start();
+
+        // piste audio : un buffer par segment de la timeline — l'extrait
+        // musical pendant les segments "music-guess", du silence calibré
+        // partout ailleurs pour garder l'audio synchronisé avec la vidéo
+        setStatus("Préparation de la piste audio…", "rec");
+        for (const seg of timeline) {
+          if (seg.type === "music-guess") {
+            await audioSource.add(movies[seg.movieIdx].audioBuffer);
+          } else {
+            await audioSource.add(silentBuffer(seg.dur));
+          }
+        }
+        audioSource.close();
 
         for (let i = 0; i < totalFrames; i++) {
           const elapsedMs = (i / fps) * 1000;
@@ -1251,6 +1492,7 @@
             await new Promise((r) => setTimeout(r, 0)); // laisse respirer l'UI/event loop
           }
         }
+        videoSource.close();
 
         await output.finalize();
         const buffer = output.target.buffer;
@@ -1342,7 +1584,7 @@
             );
           }
 
-          setStagePlaceholder("Préchargement des images…");
+          setStagePlaceholder("Préchargement des images et extraits audio…");
           movies = await preloadAll(data.movies);
           addSeenIds(data.movies.map((m) => m.id));
 
@@ -1350,15 +1592,25 @@
             currentImageSec() * 1000,
             currentRevealSec() * 1000,
             CFG.splashMs,
+            currentMusicClipSec() * 1000,
           );
           timeline = built.timeline;
           totalDurationMs = built.total;
 
+          const hasMusic = movies.some((m) => m.mediaType === "music");
           setStagePlaceholder(
             supportsFastEncode
               ? "Rendu rapide en cours (canvas invisible)…"
-              : "Rendu en cours (temps réel, navigateur non compatible WebCodecs)…",
+              : hasMusic
+                ? "Rendu en cours (temps réel — attention, ce mode de repli ne supporte pas encore l'audio, la vidéo sera muette)…"
+                : "Rendu en cours (temps réel, navigateur non compatible WebCodecs)…",
           );
+          if (!supportsFastEncode && hasMusic) {
+            setStatus(
+              "Ton navigateur ne supporte pas le rendu rapide : la vidéo sera générée sans le son des extraits musicaux.",
+              "err",
+            );
+          }
           setProgress(0);
 
           const { blob, ext } = supportsFastEncode
@@ -1431,6 +1683,16 @@
       });
       revealSecNumber.addEventListener("input", () => {
         revealSecRange.value = revealSecNumber.value;
+        updateDurationHint();
+        saveSettings();
+      });
+      musicClipSecRange.addEventListener("input", () => {
+        musicClipSecNumber.value = musicClipSecRange.value;
+        updateDurationHint();
+        saveSettings();
+      });
+      musicClipSecNumber.addEventListener("input", () => {
+        musicClipSecRange.value = musicClipSecNumber.value;
         updateDurationHint();
         saveSettings();
       });
