@@ -378,7 +378,7 @@
               type="range"
               id="musicClipSecRange"
               min="3"
-              max="30"
+              max="28"
               step="1"
               value="10"
             />
@@ -386,10 +386,10 @@
               type="number"
               id="musicClipSecNumber"
               min="3"
-              max="30"
+              max="28"
               value="10"
             /><span class="settings-label" style="min-width: auto"
-              >sec (musique uniquement, max 30)</span
+              >sec (musique, max 28 — 2 sec réservées au fondu de sortie)</span
             >
           </div>
 
@@ -635,7 +635,7 @@
         return parseInt(revealSecNumber.value, 10) || 5;
       }
       function currentMusicClipSec() {
-        return Math.min(30, parseInt(musicClipSecNumber.value, 10) || 10);
+        return Math.min(28, parseInt(musicClipSecNumber.value, 10) || 10);
       }
 
       function formatDuration(totalSec) {
@@ -950,33 +950,47 @@
       // découpe un passage aléatoire de `clipSec` dans le buffer décodé (l'extrait
       // iTunes fait ~30s, on n'en garde qu'une fenêtre pour ne pas dépasser la
       // durée réglée par l'utilisateur)
-      function trimAudioBuffer(ctx, buffer, clipSec) {
+      // découpe un passage aléatoire : `clipSec` d'écoute + `fadeSec` de fondu
+      // supplémentaire qui continuera de jouer (en s'atténuant) pendant l'écran
+      // réponse, plutôt qu'une coupure nette
+      function trimAudioBufferWithFade(ctx, buffer, clipSec, fadeSec) {
         const sr = buffer.sampleRate;
         const totalFrames = buffer.length;
-        const clipFrames = Math.min(totalFrames, Math.round(clipSec * sr));
+        const targetFrames = Math.round((clipSec + fadeSec) * sr);
+        const clipFrames = Math.min(totalFrames, targetFrames);
+        const fadeFrames = Math.min(clipFrames, Math.round(fadeSec * sr));
+        const fadeStart = clipFrames - fadeFrames;
         const maxStart = Math.max(0, totalFrames - clipFrames);
         const startFrame = Math.floor(Math.random() * (maxStart + 1));
+
+        // toujours créé à la durée cible exacte : si l'extrait source est plus
+        // court que demandé, le reste est complété de silence (déjà à 0 par
+        // défaut) plutôt que de raccourcir la piste et désynchroniser la vidéo
         const trimmed = ctx.createBuffer(
           buffer.numberOfChannels,
-          clipFrames,
+          targetFrames,
           sr,
         );
         for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
           const srcData = buffer
             .getChannelData(ch)
             .subarray(startFrame, startFrame + clipFrames);
-          trimmed.copyToChannel(srcData, ch);
+          const dst = trimmed.getChannelData(ch);
+          dst.set(srcData);
+          for (let f = 0; f < fadeFrames; f++) {
+            dst[fadeStart + f] *= 1 - f / fadeFrames;
+          }
         }
         return trimmed;
       }
 
-      async function loadAndTrimAudio(url, clipSec) {
+      async function loadAndTrimAudio(url, clipSec, fadeSec) {
         const ctx = getAudioCtx();
         const res = await fetch(url);
         if (!res.ok) throw new Error("Extrait audio illisible: " + url);
         const arrayBuffer = await res.arrayBuffer();
         const decoded = await ctx.decodeAudioData(arrayBuffer);
-        return trimAudioBuffer(ctx, decoded, clipSec);
+        return trimAudioBufferWithFade(ctx, decoded, clipSec, fadeSec);
       }
 
       // silence de la durée voulue, même format que les extraits musicaux —
@@ -1009,12 +1023,14 @@
             const m = picked[my];
             if (m.mediaType === "music") {
               const [audioBuffer, posterImg] = await Promise.all([
-                loadAndTrimAudio(m.previewUrl, currentMusicClipSec()).then(
-                  (buf) => {
-                    bump();
-                    return buf;
-                  },
-                ),
+                loadAndTrimAudio(
+                  m.previewUrl,
+                  currentMusicClipSec(),
+                  currentRevealSec(),
+                ).then((buf) => {
+                  bump();
+                  return buf;
+                }),
                 loadImage(m.posterUrl).then((img) => {
                   bump();
                   return img;
@@ -1466,13 +1482,23 @@
 
         await output.start();
 
-        // piste audio : un buffer par segment de la timeline — l'extrait
-        // musical pendant les segments "music-guess", du silence calibré
-        // partout ailleurs pour garder l'audio synchronisé avec la vidéo
+        // piste audio : le buffer musical couvre déjà écoute + fondu sur la
+        // réponse (voir trimAudioBufferWithFade), donc on l'ajoute une seule
+        // fois et on saute le segment "music-reveal" suivant qu'il couvre déjà.
+        // Silence calibré partout ailleurs pour garder l'audio synchronisé.
         setStatus("Préparation de la piste audio…", "rec");
-        for (const seg of timeline) {
+        for (let i = 0; i < timeline.length; i++) {
+          const seg = timeline[i];
           if (seg.type === "music-guess") {
             await audioSource.add(movies[seg.movieIdx].audioBuffer);
+            const next = timeline[i + 1];
+            if (
+              next &&
+              next.type === "music-reveal" &&
+              next.movieIdx === seg.movieIdx
+            ) {
+              i++; // déjà couvert par le buffer ajouté ci-dessus
+            }
           } else {
             await audioSource.add(silentBuffer(seg.dur));
           }

@@ -61,42 +61,42 @@ const STATIC_LISTS = {
   popular: {
     pathAndQuery: "movie/popular",
     pages: 15,
-    label: "Populaires",
+    label: "Populaires (Films)",
     group: "liste",
     mediaType: "movie",
   },
   top_rated: {
     pathAndQuery: "movie/top_rated",
     pages: 15,
-    label: "Mieux notés",
+    label: "Mieux notés (Films)",
     group: "liste",
     mediaType: "movie",
   },
   now_playing: {
     pathAndQuery: "movie/now_playing",
     pages: 6,
-    label: "Au cinéma",
+    label: "Au cinéma (Films)",
     group: "liste",
     mediaType: "movie",
   },
   upcoming: {
     pathAndQuery: "movie/upcoming",
     pages: 6,
-    label: "À venir",
+    label: "À venir (Films)",
     group: "liste",
     mediaType: "movie",
   },
   trending_day: {
     pathAndQuery: "trending/movie/day",
     pages: 5,
-    label: "Tendances du jour",
+    label: "Tendances du jour (Films)",
     group: "liste",
     mediaType: "movie",
   },
   trending_week: {
     pathAndQuery: "trending/movie/week",
     pages: 6,
-    label: "Tendances de la semaine",
+    label: "Tendances de la semaine (Films)",
     group: "liste",
     mediaType: "movie",
   },
@@ -108,7 +108,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.lte=1969-12-31&sort_by=popularity.desc",
     pages: 5,
-    label: "Avant 1970",
+    label: "Avant 1970 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -116,7 +116,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.gte=1970-01-01&primary_release_date.lte=1979-12-31&sort_by=popularity.desc",
     pages: 5,
-    label: "Années 1970",
+    label: "Années 1970 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -124,7 +124,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.gte=1980-01-01&primary_release_date.lte=1989-12-31&sort_by=popularity.desc",
     pages: 6,
-    label: "Années 1980",
+    label: "Années 1980 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -132,7 +132,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.gte=1990-01-01&primary_release_date.lte=1999-12-31&sort_by=popularity.desc",
     pages: 6,
-    label: "Années 1990",
+    label: "Années 1990 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -140,7 +140,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.gte=2000-01-01&primary_release_date.lte=2009-12-31&sort_by=popularity.desc",
     pages: 6,
-    label: "Années 2000",
+    label: "Années 2000 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -148,7 +148,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.gte=2010-01-01&primary_release_date.lte=2019-12-31&sort_by=popularity.desc",
     pages: 6,
-    label: "Années 2010",
+    label: "Années 2010 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -156,7 +156,7 @@ const DECADE_LISTS = {
     pathAndQuery:
       "discover/movie?primary_release_date.gte=2020-01-01&sort_by=popularity.desc",
     pages: 6,
-    label: "Années 2020",
+    label: "Années 2020 (Films)",
     group: "decade",
     mediaType: "movie",
   },
@@ -268,11 +268,12 @@ const TV_DECADE_LISTS = {
 };
 
 // acteurs/actrices — même clé TMDb, endpoint /person. Pas de genres ni
-// décennies pertinents pour les personnes, donc une seule liste large.
+// décennies pertinents pour les personnes : on maximise le volume de la
+// seule liste disponible (beaucoup de pages) plutôt que d'inventer des axes.
 const PERSON_STATIC_LISTS = {
   person_popular: {
     pathAndQuery: "person/popular",
-    pages: 20,
+    pages: 40,
     label: "Acteurs populaires",
     group: "liste",
     mediaType: "person",
@@ -361,17 +362,55 @@ const GAME_DECADE_LISTS = {
 };
 
 // musique — charts Apple Music (RSS, aucune clé), complétés par l'API Lookup
-// iTunes pour récupérer previewUrl (l'extrait audio, absent du flux RSS)
+// iTunes pour récupérer previewUrl (l'extrait audio, absent du flux RSS).
+// Un pays = une catégorie, ça sert de substitut aux genres/décennies (que
+// l'API RSS ne permet pas de filtrer proprement sans clé).
 const MUSIC_STATIC_LISTS = {
   music_popular_fr: {
     country: "fr",
-    label: "Populaire (France)",
+    label: "Populaire (Musique, France)",
     group: "liste",
     mediaType: "music",
   },
   music_popular_us: {
     country: "us",
-    label: "Populaire (US)",
+    label: "Populaire (Musique, USA)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_gb: {
+    country: "gb",
+    label: "Populaire (Musique, UK)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_de: {
+    country: "de",
+    label: "Populaire (Musique, Allemagne)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_es: {
+    country: "es",
+    label: "Populaire (Musique, Espagne)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_it: {
+    country: "it",
+    label: "Populaire (Musique, Italie)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_jp: {
+    country: "jp",
+    label: "Populaire (Musique, Japon)",
+    group: "liste",
+    mediaType: "music",
+  },
+  music_popular_br: {
+    country: "br",
+    label: "Populaire (Musique, Brésil)",
     group: "liste",
     mediaType: "music",
   },
@@ -536,7 +575,7 @@ async function buildCategoryDefs() {
       defs[`genre_${g.id}`] = {
         pathAndQuery: `discover/movie?with_genres=${g.id}&sort_by=popularity.desc`,
         pages: 6,
-        label: g.name,
+        label: `${g.name} (Films)`,
         group: "genre",
         mediaType: "movie",
       };
@@ -705,6 +744,72 @@ function mergedPool(categoryKeys) {
     for (const m of reservoirByCategory[cat] || []) merged.set(m.id, m);
   }
   return [...merged.values()];
+}
+
+// répartit `count` aussi équitablement que possible entre les catégories
+// sélectionnées (ex: acteurs + jeux + films populaires -> ~1/3 de chaque),
+// au lieu de piocher dans le pool fusionné où les grosses catégories
+// écraseraient statistiquement les petites. Comble les manques (catégorie
+// trop petite) en piochant ailleurs pour quand même atteindre `count`.
+function stratifiedSelection(categoryKeys, count, excludeIds) {
+  const n = categoryKeys.length;
+  if (n === 0) return [];
+
+  const perCategoryPools = categoryKeys.map((key) =>
+    shuffle(
+      (reservoirByCategory[key] || []).filter((m) => !excludeIds.has(m.id)),
+    ),
+  );
+
+  const baseShare = Math.floor(count / n);
+  const remainder = count - baseShare * n;
+  // le reste (division non entière) est distribué à des catégories tirées
+  // au hasard plutôt que toujours aux premières de la liste
+  const remainderIdx = new Set(
+    shuffle([...Array(n).keys()]).slice(0, remainder),
+  );
+  const shares = perCategoryPools.map(
+    (_, i) => baseShare + (remainderIdx.has(i) ? 1 : 0),
+  );
+
+  const primary = [];
+  const pickedIds = new Set();
+  const poolIdx = new Array(n).fill(0);
+
+  for (let i = 0; i < n; i++) {
+    let taken = 0;
+    while (taken < shares[i] && poolIdx[i] < perCategoryPools[i].length) {
+      const item = perCategoryPools[i][poolIdx[i]++];
+      if (pickedIds.has(item.id)) continue; // déjà pris via une autre catégorie (chevauchement)
+      pickedIds.add(item.id);
+      primary.push(item);
+      taken++;
+    }
+  }
+
+  // comble le manque si une catégorie était trop petite pour sa part
+  if (primary.length < count) {
+    const shortfall = shuffle(
+      perCategoryPools
+        .flatMap((pool, i) => pool.slice(poolIdx[i]))
+        .filter((m) => !pickedIds.has(m.id)),
+    );
+    for (const item of shortfall) {
+      if (primary.length >= count) break;
+      pickedIds.add(item.id);
+      primary.push(item);
+    }
+  }
+
+  // réserve : tout ce qui reste, mélangé — permet à l'appelant de remplacer
+  // les titres dont la récupération d'images échoue, sans sous-livrer
+  const reserve = shuffle(
+    perCategoryPools
+      .flatMap((pool) => pool)
+      .filter((m) => !pickedIds.has(m.id)),
+  );
+
+  return shuffle(primary).concat(reserve);
 }
 
 async function mapWithConcurrency(items, limit, fn) {
@@ -1025,14 +1130,22 @@ app.get("/api/quiz-batch", async (req, res) => {
     (req.query.exclude || "").split(",").filter(Boolean).map(Number),
   );
 
-  let candidates = all.filter((m) => !excludeIds.has(m.id));
+  // si l'historique exclu ne laisse plus assez de films au total (toutes
+  // catégories confondues), on l'ignore et on recycle tout plutôt que de
+  // livrer un quiz incomplet
+  const availableAfterExclude = all.filter((m) => !excludeIds.has(m.id));
+  let effectiveExclude = excludeIds;
   let recycled = false;
-  if (candidates.length < count) {
-    candidates = all;
+  if (availableAfterExclude.length < count) {
+    effectiveExclude = new Set();
     recycled = true;
   }
 
-  const picked = shuffle(candidates);
+  const picked = stratifiedSelection(
+    requestedCategories,
+    count,
+    effectiveExclude,
+  );
   const { movies: withImages, excludedCount } = await selectMoviesWithBackdrops(
     picked,
     count,
