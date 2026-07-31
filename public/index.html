@@ -3,67 +3,219 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movie Quiz</title>
+    <title>Guess It</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0a0a0b" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
-        --bg: #0a0a0b;
-        --panel: #151517;
+        --bg: #0a0a10;
+        --panel: #16151f;
         --cream: #ede8de;
         --amber: #e8a33d;
         --green: #4c8a5c;
-        --muted: #6b6b70;
+        --muted: #7a7a85;
+        --cyan: #4fd1e8;
+        --purple: #9d5ce6;
         --mono:
           ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Consolas,
           monospace;
         --sans:
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --game: "Baloo 2", var(--sans);
       }
       * {
         box-sizing: border-box;
       }
       body {
+        position: relative;
         margin: 0;
         min-height: 100vh;
-        background: radial-gradient(
-          ellipse at 50% -10%,
-          #1a1a1d 0%,
-          var(--bg) 60%
-        );
+        background:
+          radial-gradient(
+            circle at 12% 18%,
+            rgba(79, 209, 232, 0.09),
+            transparent 38%
+          ),
+          radial-gradient(
+            circle at 88% 78%,
+            rgba(157, 92, 230, 0.12),
+            transparent 42%
+          ),
+          radial-gradient(ellipse at 50% -10%, #201c30 0%, var(--bg) 60%);
         color: var(--cream);
         font-family: var(--sans);
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 32px 16px;
+        overflow-x: hidden;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: radial-gradient(
+          rgba(255, 255, 255, 0.045) 1.2px,
+          transparent 1.2px
+        );
+        background-size: 28px 28px;
+        pointer-events: none;
+        z-index: 0;
       }
       .rig {
+        position: relative;
+        z-index: 1;
         width: 100%;
         max-width: 760px;
       }
-      .eyebrow {
+      .topbar {
+        position: absolute;
+        top: -12px;
+        right: 0;
+      }
+      .hero {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        margin: 4px 0 12px;
+      }
+      .hero-logo-wrap {
+        position: relative;
+        display: inline-flex;
+        flex-shrink: 0;
+      }
+      .hero-logo-wrap::before {
+        content: "";
+        position: absolute;
+        inset: -18px;
+        background: radial-gradient(
+          circle,
+          rgba(79, 209, 232, 0.28) 0%,
+          rgba(157, 92, 230, 0.16) 45%,
+          transparent 72%
+        );
+        animation: glow-pulse 4s ease-in-out infinite;
+        z-index: 0;
+      }
+      .hero-logo {
+        position: relative;
+        z-index: 1;
+        display: block;
+        height: 150px;
+        width: auto;
+        animation: logo-float 4.5s ease-in-out infinite;
+        filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.55));
+      }
+      @keyframes logo-float {
+        0%,
+        100% {
+          transform: translateY(0) rotate(-1.5deg);
+        }
+        50% {
+          transform: translateY(-7px) rotate(1.5deg);
+        }
+      }
+      @keyframes glow-pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.1);
+        }
+      }
+      .version-badge {
         font-family: var(--mono);
-        font-size: 12px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--amber);
-        margin: 0 0 6px;
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.02);
+        padding: 3px 9px;
+        border-radius: 20px;
+        white-space: nowrap;
+        opacity: 0.75;
       }
       h1 {
-        font-size: clamp(28px, 5vw, 40px);
-        margin: 0 0 24px;
+        font-family: var(--game);
+        text-align: center;
+        font-size: clamp(30px, 5.5vw, 44px);
+        margin: 0 0 6px;
         font-weight: 800;
-        letter-spacing: -0.02em;
+        letter-spacing: 0.01em;
+        background: linear-gradient(
+          120deg,
+          var(--cream) 30%,
+          var(--cyan) 68%,
+          var(--purple) 100%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-stroke: 1px rgba(0, 0, 0, 0.3);
+        text-shadow:
+          0 3px 0 rgba(0, 0, 0, 0.22),
+          0 10px 24px rgba(79, 209, 232, 0.15);
+      }
+      .stats-line {
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        opacity: 0.75;
+        margin: 22px 0 0;
       }
       .card {
+        position: relative;
         background: var(--panel);
-        border: 1px solid #232326;
-        border-radius: 4px;
+        border: 1px solid rgba(157, 92, 230, 0.22);
+        border-radius: 22px;
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.04) inset,
+          0 30px 70px -24px rgba(0, 0, 0, 0.7),
+          0 0 44px -14px rgba(79, 209, 232, 0.18);
         overflow: hidden;
+      }
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        padding: 2px;
+        border-radius: 22px;
+        background: linear-gradient(
+          135deg,
+          var(--cyan),
+          var(--purple) 55%,
+          var(--amber)
+        );
+        opacity: 0.45;
+        -webkit-mask:
+          linear-gradient(#fff 0 0) content-box,
+          linear-gradient(#fff 0 0);
+        mask:
+          linear-gradient(#fff 0 0) content-box,
+          linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        pointer-events: none;
       }
 
       .settings {
-        padding: 18px 20px;
-        border-bottom: 1px solid #232326;
+        padding: 20px 22px;
+        border-bottom: 1px solid rgba(157, 92, 230, 0.16);
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -82,25 +234,145 @@
         color: var(--muted);
         min-width: 110px;
       }
-      input[type="number"],
-      input[type="text"] {
-        width: 70px;
-        background: #0e0e10;
-        border: 1px solid #2a2a2e;
-        color: var(--cream);
+      input[type="number"] {
+        width: 62px;
+        background: linear-gradient(180deg, #1e1c2a, #131118);
+        border: 1px solid rgba(157, 92, 230, 0.4);
+        color: var(--cyan);
         font-family: var(--mono);
+        font-weight: 700;
         font-size: 14px;
-        padding: 8px 10px;
-        border-radius: 3px;
+        padding: 8px 6px;
+        border-radius: 8px;
+        text-align: center;
         outline: none;
+        box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
+        transition:
+          border-color 0.15s,
+          box-shadow 0.15s;
       }
-      input[type="number"]:focus,
-      input[type="text"]:focus {
-        border-color: var(--amber);
+      input[type="number"]:focus {
+        border-color: var(--cyan);
+        box-shadow:
+          inset 0 2px 5px rgba(0, 0, 0, 0.5),
+          0 0 0 3px rgba(79, 209, 232, 0.2);
       }
+
+      /* piste + curseur des sliders façon "jeu" : jauge dégradée + gemme */
       input[type="range"] {
-        accent-color: var(--amber);
+        -webkit-appearance: none;
+        appearance: none;
         flex: 1 1 140px;
+        height: 10px;
+        border-radius: 20px;
+        background: linear-gradient(
+          90deg,
+          rgba(79, 209, 232, 0.85),
+          rgba(157, 92, 230, 0.85)
+        );
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+        outline: none;
+        cursor: pointer;
+      }
+      input[type="range"]::-webkit-slider-runnable-track {
+        height: 10px;
+        border-radius: 20px;
+        background: transparent;
+      }
+      input[type="range"]::-moz-range-track {
+        height: 10px;
+        border-radius: 20px;
+        background: linear-gradient(
+          90deg,
+          rgba(79, 209, 232, 0.85),
+          rgba(157, 92, 230, 0.85)
+        );
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 22px;
+        height: 22px;
+        margin-top: -6px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.65);
+        background: radial-gradient(
+          circle at 35% 30%,
+          #fff5da 0%,
+          var(--amber) 55%,
+          #a5701f 100%
+        );
+        box-shadow:
+          0 0 0 4px rgba(232, 163, 61, 0.22),
+          0 2px 6px rgba(0, 0, 0, 0.55);
+        cursor: pointer;
+        transition: transform 0.15s;
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 22px;
+        height: 22px;
+        border: 2px solid rgba(255, 255, 255, 0.65);
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 35% 30%,
+          #fff5da 0%,
+          var(--amber) 55%,
+          #a5701f 100%
+        );
+        box-shadow:
+          0 0 0 4px rgba(232, 163, 61, 0.22),
+          0 2px 6px rgba(0, 0, 0, 0.55);
+        cursor: pointer;
+        transition: transform 0.15s;
+      }
+      input[type="range"]:hover::-webkit-slider-thumb,
+      input[type="range"]:focus-visible::-webkit-slider-thumb {
+        transform: scale(1.15);
+      }
+      input[type="range"]:hover::-moz-range-thumb,
+      input[type="range"]:focus-visible::-moz-range-thumb {
+        transform: scale(1.15);
+      }
+
+      /* champ de recherche : fond texturé + loupe + halo violet au focus */
+      .search-wrap {
+        position: relative;
+        flex: 1 1 200px;
+      }
+      .search-wrap .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 13px;
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      input[type="text"].search-input {
+        width: 100%;
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.015) 0px,
+            rgba(255, 255, 255, 0.015) 2px,
+            transparent 2px,
+            transparent 9px
+          ),
+          #131118;
+        border: 1px solid rgba(157, 92, 230, 0.35);
+        color: var(--cream);
+        font-family: var(--sans);
+        font-size: 13px;
+        padding: 9px 12px 9px 32px;
+        border-radius: 10px;
+        outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+      input[type="text"].search-input:focus {
+        border-color: var(--purple);
+        box-shadow: 0 0 0 3px rgba(157, 92, 230, 0.25);
       }
       .chip-group {
         display: flex;
@@ -127,7 +399,8 @@
         font-size: 12px;
         padding: 6px 11px;
         border-radius: 20px;
-        border: 1px solid #2a2a2e;
+        border: 1px solid rgba(157, 92, 230, 0.18);
+        background: rgba(157, 92, 230, 0.05);
         color: var(--muted);
         cursor: pointer;
         user-select: none;
@@ -135,12 +408,44 @@
         transition:
           border-color 0.15s,
           color 0.15s,
-          background 0.15s;
+          background 0.15s,
+          box-shadow 0.15s;
       }
       .chip.active {
         border-color: var(--amber);
         color: var(--amber);
-        background: rgba(232, 163, 61, 0.08);
+        background: rgba(232, 163, 61, 0.1);
+        animation: chip-pop 0.2s ease-out;
+      }
+      /* badges de type de contenu : plus grands, translucides, halo cyan une fois actifs */
+      .chip.chip-type {
+        font-family: var(--sans);
+        font-weight: 600;
+        font-size: 13px;
+        padding: 9px 16px;
+        border-radius: 14px;
+        border: 2px solid rgba(157, 92, 230, 0.25);
+        background: rgba(157, 92, 230, 0.08);
+      }
+      .chip.chip-type.active {
+        border-color: var(--cyan);
+        color: var(--cyan);
+        background: rgba(79, 209, 232, 0.14);
+        box-shadow:
+          0 0 16px rgba(79, 209, 232, 0.35),
+          inset 0 0 12px rgba(79, 209, 232, 0.08);
+      }
+      @keyframes chip-pop {
+        0% {
+          transform: scale(0.92);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+      .chip:focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 2px;
       }
       .chip .count {
         opacity: 0.6;
@@ -180,49 +485,93 @@
 
       .progress {
         height: 3px;
-        background: #232326;
+        background: rgba(157, 92, 230, 0.15);
       }
       .progress-bar {
+        position: relative;
         height: 100%;
         width: 0%;
         background: var(--amber);
         transition: width 0.15s;
+        overflow: hidden;
+      }
+      .progress-bar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(255, 255, 255, 0.55) 50%,
+          transparent 100%
+        );
+        transform: translateX(-100%);
+        animation: shimmer 1.4s ease-in-out infinite;
+      }
+      @keyframes shimmer {
+        100% {
+          transform: translateX(100%);
+        }
       }
       .controls {
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
         align-items: center;
-        padding: 18px 20px;
-        border-top: 1px solid #232326;
+        justify-content: center;
+        padding: 20px 22px;
+        border-top: 1px solid rgba(157, 92, 230, 0.16);
       }
       button {
-        font-family: var(--mono);
-        font-size: 13px;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        padding: 10px 18px;
-        border-radius: 3px;
-        border: 1px solid var(--amber);
-        background: transparent;
-        color: var(--amber);
+        font-family: var(--game);
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        padding: 12px 26px;
+        border-radius: 14px;
+        border: none;
+        background: linear-gradient(135deg, var(--amber), #f0c04d);
+        color: #24160a;
         cursor: pointer;
+        box-shadow:
+          0 6px 0 #a5701f,
+          0 10px 22px rgba(232, 163, 61, 0.35);
+        transition:
+          background 0.15s,
+          color 0.15s,
+          transform 0.12s,
+          box-shadow 0.12s;
       }
       button:hover:not(:disabled) {
-        background: var(--amber);
-        color: #0a0a0b;
+        transform: translateY(-2px);
+        box-shadow:
+          0 8px 0 #a5701f,
+          0 14px 26px rgba(232, 163, 61, 0.4);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(2px) scale(0.98);
+        box-shadow:
+          0 2px 0 #a5701f,
+          0 4px 10px rgba(232, 163, 61, 0.3);
       }
       button:disabled {
         opacity: 0.35;
         cursor: not-allowed;
+        box-shadow: none;
       }
       button.ghost {
-        border-color: #2a2a2e;
-        color: var(--muted);
+        background: rgba(157, 92, 230, 0.1);
+        color: var(--cream);
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
       }
       button.ghost:hover:not(:disabled) {
-        background: #2a2a2e;
-        color: var(--cream);
+        background: rgba(157, 92, 230, 0.18);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 0 rgba(0, 0, 0, 0.3);
+      }
+      button.ghost:active:not(:disabled) {
+        transform: translateY(2px) scale(0.98);
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
       }
       .status {
         font-family: var(--mono);
@@ -284,24 +633,31 @@
   </head>
   <body>
     <div class="rig">
-      <p class="eyebrow">Movie Quiz</p>
+      <div class="topbar">
+        <span class="version-badge" id="appVersion"></span>
+      </div>
+      <div class="hero">
+        <div class="hero-logo-wrap">
+          <img src="/logo.png" alt="Guess It" class="hero-logo" />
+        </div>
+      </div>
       <h1>Configure ton quiz</h1>
-      <p id="statsLine" class="duration-hint" style="margin: -16px 0 16px">
-        Quiz générés au total : —
-      </p>
 
       <div class="card">
         <div class="settings">
           <div class="settings-row">
-            <span class="settings-label">Type</span>
-            <div id="chipsContentType" class="chips"></div>
+            <span class="settings-label" id="typeLabel">Type</span>
+            <div
+              id="chipsContentType"
+              class="chips"
+              role="group"
+              aria-labelledby="typeLabel"
+            ></div>
           </div>
           <div class="settings-row">
-            <span class="settings-label">Difficulté</span>
-            <div id="chipsDifficulty" class="chips"></div>
-          </div>
-          <div class="settings-row">
-            <span class="settings-label">Nombre de titres</span>
+            <label class="settings-label" for="countRange"
+              >Nombre de titres</label
+            >
             <input
               type="range"
               id="countRange"
@@ -317,32 +673,41 @@
               max="100"
               value="10"
             />
+            <span
+              id="countCapNote"
+              class="hint"
+              style="display: none; margin: 0"
+            ></span>
           </div>
-          <div class="settings-row">
-            <span class="settings-label">Images / titre</span>
+          <div class="settings-row" id="rowImagesPerItem">
+            <label class="settings-label" for="imagesPerItemRange"
+              >Images / titre</label
+            >
             <input
               type="range"
-              id="imagesPerFilmRange"
+              id="imagesPerItemRange"
               min="1"
-              max="6"
+              max="5"
               step="1"
               value="3"
             />
             <input
               type="number"
-              id="imagesPerFilmNumber"
+              id="imagesPerItemNumber"
               min="1"
-              max="6"
+              max="5"
               value="3"
             />
           </div>
-          <div class="settings-row">
-            <span class="settings-label">Temps / image</span>
+          <div class="settings-row" id="rowImageSec">
+            <label class="settings-label" for="imageSecRange"
+              >Temps / image</label
+            >
             <input
               type="range"
               id="imageSecRange"
               min="2"
-              max="15"
+              max="10"
               step="1"
               value="5"
             />
@@ -350,12 +715,14 @@
               type="number"
               id="imageSecNumber"
               min="2"
-              max="15"
+              max="10"
               value="5"
             /><span class="settings-label" style="min-width: auto">sec</span>
           </div>
           <div class="settings-row">
-            <span class="settings-label">Temps réponse</span>
+            <label class="settings-label" for="revealSecRange"
+              >Temps réponse</label
+            >
             <input
               type="range"
               id="revealSecRange"
@@ -372,8 +739,10 @@
               value="5"
             /><span class="settings-label" style="min-width: auto">sec</span>
           </div>
-          <div class="settings-row">
-            <span class="settings-label">Extrait audio</span>
+          <div class="settings-row" id="rowMusicClip">
+            <label class="settings-label" for="musicClipSecRange"
+              >Extrait audio</label
+            >
             <input
               type="range"
               id="musicClipSecRange"
@@ -388,34 +757,69 @@
               min="3"
               max="28"
               value="10"
-            /><span class="settings-label" style="min-width: auto"
-              >sec (musique, max 28 — 2 sec réservées au fondu de sortie)</span
+            />
+          </div>
+
+          <div class="settings-row">
+            <label class="settings-label" for="categorySearch"
+              >Rechercher</label
             >
+            <div class="search-wrap">
+              <span class="search-icon" aria-hidden="true">🔎</span>
+              <input
+                type="text"
+                id="categorySearch"
+                class="search-input"
+                placeholder="Filtrer les catégories..."
+                autocomplete="off"
+              />
+            </div>
           </div>
 
           <div class="chip-group">
-            <span class="chip-group-label">Presets</span>
-            <div id="chipsPresets" class="chips"></div>
-          </div>
-
-          <div class="chip-group">
-            <span class="chip-group-label">Listes</span>
-            <div id="chipsListes" class="chips">
+            <span class="chip-group-label" id="listesLabel">Listes</span>
+            <div
+              id="chipsListes"
+              class="chips"
+              role="group"
+              aria-labelledby="listesLabel"
+            >
               <span class="settings-label" style="min-width: auto"
                 >chargement…</span
               >
             </div>
           </div>
           <div class="chip-group">
-            <span class="chip-group-label">Décennies</span>
-            <div id="chipsDecades" class="chips"></div>
+            <span class="chip-group-label" id="decadesLabel">Décennies</span>
+            <div
+              id="chipsDecades"
+              class="chips"
+              role="group"
+              aria-labelledby="decadesLabel"
+            ></div>
           </div>
           <div class="chip-group">
-            <span class="chip-group-label">Genres</span>
-            <div id="chipsGenres" class="chips"></div>
+            <span class="chip-group-label" id="genresLabel">Genres</span>
+            <div
+              id="chipsGenres"
+              class="chips"
+              role="group"
+              aria-labelledby="genresLabel"
+            ></div>
+          </div>
+          <div class="chip-group">
+            <span class="chip-group-label" id="continentsLabel"
+              >Continents</span
+            >
+            <div
+              id="chipsContinents"
+              class="chips"
+              role="group"
+              aria-labelledby="continentsLabel"
+            ></div>
           </div>
 
-          <div id="durationHint" class="duration-hint">
+          <div id="durationHint" class="duration-hint" aria-live="polite">
             Durée estimée : — · max disponible : —
           </div>
         </div>
@@ -432,28 +836,21 @@
         <div class="controls">
           <button id="btnGenerate">Générer le quizz</button>
         </div>
-        <div id="status" class="status">Récupération des catégories…</div>
+        <div id="status" class="status" aria-live="polite">
+          Récupération des catégories…
+        </div>
 
         <div id="resultRow" class="result-row">
-          <a id="downloadLink" download="movie-quiz.mp4"
+          <a id="downloadLink" download="guess-it.mp4"
             >↓ Télécharger la vidéo</a
           >
-          <button id="btnAgain" class="ghost">
-            Nouveau quiz (sans doublons)
-          </button>
           <button id="btnToggleAnswers" class="ghost">
             Voir la liste des titres
           </button>
         </div>
         <div id="answers" class="answers"></div>
       </div>
-
-      <p class="hint">
-        Le rendu se fait sur un canvas invisible, image par image, encodé
-        directement via WebCodecs/Mediabunny (bien plus rapide que le temps
-        réel) — seule la vidéo finale s'affiche, avec les contrôles natifs du
-        navigateur (dont le plein écran).
-      </p>
+      <p id="statsLine" class="stats-line">Quiz générés au total : —</p>
     </div>
 
     <script type="module">
@@ -470,76 +867,14 @@
         console.error("Mediabunny indisponible (CDN down ?):", e);
       }
 
-      const CFG = { preloadConcurrency: 8, fps: 4, splashMs: 3000 };
-      const STORAGE_PREFIX = "moviequiz_seen_";
-      const SETTINGS_KEY = "moviequiz_settings";
-
-      const PRESETS = [
-        { label: "Blockbusters 90s", categories: ["decade_1990", "popular"] },
-        { label: "Classiques", categories: ["before_1970", "decade_1970"] },
-        {
-          label: "Récents",
-          categories: ["now_playing", "upcoming", "trending_week"],
-        },
-        { label: "Horreur", categories: ["genre_27"] },
-        { label: "Comédies", categories: ["genre_35"] },
-        {
-          label: "Séries récentes",
-          categories: ["tv_trending_week", "tv_on_the_air"],
-        },
-        { label: "Séries 90s", categories: ["tv_decade_1990", "tv_popular"] },
-        {
-          label: "Halloween (Films + Séries)",
-          categories: ["genre_27", "tv_genre_9648"],
-        },
-        {
-          label: "Tout confondu, populaires",
-          categories: ["popular", "top_rated", "tv_popular", "tv_top_rated"],
-        },
-        {
-          label: "Jeux populaires",
-          categories: ["game_popular", "game_top_rated"],
-        },
-        {
-          label: "Rétrogaming",
-          categories: [
-            "game_before_1980",
-            "game_decade_1980",
-            "game_decade_1990",
-          ],
-        },
-        {
-          label: "Musique populaire",
-          categories: ["music_popular_fr", "music_popular_us"],
-        },
-      ];
-
-      const DIFFICULTIES = [
-        {
-          label: "Facile",
-          count: 10,
-          imagesPerFilm: 2,
-          imageSec: 8,
-          revealSec: 6,
-          categories: ["popular", "top_rated"],
-        },
-        {
-          label: "Normal",
-          count: 20,
-          imagesPerFilm: 3,
-          imageSec: 5,
-          revealSec: 5,
-          categories: ["popular", "top_rated", "trending_week"],
-        },
-        {
-          label: "Expert",
-          count: 40,
-          imagesPerFilm: 4,
-          imageSec: 3,
-          revealSec: 4,
-          categories: null,
-        },
-      ];
+      const CFG = {
+        preloadConcurrency: 8,
+        drawFps: 12, // cadence de redessin du contenu (hors splash) : photos, textes, etc.
+        encodeFps: 12, // cadence d'encodage/conteneur vidéo (fluidité de lecture, notamment le splash)
+        splashMs: 5000,
+      };
+      const STORAGE_PREFIX = "guessit_seen_";
+      const SETTINGS_KEY = "guessit_settings";
 
       // canvas de rendu, jamais attaché au DOM : sert uniquement de source aux frames encodées
       const canvas = document.createElement("canvas");
@@ -550,9 +885,9 @@
       const stage = document.getElementById("stage");
       const countRange = document.getElementById("countRange");
       const countNumber = document.getElementById("countNumber");
-      const imagesPerFilmRange = document.getElementById("imagesPerFilmRange");
-      const imagesPerFilmNumber = document.getElementById(
-        "imagesPerFilmNumber",
+      const imagesPerItemRange = document.getElementById("imagesPerItemRange");
+      const imagesPerItemNumber = document.getElementById(
+        "imagesPerItemNumber",
       );
       const imageSecRange = document.getElementById("imageSecRange");
       const imageSecNumber = document.getElementById("imageSecNumber");
@@ -563,12 +898,15 @@
       const chipsListes = document.getElementById("chipsListes");
       const chipsDecades = document.getElementById("chipsDecades");
       const chipsGenres = document.getElementById("chipsGenres");
-      const chipsPresets = document.getElementById("chipsPresets");
+      const chipsContinents = document.getElementById("chipsContinents");
       const chipsContentType = document.getElementById("chipsContentType");
-      const chipsDifficulty = document.getElementById("chipsDifficulty");
+      const categorySearch = document.getElementById("categorySearch");
+      const countCapNote = document.getElementById("countCapNote");
+      const rowImagesPerItem = document.getElementById("rowImagesPerItem");
+      const rowImageSec = document.getElementById("rowImageSec");
+      const rowMusicClip = document.getElementById("rowMusicClip");
       const durationHint = document.getElementById("durationHint");
       const btnGenerate = document.getElementById("btnGenerate");
-      const btnAgain = document.getElementById("btnAgain");
       const btnToggleAnswers = document.getElementById("btnToggleAnswers");
       const statusEl = document.getElementById("status");
       const progressBar = document.getElementById("progressBar");
@@ -576,19 +914,53 @@
       const downloadLink = document.getElementById("downloadLink");
       const answersEl = document.getElementById("answers");
       const statsLine = document.getElementById("statsLine");
+      const appVersion = document.getElementById("appVersion");
 
       // état de la session en cours
       let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv','person'}
       let availableCategories = [];
       let selectedCategories = new Set();
+      let categoryFilter = "";
       let currentMaxAvailable = 100;
-      let movies = [];
+      let items = [];
       let timeline = [];
       let totalDurationMs = 0;
       let answersRevealed = false;
+      let splashAudioBuffer = null;
+      let logoImg = null; // logo préchargé une fois, dessiné de façon synchrone par drawSplash
 
       function typeActive(mediaType) {
         return activeContentTypes.has(mediaType);
+      }
+
+      // chip cliquable + accessible clavier (rôle bouton, Entrée/Espace, aria-pressed)
+      function makeChip(innerHTML, active, onActivate, extraClass) {
+        const chip = document.createElement("span");
+        chip.className =
+          "chip" +
+          (extraClass ? " " + extraClass : "") +
+          (active ? " active" : "");
+        chip.innerHTML = innerHTML;
+        chip.setAttribute("role", "button");
+        chip.setAttribute("tabindex", "0");
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+        chip.addEventListener("click", onActivate);
+        chip.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onActivate();
+          }
+        });
+        return chip;
+      }
+
+      // affiche/masque les réglages qui ne s'appliquent pas aux types actifs
+      function updateSettingsVisibility() {
+        const hasMusic = typeActive("music");
+        const hasNonMusic = [...activeContentTypes].some((t) => t !== "music");
+        rowMusicClip.style.display = hasMusic ? "" : "none";
+        rowImagesPerItem.style.display = hasNonMusic ? "" : "none";
+        rowImageSec.style.display = hasNonMusic ? "" : "none";
       }
 
       const supportsFastEncode =
@@ -600,6 +972,7 @@
         try {
           const res = await fetch("/api/stats");
           const data = await res.json();
+          if (data.version) appVersion.textContent = `v${data.version}`;
           let text = `Quiz générés au total : ${data.totalGenerated}`;
           if (data.topCategories && data.topCategories.length) {
             text +=
@@ -625,8 +998,8 @@
       function currentCount() {
         return parseInt(countNumber.value, 10) || 5;
       }
-      function currentImagesPerFilm() {
-        return parseInt(imagesPerFilmNumber.value, 10) || 1;
+      function currentImagesPerItem() {
+        return parseInt(imagesPerItemNumber.value, 10) || 1;
       }
       function currentImageSec() {
         return parseInt(imageSecNumber.value, 10) || 5;
@@ -651,7 +1024,7 @@
         // dans ce pool plutôt que de tout calculer avec la formule "image"
         const musicItemSec = currentMusicClipSec() + currentRevealSec();
         const otherItemSec =
-          currentImagesPerFilm() * currentImageSec() + currentRevealSec();
+          currentImagesPerItem() * currentImageSec() + currentRevealSec();
 
         const selected = availableCategories.filter((c) =>
           selectedCategories.has(c.key),
@@ -698,7 +1071,7 @@
       function saveSettings() {
         const s = {
           count: currentCount(),
-          imagesPerFilm: currentImagesPerFilm(),
+          imagesPerItem: currentImagesPerItem(),
           imageSec: currentImageSec(),
           revealSec: currentRevealSec(),
           musicClipSec: currentMusicClipSec(),
@@ -723,9 +1096,9 @@
           countNumber.value = s.count;
           countRange.value = s.count;
         }
-        if (s.imagesPerFilm) {
-          imagesPerFilmNumber.value = s.imagesPerFilm;
-          imagesPerFilmRange.value = s.imagesPerFilm;
+        if (s.imagesPerItem) {
+          imagesPerItemNumber.value = s.imagesPerItem;
+          imagesPerItemRange.value = s.imagesPerItem;
         }
         if (s.imageSec) {
           imageSecNumber.value = s.imageSec;
@@ -746,7 +1119,9 @@
               t === "tv" ||
               t === "person" ||
               t === "game" ||
-              t === "music",
+              t === "music" ||
+              t === "country" ||
+              t === "painting",
           );
           if (valid.length) activeContentTypes = new Set(valid);
         }
@@ -769,120 +1144,66 @@
         );
         applySavedSettings();
         renderContentTypeChips();
-        renderDifficultyChips();
+        updateSettingsVisibility();
         renderChips();
-        renderPresets();
         await updatePoolSize();
       }
 
       function renderContentTypeChips() {
         chipsContentType.innerHTML = "";
         const options = [
-          { key: "movie", label: "Films" },
-          { key: "tv", label: "Séries" },
-          { key: "person", label: "Acteurs" },
-          { key: "game", label: "Jeux vidéo" },
-          { key: "music", label: "Musique" },
+          { key: "movie", label: "🎬 Films" },
+          { key: "tv", label: "📺 Séries" },
+          { key: "person", label: "🎭 Acteurs" },
+          { key: "game", label: "🎮 Jeux vidéo" },
+          { key: "music", label: "🎵 Musique" },
+          { key: "country", label: "🌍 Pays" },
+          { key: "painting", label: "🎨 Peintres" },
         ];
         for (const opt of options) {
-          const chip = document.createElement("span");
-          chip.className = "chip" + (typeActive(opt.key) ? " active" : "");
-          chip.textContent = opt.label;
-          chip.addEventListener("click", async () => {
-            if (activeContentTypes.has(opt.key)) {
-              if (activeContentTypes.size === 1) return; // garder au moins un type actif
-              activeContentTypes.delete(opt.key);
-            } else {
-              activeContentTypes.add(opt.key);
-            }
-            renderContentTypeChips();
+          const chip = makeChip(
+            opt.label,
+            typeActive(opt.key),
+            async () => {
+              if (activeContentTypes.has(opt.key)) {
+                if (activeContentTypes.size === 1) return; // garder au moins un type actif
+                activeContentTypes.delete(opt.key);
+              } else {
+                activeContentTypes.add(opt.key);
+              }
+              renderContentTypeChips();
+              updateSettingsVisibility();
 
-            selectedCategories = new Set(
-              [...selectedCategories].filter((k) => {
-                const cat = availableCategories.find((c) => c.key === k);
-                return cat && typeActive(cat.mediaType);
-              }),
-            );
-            if (selectedCategories.size === 0) {
-              const fallback = [
-                ...(typeActive("movie") ? ["popular", "top_rated"] : []),
-                ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
-                ...(typeActive("person") ? ["person_popular"] : []),
-                ...(typeActive("game") ? ["game_popular"] : []),
-                ...(typeActive("music") ? ["music_popular_fr"] : []),
-              ];
               selectedCategories = new Set(
-                fallback.filter((k) =>
-                  availableCategories.some((c) => c.key === k),
-                ),
+                [...selectedCategories].filter((k) => {
+                  const cat = availableCategories.find((c) => c.key === k);
+                  return cat && typeActive(cat.mediaType);
+                }),
               );
-            }
+              if (selectedCategories.size === 0) {
+                const fallback = [
+                  ...(typeActive("movie") ? ["popular", "top_rated"] : []),
+                  ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
+                  ...(typeActive("person") ? ["person_popular"] : []),
+                  ...(typeActive("game") ? ["game_popular"] : []),
+                  ...(typeActive("music") ? ["music_popular_fr"] : []),
+                  ...(typeActive("country") ? ["country_all"] : []),
+                  ...(typeActive("painting") ? ["painting_popular"] : []),
+                ];
+                selectedCategories = new Set(
+                  fallback.filter((k) =>
+                    availableCategories.some((c) => c.key === k),
+                  ),
+                );
+              }
 
-            renderChips();
-            renderPresets();
-            await updatePoolSize();
-            saveSettings();
-          });
-          chipsContentType.appendChild(chip);
-        }
-      }
-
-      function renderPresets() {
-        chipsPresets.innerHTML = "";
-        for (const preset of PRESETS) {
-          const valid = preset.categories.filter((c) =>
-            availableCategories.some((ac) => ac.key === c),
+              renderChips();
+              await updatePoolSize();
+              saveSettings();
+            },
+            "chip-type",
           );
-          if (valid.length === 0) continue;
-          // n'affiche que les presets compatibles avec le type de contenu actuel
-          const compatible = valid.every((c) => {
-            const cat = availableCategories.find((ac) => ac.key === c);
-            return typeActive(cat.mediaType);
-          });
-          if (!compatible) continue;
-
-          const chip = document.createElement("span");
-          chip.className = "chip";
-          chip.textContent = preset.label;
-          chip.addEventListener("click", async () => {
-            selectedCategories = new Set(valid);
-            renderChips();
-            await updatePoolSize();
-            saveSettings();
-          });
-          chipsPresets.appendChild(chip);
-        }
-      }
-
-      function renderDifficultyChips() {
-        chipsDifficulty.innerHTML = "";
-        for (const diff of DIFFICULTIES) {
-          const chip = document.createElement("span");
-          chip.className = "chip";
-          chip.textContent = diff.label;
-          chip.addEventListener("click", async () => {
-            countNumber.value = diff.count;
-            countRange.value = diff.count;
-            imagesPerFilmNumber.value = diff.imagesPerFilm;
-            imagesPerFilmRange.value = diff.imagesPerFilm;
-            imageSecNumber.value = diff.imageSec;
-            imageSecRange.value = diff.imageSec;
-            revealSecNumber.value = diff.revealSec;
-            revealSecRange.value = diff.revealSec;
-            if (diff.categories) {
-              const valid = diff.categories.filter((c) =>
-                availableCategories.some(
-                  (ac) => ac.key === c && typeActive(ac.mediaType),
-                ),
-              );
-              if (valid.length) selectedCategories = new Set(valid);
-            }
-            renderChips();
-            updateDurationHint();
-            await updatePoolSize();
-            saveSettings();
-          });
-          chipsDifficulty.appendChild(chip);
+          chipsContentType.appendChild(chip);
         }
       }
 
@@ -891,33 +1212,57 @@
           liste: chipsListes,
           decade: chipsDecades,
           genre: chipsGenres,
+          continent: chipsContinents,
         };
-        chipsListes.innerHTML = "";
-        chipsDecades.innerHTML = "";
-        chipsGenres.innerHTML = "";
+        for (const container of Object.values(groups)) {
+          container.innerHTML = "";
+        }
 
-        const visible = availableCategories.filter((c) =>
-          typeActive(c.mediaType),
+        const needle = categoryFilter.trim().toLowerCase();
+        const visible = availableCategories.filter(
+          (c) =>
+            typeActive(c.mediaType) &&
+            (!needle || c.label.toLowerCase().includes(needle)),
         );
 
         for (const cat of visible) {
           const container = groups[cat.group] || chipsListes;
-          const chip = document.createElement("span");
-          chip.className =
-            "chip" + (selectedCategories.has(cat.key) ? " active" : "");
-          chip.innerHTML = `${cat.label}<span class="count">${cat.available}</span>`;
-          chip.addEventListener("click", async () => {
-            if (selectedCategories.has(cat.key)) {
-              if (selectedCategories.size === 1) return;
-              selectedCategories.delete(cat.key);
-            } else {
-              selectedCategories.add(cat.key);
-            }
-            renderChips();
-            await updatePoolSize();
-            saveSettings();
-          });
+          const chip = makeChip(
+            `${cat.label}<span class="count">${cat.available}</span>`,
+            selectedCategories.has(cat.key),
+            async () => {
+              if (selectedCategories.has(cat.key)) {
+                if (selectedCategories.size === 1) return;
+                selectedCategories.delete(cat.key);
+              } else {
+                selectedCategories.add(cat.key);
+              }
+              renderChips();
+              await updatePoolSize();
+              saveSettings();
+            },
+          );
           container.appendChild(chip);
+        }
+
+        // masque entièrement une section (label compris) dès qu'elle n'a
+        // aucune puce à montrer — que ce soit parce que ce groupe n'existe
+        // pas pour le(s) type(s) actif(s) (ex: "Continents" pour les films)
+        // ou parce que la recherche n'y trouve rien
+        for (const container of Object.values(groups)) {
+          container.closest(".chip-group").style.display = container
+            .children.length
+            ? ""
+            : "none";
+        }
+
+        if (needle && visible.length === 0) {
+          const empty = document.createElement("span");
+          empty.className = "settings-label";
+          empty.style.minWidth = "auto";
+          empty.textContent = "aucun résultat";
+          chipsListes.appendChild(empty);
+          chipsListes.closest(".chip-group").style.display = "";
         }
       }
 
@@ -936,6 +1281,12 @@
         if (currentCount() > clampedMax) {
           countNumber.value = clampedMax;
           countRange.value = clampedMax;
+        }
+        if (clampedMax < 100) {
+          countCapNote.textContent = `Limité à ${clampedMax} (pool des catégories choisies)`;
+          countCapNote.style.display = "inline";
+        } else {
+          countCapNote.style.display = "none";
         }
         updateDurationHint();
       }
@@ -1015,6 +1366,100 @@
         return ctx.createBuffer(2, frames, ctx.sampleRate);
       }
 
+      // --- pistes audio fournies (public/), insérées aux moments clés de la
+      // vidéo pour les catégories non musicales : un son sur le splash, un
+      // sur la phase de devinette (la réponse reste silencieuse) ---
+      const CUE_URLS = {
+        splash: "/video_splash_screen.mp3",
+        guessing: "/video_guessing.mp3",
+      };
+      const cueBufferCache = new Map();
+      // chargée/décodée une seule fois par clé puis mise en cache ; renvoie
+      // null si le fichier est absent (le segment restera alors silencieux
+      // plutôt que de faire échouer toute la génération)
+      function loadCueBuffer(key) {
+        if (!cueBufferCache.has(key)) {
+          cueBufferCache.set(
+            key,
+            (async () => {
+              try {
+                const res = await fetch(CUE_URLS[key]);
+                if (!res.ok) return null;
+                const arrayBuffer = await res.arrayBuffer();
+                return await getAudioCtx().decodeAudioData(arrayBuffer);
+              } catch (e) {
+                console.warn(`Piste audio "${key}" indisponible :`, e.message);
+                return null;
+              }
+            })(),
+          );
+        }
+        return cueBufferCache.get(key);
+      }
+
+      // construit un buffer de exactement `durSec`, en rejouant `source`
+      // depuis son tout début (jamais un point aléatoire) et en la bouclant
+      // si elle est plus courte que la durée demandée ; léger fondu à chaque
+      // raccord de boucle pour éviter un clic
+      function loopBufferToDuration(source, durSec, fadeSec = 0.03) {
+        if (!source) return null;
+        const sr = source.sampleRate;
+        const targetFrames = Math.max(1, Math.round(durSec * sr));
+        const srcFrames = source.length;
+        const fadeFrames = Math.min(
+          Math.floor(srcFrames / 2),
+          Math.round(fadeSec * sr),
+        );
+        const out = getAudioCtx().createBuffer(
+          source.numberOfChannels,
+          targetFrames,
+          sr,
+        );
+        for (let ch = 0; ch < source.numberOfChannels; ch++) {
+          const src = source.getChannelData(ch);
+          const dst = out.getChannelData(ch);
+          for (let i = 0; i < targetFrames; i++) dst[i] = src[i % srcFrames];
+          if (srcFrames < targetFrames) {
+            for (
+              let loopEnd = srcFrames;
+              loopEnd < targetFrames;
+              loopEnd += srcFrames
+            ) {
+              for (
+                let f = 0;
+                f < fadeFrames && loopEnd - f - 1 >= 0 && loopEnd + f < targetFrames;
+                f++
+              ) {
+                const g = f / fadeFrames;
+                dst[loopEnd - 1 - f] *= g;
+                dst[loopEnd + f] *= g;
+              }
+            }
+          }
+        }
+        return out;
+      }
+
+      // baisse le volume de la piste "devinette" (pour ne pas couvrir la
+      // réflexion) et ajoute un fondu de sortie sur les 2 dernières secondes
+      // plutôt qu'une coupure nette avant la réponse
+      function applyGuessingVolumeAndFadeOut(buffer, volume = 0.2, fadeOutSec = 2) {
+        if (!buffer) return null;
+        const sr = buffer.sampleRate;
+        const totalFrames = buffer.length;
+        const fadeFrames = Math.min(totalFrames, Math.round(fadeOutSec * sr));
+        const fadeStart = totalFrames - fadeFrames;
+        for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+          const d = buffer.getChannelData(ch);
+          for (let i = 0; i < totalFrames; i++) {
+            let g = volume;
+            if (i >= fadeStart) g *= 1 - (i - fadeStart) / fadeFrames;
+            d[i] *= g;
+          }
+        }
+        return buffer;
+      }
+
       async function preloadAll(picked) {
         const totalTasks = picked.reduce(
           (sum, m) =>
@@ -1035,16 +1480,41 @@
           while (idx < picked.length) {
             const my = idx++;
             const m = picked[my];
-            if (m.mediaType === "music") {
-              const [audioBuffer, posterImg] = await Promise.all([
-                loadAndTrimAudio(
-                  m.previewUrl,
-                  currentMusicClipSec(),
-                  currentRevealSec(),
-                ).then((buf) => {
-                  bump();
-                  return buf;
-                }),
+            try {
+              if (m.mediaType === "music") {
+                const [audioBuffer, posterImg] = await Promise.all([
+                  loadAndTrimAudio(
+                    m.previewUrl,
+                    currentMusicClipSec(),
+                    currentRevealSec(),
+                  ).then((buf) => {
+                    bump();
+                    return buf;
+                  }),
+                  loadImage(m.posterUrl).then((img) => {
+                    bump();
+                    return img;
+                  }),
+                ]);
+                results[my] = {
+                  title: m.title,
+                  mediaType: "music",
+                  artist: m.artist,
+                  track: m.track,
+                  audioBuffer,
+                  posterImg,
+                };
+                continue;
+              }
+              const [backdropImgs, posterImg] = await Promise.all([
+                Promise.all(
+                  m.imageUrls.map((url) =>
+                    loadImage(url).then((img) => {
+                      bump();
+                      return img;
+                    }),
+                  ),
+                ),
                 loadImage(m.posterUrl).then((img) => {
                   bump();
                   return img;
@@ -1052,41 +1522,28 @@
               ]);
               results[my] = {
                 title: m.title,
-                mediaType: "music",
-                artist: m.artist,
-                track: m.track,
-                audioBuffer,
+                mediaType: m.mediaType,
+                backdropImgs,
                 posterImg,
               };
-              continue;
+            } catch (e) {
+              // une image qui ne charge pas (ex: pare-feu Cloudflare sur les
+              // peintures selon le Referer du navigateur) ne doit pas faire
+              // planter tout le quiz — on exclut juste cet item, comme le
+              // fait déjà le serveur quand une image est introuvable
+              console.warn(
+                `Image illisible pour "${m.title}", exclu du quiz :`,
+                e.message,
+              );
+              results[my] = null;
             }
-            const [backdropImgs, posterImg] = await Promise.all([
-              Promise.all(
-                m.imageUrls.map((url) =>
-                  loadImage(url).then((img) => {
-                    bump();
-                    return img;
-                  }),
-                ),
-              ),
-              loadImage(m.posterUrl).then((img) => {
-                bump();
-                return img;
-              }),
-            ]);
-            results[my] = {
-              title: m.title,
-              mediaType: m.mediaType,
-              backdropImgs,
-              posterImg,
-            };
           }
         }
 
         await Promise.all(
           Array.from({ length: CFG.preloadConcurrency }, worker),
         );
-        return results;
+        return results.filter(Boolean);
       }
 
       // le timeline démarre par un écran splash, puis enchaîne les films
@@ -1097,39 +1554,39 @@
           tl.push({ type: "splash", start: t, dur: splashMs });
           t += splashMs;
         }
-        movies.forEach((m, i) => {
+        items.forEach((m, i) => {
           if (m.mediaType === "music") {
             tl.push({
               type: "music-guess",
-              movieIdx: i,
+              itemIdx: i,
               start: t,
               dur: musicClipMs,
             });
             t += musicClipMs;
             tl.push({
               type: "music-reveal",
-              movieIdx: i,
+              itemIdx: i,
               start: t,
               dur: revealMs,
             });
             t += revealMs;
             return;
           }
-          const filmGuessStart = t;
-          const filmGuessDur = m.backdropImgs.length * imageMs;
+          const itemGuessStart = t;
+          const itemGuessDur = m.backdropImgs.length * imageMs;
           m.backdropImgs.forEach((_, imgIdx) => {
             tl.push({
               type: "guess",
-              movieIdx: i,
+              itemIdx: i,
               imgIdx,
               start: t,
               dur: imageMs,
-              filmGuessStart,
-              filmGuessDur,
+              itemGuessStart,
+              itemGuessDur,
             });
             t += imageMs;
           });
-          tl.push({ type: "reveal", movieIdx: i, start: t, dur: revealMs });
+          tl.push({ type: "reveal", itemIdx: i, start: t, dur: revealMs });
           t += revealMs;
         });
         return { timeline: tl, total: t };
@@ -1192,141 +1649,468 @@
         }
         ctx.drawImage(img, dx, dy, dw, dh);
       }
-      function drawSprockets() {
-        const holeR = 6,
-          gap = 34,
-          y1 = 18,
-          y2 = canvas.height - 18;
-        ctx.fillStyle = "#0a0a0b";
-        for (let x = gap / 2; x < canvas.width; x += gap) {
-          ctx.beginPath();
-          ctx.arc(x, y1, holeR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(x, y2, holeR, 0, Math.PI * 2);
-          ctx.fill();
-        }
+      // --- habillage "jeu" partagé par tous les écrans vidéo (hors splash,
+      // qui a le sien) : reprend la palette et les codes visuels de la page
+      // web (pilules translucides, dégradé cyan->violet, halo, confettis) ---
+
+      function roundedRectPath(x, y, w, h, r) {
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
       }
-      function drawBars(color) {
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, canvas.width, 34);
-        ctx.fillRect(0, canvas.height - 34, canvas.width, 34);
-        drawSprockets();
+
+      // fond dégradé sombre + confettis, pour les écrans où l'arrière-plan
+      // est visible (réponse, musique) — le splash a sa propre variante animée
+      function drawGameBackdrop() {
+        const bg = ctx.createRadialGradient(
+          canvas.width / 2,
+          canvas.height * 0.4,
+          60,
+          canvas.width / 2,
+          canvas.height * 0.4,
+          canvas.width * 0.75,
+        );
+        bg.addColorStop(0, "#201c30");
+        bg.addColorStop(1, "#0a0a10");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
-      function drawGlobalProgress(frac, width) {
+
+      function drawGameParticles(elapsedMs) {
+        for (const p of GAME_PARTICLES) drawGameParticle(p, elapsedMs);
+      }
+
+      // halo lumineux pulsant (cyan -> violet), pour mettre en valeur un
+      // élément central (poster, pochette…) comme sur le splash
+      function drawGlowBurst(cx, cy, elapsedMs, baseR = 260) {
+        const pulse = 0.8 + 0.2 * Math.sin(elapsedMs / 900);
+        const r = baseR * pulse;
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        glow.addColorStop(0, "rgba(79,209,232,0.3)");
+        glow.addColorStop(0.55, "rgba(157,92,230,0.16)");
+        glow.addColorStop(1, "rgba(157,92,230,0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // pilule translucide façon UI web (chip / badge de version) — sert de
+      // compteur "N° x/y" ou toute étiquette courte
+      function drawBadge(text, x, y, opts = {}) {
+        const {
+          align = "left",
+          font = "700 24px ui-monospace, Menlo, monospace",
+          fg = "#ede8de",
+          border = "rgba(157,92,230,0.6)",
+          bg = "rgba(18,16,28,0.72)",
+          paddingX = 20,
+          paddingY = 11,
+        } = opts;
+        ctx.save();
+        ctx.font = font;
+        const textW = ctx.measureText(text).width;
+        const w = textW + paddingX * 2;
+        const h = paddingY * 2 + 22;
+        const bx = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
+        const by = y - h / 2;
+        roundedRectPath(bx, by, w, h, h / 2);
+        ctx.fillStyle = bg;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = border;
+        ctx.stroke();
+        ctx.fillStyle = fg;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, bx + w / 2, by + h / 2 + 1);
+        ctx.restore();
+      }
+
+      // bannière "RÉPONSE" façon jeu télévisé (pilule dégradée + halo)
+      function drawRevealBanner(centerX, y) {
+        ctx.save();
+        ctx.font = "800 26px ui-monospace, Menlo, monospace";
+        const text = "RÉPONSE";
+        const textW = ctx.measureText(text).width;
+        const w = textW + 74;
+        const h = 48;
+        roundedRectPath(centerX - w / 2, y - h / 2, w, h, h / 2);
+        const grad = ctx.createLinearGradient(
+          centerX - w / 2,
+          0,
+          centerX + w / 2,
+          0,
+        );
+        grad.addColorStop(0, "#4fd1e8");
+        grad.addColorStop(1, "#9d5ce6");
+        ctx.fillStyle = grad;
+        ctx.shadowColor = "rgba(157,92,230,0.5)";
+        ctx.shadowBlur = 20;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#0a0a10";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, centerX, y + 2);
+        ctx.restore();
+      }
+
+      // liseré décoratif en dégradé, dessiné en dernier sur chaque écran non-
+      // splash pour rappeler la bordure lumineuse du panneau sur la page web
+      function drawFrameBorder() {
+        ctx.save();
+        const inset = 10;
+        roundedRectPath(
+          inset,
+          inset,
+          canvas.width - inset * 2,
+          canvas.height - inset * 2,
+          24,
+        );
+        const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        grad.addColorStop(0, "rgba(79,209,232,0.4)");
+        grad.addColorStop(0.5, "rgba(157,92,230,0.4)");
+        grad.addColorStop(1, "rgba(232,163,61,0.4)");
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = grad;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // barre de progression façon jauge de jeu : piste sombre, remplissage
+      // en dégradé cyan -> violet avec un léger halo, extrémités arrondies
+      function drawGameProgress(frac, width, y = 46, h = 14) {
         const w = width || canvas.width;
-        const y = 46,
-          h = 10;
-        ctx.fillStyle = "rgba(0,0,0,0.55)";
-        ctx.fillRect(0, y - 5, w, h + 10);
-        ctx.fillStyle = "rgba(255,255,255,0.22)";
-        ctx.fillRect(20, y, w - 40, h);
-        ctx.fillStyle = "#e8a33d";
-        ctx.fillRect(20, y, (w - 40) * Math.min(1, Math.max(0, frac)), h);
+        const pad = 24;
+        const barW = w - pad * 2;
+        ctx.save();
+        roundedRectPath(pad, y, barW, h, h / 2);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fill();
+        const fillW = Math.max(h, barW * Math.min(1, Math.max(0, frac)));
+        roundedRectPath(pad, y, fillW, h, h / 2);
+        const grad = ctx.createLinearGradient(pad, 0, pad + fillW, 0);
+        grad.addColorStop(0, "#4fd1e8");
+        grad.addColorStop(1, "#9d5ce6");
+        ctx.fillStyle = grad;
+        ctx.shadowColor = "rgba(79,209,232,0.55)";
+        ctx.shadowBlur = 12;
+        ctx.fill();
+        ctx.restore();
       }
-      function drawFilmstrip(m, upToIdx, colX, colW) {
-        // miniatures 3x plus grandes, centrées dans leur propre colonne
+
+      function drawSideThumbnails(m, upToIdx, colX, colW) {
+        // miniatures 3x plus grandes, centrées dans leur propre colonne,
+        // coins arrondis + liseré qui alterne cyan/violet façon petites cartes
         const thumbW = 240,
           thumbH = 135,
           gap = 14,
-          startY = 50;
+          startY = 50,
+          r = 14;
         const x = colX + (colW - thumbW) / 2;
         for (let j = 0; j < upToIdx; j++) {
           const y = startY + j * (thumbH + gap);
           if (y + thumbH > canvas.height - 40) break;
           ctx.save();
-          ctx.globalAlpha = 0.85;
-          ctx.fillStyle = "#0a0a0b";
-          ctx.fillRect(x - 4, y - 4, thumbW + 8, thumbH + 8);
+          ctx.globalAlpha = 0.9;
+          roundedRectPath(x - 4, y - 4, thumbW + 8, thumbH + 8, r + 4);
+          ctx.fillStyle = "#111113";
+          ctx.fill();
+          ctx.save();
+          roundedRectPath(x, y, thumbW, thumbH, r);
+          ctx.clip();
           drawCover(m.backdropImgs[j], x, y, thumbW, thumbH);
-          ctx.strokeStyle = "#e8a33d";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, thumbW, thumbH);
+          ctx.restore();
+          roundedRectPath(x, y, thumbW, thumbH, r);
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = j % 2 === 0 ? "#4fd1e8" : "#9d5ce6";
+          ctx.stroke();
           ctx.restore();
         }
       }
       function contentTypeLabel() {
-        const types = new Set(movies.map((m) => m.mediaType));
+        const types = new Set(items.map((m) => m.mediaType));
         if (types.size === 1) {
           const labels = {
             movie: "FILMS",
             tv: "SÉRIES",
             person: "ACTEURS",
             game: "JEUX",
+            country: "PAYS",
+            painting: "PEINTRES",
           };
           return labels[[...types][0]] || "TITRES";
         }
         return "TITRES";
       }
 
-      function drawSplash() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#0a0a0b";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawBars("#e8a33d");
-
-        ctx.font = "800 64px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#ede8de";
-        ctx.textAlign = "center";
-        ctx.fillText("MOVIE QUIZ", canvas.width / 2, canvas.height / 2 - 10);
-
-        ctx.font = "600 22px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#e8a33d";
-        ctx.fillText(
-          `${movies.length} ${contentTypeLabel()} À DEVINER`,
-          canvas.width / 2,
-          canvas.height / 2 + 40,
-        );
+      function easeOutBack(t) {
+        const c1 = 1.70158;
+        const c3 = c1 + 1;
+        return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
       }
+
+      // confettis décoratifs (splash ET écrans réponse/musique) : positions/
+      // couleurs/phases fixées une seule fois au chargement (pas à chaque
+      // frame) pour une animation stable, qui reprend les formes/couleurs du
+      // logo (triangles, losanges, ronds cyan/violet/ambre)
+      const GAME_PARTICLES = Array.from({ length: 18 }, (_, i) => ({
+        xFrac: Math.random(),
+        yFrac: Math.random(),
+        size: 5 + Math.random() * 12,
+        color: ["#4fd1e8", "#9d5ce6", "#e8a33d"][i % 3],
+        phase: Math.random() * Math.PI * 2,
+        driftPx: 14 + Math.random() * 18,
+        driftMs: 1800 + Math.random() * 1600,
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.0015,
+        shape: i % 3 === 0 ? "triangle" : i % 3 === 1 ? "circle" : "diamond",
+      }));
+
+      function drawGameParticle(p, elapsedMs) {
+        const x = p.xFrac * canvas.width;
+        const y =
+          p.yFrac * canvas.height +
+          Math.sin(elapsedMs / p.driftMs + p.phase) * p.driftPx;
+        const rot = p.rot + elapsedMs * p.rotSpeed;
+        const alpha = 0.18 + 0.12 * Math.sin(elapsedMs / 900 + p.phase);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+        ctx.globalAlpha = Math.max(0, alpha);
+        ctx.fillStyle = p.color;
+        const s = p.size;
+        if (p.shape === "triangle") {
+          ctx.beginPath();
+          ctx.moveTo(0, -s);
+          ctx.lineTo(s * 0.87, s * 0.5);
+          ctx.lineTo(-s * 0.87, s * 0.5);
+          ctx.closePath();
+          ctx.fill();
+        } else if (p.shape === "diamond") {
+          ctx.beginPath();
+          ctx.moveTo(0, -s);
+          ctx.lineTo(s, 0);
+          ctx.lineTo(0, s);
+          ctx.lineTo(-s, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.arc(0, 0, s * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // splash animé : logo qui "rebondit" à l'entrée puis flotte doucement,
+      // halo pulsant façon jeu, confettis en fond, sous-titre qui apparaît
+      // une fois le logo posé — repli en texte simple si le logo n'a pas pu
+      // charger
+      function drawSplash(elapsedMs) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const bg = ctx.createRadialGradient(
+          canvas.width / 2,
+          canvas.height * 0.4,
+          60,
+          canvas.width / 2,
+          canvas.height * 0.4,
+          canvas.width * 0.75,
+        );
+        bg.addColorStop(0, "#201c30");
+        bg.addColorStop(1, "#0a0a10");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (const p of GAME_PARTICLES) drawGameParticle(p, elapsedMs);
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height * 0.42;
+
+        const glowPulse = 0.75 + 0.25 * Math.sin(elapsedMs / 700);
+        const glowR = 230 * glowPulse;
+        const glow = ctx.createRadialGradient(
+          centerX,
+          centerY,
+          0,
+          centerX,
+          centerY,
+          glowR,
+        );
+        glow.addColorStop(0, "rgba(79,209,232,0.35)");
+        glow.addColorStop(0.55, "rgba(157,92,230,0.18)");
+        glow.addColorStop(1, "rgba(157,92,230,0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (logoImg) {
+          const enterT = Math.min(1, elapsedMs / 700);
+          const eased = easeOutBack(enterT);
+          const baseSize = 300;
+          const scale = 0.3 + 0.7 * eased;
+          const idleT = Math.max(0, elapsedMs - 700);
+          const bobY = enterT >= 1 ? Math.sin(idleT / 450) * 7 : 0;
+          const rot =
+            enterT < 1 ? (1 - enterT) * -0.16 : Math.sin(idleT / 750) * 0.025;
+          const alpha = Math.min(1, elapsedMs / 220);
+
+          const ir = logoImg.width / logoImg.height;
+          const h = baseSize * scale;
+          const w = h * ir;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.translate(centerX, centerY + bobY);
+          ctx.rotate(rot);
+          ctx.shadowColor = "rgba(0,0,0,0.55)";
+          ctx.shadowBlur = 28;
+          ctx.shadowOffsetY = 10;
+          ctx.drawImage(logoImg, -w / 2, -h / 2, w, h);
+          ctx.restore();
+        } else {
+          ctx.font = "800 64px ui-monospace, Menlo, monospace";
+          ctx.fillStyle = "#ede8de";
+          ctx.textAlign = "center";
+          ctx.fillText("GUESS IT", centerX, centerY);
+        }
+
+        const subT = Math.max(0, Math.min(1, (elapsedMs - 900) / 400));
+        if (subT > 0) {
+          ctx.save();
+          ctx.globalAlpha = subT;
+          const slideY = (1 - subT) * 16;
+          ctx.font = "700 30px ui-monospace, Menlo, monospace";
+          ctx.fillStyle = "#ede8de";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            `${items.length} ${contentTypeLabel()} À DEVINER`,
+            centerX,
+            canvas.height * 0.74 + slideY,
+          );
+          ctx.restore();
+        }
+      }
+      // dessine un poster/pochette avec coins arrondis + ombre portée
+      // correcte (l'ombre est dessinée séparément, avant le clip, sinon le
+      // clip aux coins arrondis coupe aussi l'ombre) + liseré violet
+      function drawFramedImage(img, dx, dy, dw, dh, radius = 18) {
+        ctx.save();
+        ctx.shadowColor = "rgba(0,0,0,0.6)";
+        ctx.shadowBlur = 30;
+        ctx.fillStyle = "#000";
+        roundedRectPath(dx, dy, dw, dh, radius);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        roundedRectPath(dx, dy, dw, dh, radius);
+        ctx.clip();
+        ctx.drawImage(img, dx, dy, dw, dh);
+        ctx.restore();
+
+        ctx.save();
+        roundedRectPath(dx, dy, dw, dh, radius);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(157,92,230,0.6)";
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // petit visualiseur "égaliseur" pour l'écran musique, purement
+      // décoratif (basé sur des sinusoïdes déphasées par barre, pas une
+      // vraie analyse audio) mais donne un vrai feeling "jeu musical"
+      function drawEqualizer(centerX, centerY, elapsedMs, barCount = 9) {
+        const barW = 20,
+          gap = 12,
+          maxH = 130;
+        const totalW = barCount * barW + (barCount - 1) * gap;
+        const startX = centerX - totalW / 2;
+        const colors = ["#4fd1e8", "#9d5ce6", "#e8a33d"];
+        for (let i = 0; i < barCount; i++) {
+          const freq = 240 + i * 53;
+          const phase = i * 1.7;
+          const t = (Math.sin(elapsedMs / freq + phase) + 1) / 2;
+          const h = 16 + t * maxH;
+          const x = startX + i * (barW + gap);
+          const y = centerY - h / 2;
+          roundedRectPath(x, y, barW, h, barW / 2);
+          ctx.fillStyle = colors[i % colors.length];
+          ctx.fill();
+        }
+      }
+
       function drawGuess(m, seg, withinMs) {
-        const filmIdx = seg.movieIdx,
+        const itemIdx = seg.itemIdx,
           imgIdx = seg.imgIdx;
-        const hasStrip = m.backdropImgs.length > 1;
-        const colW = hasStrip ? 280 : 0;
+        const hasSideStrip = m.backdropImgs.length > 1;
+        const colW = hasSideStrip ? 280 : 0;
         const mainW = canvas.width - colW;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#151220";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        if (hasStrip) {
-          ctx.fillStyle = "#111113";
-          ctx.fillRect(mainW, 0, colW, canvas.height);
-        }
-        drawContain(m.backdropImgs[imgIdx], 0, 0, mainW, canvas.height);
+        // un peu de marge autour de l'image pour qu'elle reste bien à
+        // l'intérieur du liseré décoratif plutôt que de le toucher
+        const pad = 22;
+        const imgX = pad,
+          imgY = pad,
+          imgW = mainW - pad * 2,
+          imgH = canvas.height - pad * 2,
+          radius = 16;
+
+        ctx.save();
+        roundedRectPath(imgX, imgY, imgW, imgH, radius);
+        ctx.clip();
+        drawContain(m.backdropImgs[imgIdx], imgX, imgY, imgW, imgH);
 
         const g = ctx.createLinearGradient(
           0,
-          canvas.height * 0.62,
+          imgY + imgH * 0.62,
           0,
-          canvas.height,
+          imgY + imgH,
         );
-        g.addColorStop(0, "rgba(10,10,11,0)");
-        g.addColorStop(1, "rgba(10,10,11,0.88)");
+        g.addColorStop(0, "rgba(10,10,16,0)");
+        g.addColorStop(1, "rgba(10,10,16,0.88)");
         ctx.fillStyle = g;
-        ctx.fillRect(0, canvas.height * 0.62, mainW, canvas.height * 0.38);
+        ctx.fillRect(imgX, imgY + imgH * 0.62, imgW, imgH * 0.38);
+        ctx.restore();
 
-        drawBars("#e8a33d");
-        const filmElapsed = seg.start - seg.filmGuessStart + withinMs;
-        drawGlobalProgress(filmElapsed / seg.filmGuessDur, mainW);
-        if (hasStrip) drawFilmstrip(m, imgIdx, mainW, colW);
+        ctx.save();
+        roundedRectPath(imgX, imgY, imgW, imgH, radius);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "rgba(157,92,230,0.5)";
+        ctx.stroke();
+        ctx.restore();
 
-        ctx.font = "600 26px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#ede8de";
-        ctx.textAlign = "left";
-        ctx.fillText(
-          `N° ${filmIdx + 1} / ${movies.length}`,
-          50,
-          canvas.height - 58,
-        );
+        const itemElapsed = seg.start - seg.itemGuessStart + withinMs;
+        drawGameProgress(itemElapsed / seg.itemGuessDur, mainW);
+        if (hasSideStrip) drawSideThumbnails(m, imgIdx, mainW, colW);
+
+        drawBadge(`N° ${itemIdx + 1} / ${items.length}`, 50, canvas.height - 58);
+        drawFrameBorder();
       }
-      function drawReveal(m, filmIdx) {
+      function drawReveal(m, itemIdx, withinMs) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#0a0a0b";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawGameBackdrop();
+        drawGameParticles(withinMs);
 
         const posterH = canvas.height - 220;
         const posterW = posterH * (2 / 3);
         const px = (canvas.width - posterW) / 2;
         const py = 90;
+
+        drawGlowBurst(canvas.width / 2, py + posterH / 2, withinMs, 300);
+
         if (m.posterImg) {
           const ir = m.posterImg.width / m.posterImg.height;
           const boxRatio = posterW / posterH;
@@ -1340,66 +2124,60 @@
           }
           const dx = px + (posterW - dw) / 2;
           const dy = py + (posterH - dh) / 2;
-          ctx.save();
-          ctx.shadowColor = "rgba(0,0,0,0.6)";
-          ctx.shadowBlur = 30;
-          ctx.drawImage(m.posterImg, dx, dy, dw, dh);
-          ctx.restore();
+          drawFramedImage(m.posterImg, dx, dy, dw, dh);
         }
 
-        drawBars("#4c8a5c");
-        ctx.font = "600 20px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#4c8a5c";
-        ctx.textAlign = "center";
-        ctx.fillText("RÉPONSE", canvas.width / 2, 62);
+        drawRevealBanner(canvas.width / 2, 62);
 
+        ctx.save();
         ctx.font = "700 34px ui-monospace, Menlo, monospace";
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "center";
+        ctx.shadowColor = "rgba(0,0,0,0.5)";
+        ctx.shadowBlur = 10;
         ctx.fillText(m.title, canvas.width / 2, canvas.height - 55);
+        ctx.restore();
 
-        ctx.font = "600 22px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#6b6b70";
-        ctx.textAlign = "left";
-        ctx.fillText(
-          `N° ${filmIdx + 1} / ${movies.length}`,
-          50,
-          canvas.height - 58,
-        );
+        drawBadge(`N° ${itemIdx + 1} / ${items.length}`, 50, canvas.height - 58);
+        drawFrameBorder();
       }
       function drawMusicGuess(seg, withinMs) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#0a0a0b";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawBars("#e8a33d");
+        drawGameBackdrop();
+        drawGameParticles(withinMs);
 
-        ctx.font = "700 46px ui-monospace, Menlo, monospace";
+        ctx.save();
+        ctx.font = "700 40px ui-monospace, Menlo, monospace";
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "center";
-        ctx.fillText("♪ EN ÉCOUTE…", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillText("♪ EN ÉCOUTE…", canvas.width / 2, canvas.height / 2 - 130);
+        ctx.restore();
 
-        drawGlobalProgress(withinMs / seg.dur, canvas.width);
+        drawEqualizer(canvas.width / 2, canvas.height / 2 + 20, withinMs);
 
-        ctx.font = "600 26px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#ede8de";
-        ctx.textAlign = "left";
-        ctx.fillText(
-          `N° ${seg.movieIdx + 1} / ${movies.length}`,
+        drawGameProgress(withinMs / seg.dur, canvas.width);
+
+        drawBadge(
+          `N° ${seg.itemIdx + 1} / ${items.length}`,
           50,
           canvas.height - 58,
         );
+        drawFrameBorder();
       }
 
-      function drawMusicReveal(m, filmIdx) {
+      function drawMusicReveal(m, itemIdx, withinMs) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#0a0a0b";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawGameBackdrop();
+        drawGameParticles(withinMs);
 
         // pochette carrée, contain-fit dans une boîte carrée (même logique
         // que le poster des autres types, juste un ratio 1:1 au lieu de 2:3)
         const boxSize = canvas.height - 260;
         const bx = (canvas.width - boxSize) / 2;
         const by = 80;
+
+        drawGlowBurst(canvas.width / 2, by + boxSize / 2, withinMs, 300);
+
         if (m.posterImg) {
           const ir = m.posterImg.width / m.posterImg.height;
           let dw, dh;
@@ -1412,52 +2190,41 @@
           }
           const dx = bx + (boxSize - dw) / 2;
           const dy = by + (boxSize - dh) / 2;
-          ctx.save();
-          ctx.shadowColor = "rgba(0,0,0,0.6)";
-          ctx.shadowBlur = 30;
-          ctx.drawImage(m.posterImg, dx, dy, dw, dh);
-          ctx.restore();
+          drawFramedImage(m.posterImg, dx, dy, dw, dh);
         }
 
-        drawBars("#4c8a5c");
-        ctx.font = "600 20px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#4c8a5c";
-        ctx.textAlign = "center";
-        ctx.fillText("RÉPONSE", canvas.width / 2, 62);
+        drawRevealBanner(canvas.width / 2, 62);
 
+        ctx.save();
         ctx.font = "700 32px ui-monospace, Menlo, monospace";
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "center";
         ctx.fillText(m.artist, canvas.width / 2, canvas.height - 86);
 
-        ctx.font = "500 24px ui-monospace, Menlo, monospace";
+        ctx.font = "600 24px ui-monospace, Menlo, monospace";
         ctx.fillStyle = "#e8a33d";
         ctx.fillText(m.track, canvas.width / 2, canvas.height - 55);
+        ctx.restore();
 
-        ctx.font = "600 22px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#6b6b70";
-        ctx.textAlign = "left";
-        ctx.fillText(
-          `N° ${filmIdx + 1} / ${movies.length}`,
-          50,
-          canvas.height - 58,
-        );
+        drawBadge(`N° ${itemIdx + 1} / ${items.length}`, 50, canvas.height - 58);
+        drawFrameBorder();
       }
 
       function drawSegment(seg, withinMs) {
         if (seg.type === "splash") {
-          drawSplash();
+          drawSplash(withinMs);
           return;
         }
         if (seg.type === "music-guess") {
           drawMusicGuess(seg, withinMs);
           return;
         }
-        const m = movies[seg.movieIdx];
+        const m = items[seg.itemIdx];
         if (!m) return;
         if (seg.type === "guess") drawGuess(m, seg, withinMs);
-        else if (seg.type === "music-reveal") drawMusicReveal(m, seg.movieIdx);
-        else drawReveal(m, seg.movieIdx);
+        else if (seg.type === "music-reveal")
+          drawMusicReveal(m, seg.itemIdx, withinMs);
+        else drawReveal(m, seg.itemIdx, withinMs);
       }
       function findSegment(elapsed) {
         for (const seg of timeline) {
@@ -1469,12 +2236,29 @@
       // rendu rapide : Mediabunny pilote l'encodeur, la queue interne et les
       // durées de frame — on lui donne juste (timestamp, durée) en secondes
       // pour chaque image dessinée sur le canvas invisible.
+      //
+      // deux cadences distinctes : on ENCODE à CFG.encodeFps (16fps, pour une
+      // lecture bien fluide et calée dès le début — un cadencement
+      // d'encodage trop grossier fait "traîner" le calage de lecture du
+      // navigateur au tout début, ce qui se traduit ensuite par un décalage
+      // audio/vidéo constant), mais on ne REDESSINE (la partie coûteuse :
+      // photos, dégradés, texte) qu'à CFG.drawFps (4fps) — les frames
+      // d'encodage intermédiaires réencodent simplement le même canvas, ce
+      // qui coûte bien moins cher que de le redessiner. Le splash est
+      // l'exception : seul moment réellement animé, il est redessiné à
+      // chaque frame d'encodage pour rester fluide.
       async function renderFast() {
-        const fps = CFG.fps;
-        const frameDurationSec = 1 / fps;
-        const totalFrames = Math.max(
+        const drawFps = CFG.drawFps;
+        const encodeFps = CFG.encodeFps;
+        const encodeFrameDurationSec = 1 / encodeFps;
+        const totalEncodeFrames = Math.max(
           1,
-          Math.round((totalDurationMs / 1000) * fps),
+          Math.round((totalDurationMs / 1000) * encodeFps),
+        );
+        // nombre de frames d'encodage entre deux redessins réels (hors splash)
+        const drawEveryNEncodeFrames = Math.max(
+          1,
+          Math.round(encodeFps / drawFps),
         );
 
         const output = new Mediabunny.Output({
@@ -1499,19 +2283,38 @@
         // piste audio : le buffer musical couvre déjà écoute + fondu sur la
         // réponse (voir trimAudioBufferWithFade), donc on l'ajoute une seule
         // fois et on saute le segment "music-reveal" suivant qu'il couvre déjà.
-        // Silence calibré partout ailleurs pour garder l'audio synchronisé.
+        // Idem pour la piste "devinette" : un seul buffer couvrant toute la
+        // phase de devinette d'un item, on saute donc les segments "guess"
+        // suivants du même item qu'il couvre déjà. Splash a sa propre piste
+        // fournie ; la réponse (hors musique) reste silencieuse, comme
+        // partout où aucune piste n'est disponible, pour garder l'audio
+        // synchronisé.
         setStatus("Préparation de la piste audio…", "rec");
         for (let i = 0; i < timeline.length; i++) {
           const seg = timeline[i];
-          if (seg.type === "music-guess") {
-            await audioSource.add(movies[seg.movieIdx].audioBuffer);
+          if (seg.type === "splash") {
+            await audioSource.add(splashAudioBuffer || silentBuffer(seg.dur));
+          } else if (seg.type === "music-guess") {
+            await audioSource.add(items[seg.itemIdx].audioBuffer);
             const next = timeline[i + 1];
             if (
               next &&
               next.type === "music-reveal" &&
-              next.movieIdx === seg.movieIdx
+              next.itemIdx === seg.itemIdx
             ) {
               i++; // déjà couvert par le buffer ajouté ci-dessus
+            }
+          } else if (seg.type === "guess" && seg.imgIdx === 0) {
+            const m = items[seg.itemIdx];
+            await audioSource.add(
+              m.guessAudioBuffer || silentBuffer(seg.itemGuessDur),
+            );
+            while (
+              timeline[i + 1] &&
+              timeline[i + 1].type === "guess" &&
+              timeline[i + 1].itemIdx === seg.itemIdx
+            ) {
+              i++; // déjà couvert par le buffer de devinette ajouté ci-dessus
             }
           } else {
             await audioSource.add(silentBuffer(seg.dur));
@@ -1519,16 +2322,22 @@
         }
         audioSource.close();
 
-        for (let i = 0; i < totalFrames; i++) {
-          const elapsedMs = (i / fps) * 1000;
+        for (let i = 0; i < totalEncodeFrames; i++) {
+          const elapsedMs = (i / encodeFps) * 1000;
           const seg = findSegment(elapsedMs);
-          drawSegment(seg, elapsedMs - seg.start);
+          // le splash est le seul moment vraiment animé (rebond du logo,
+          // halo, confettis) : on le redessine à chaque frame d'encodage
+          // pour une animation fluide, contrairement au reste de la vidéo
+          // (photos fixes) qui n'a besoin que du rythme visuel habituel
+          if (seg.type === "splash" || i % drawEveryNEncodeFrames === 0) {
+            drawSegment(seg, elapsedMs - seg.start);
+          }
 
-          await videoSource.add(i * frameDurationSec, frameDurationSec);
+          await videoSource.add(i * encodeFrameDurationSec, encodeFrameDurationSec);
 
-          if (i % 15 === 0) {
-            setProgress((i / totalFrames) * 100);
-            setStatus(`Rendu en cours : image ${i}/${totalFrames}…`, "rec");
+          if (i % 90 === 0) {
+            setProgress((i / totalEncodeFrames) * 100);
+            setStatus(`Rendu en cours : image ${i}/${totalEncodeFrames}…`, "rec");
             await new Promise((r) => setTimeout(r, 0)); // laisse respirer l'UI/event loop
           }
         }
@@ -1543,7 +2352,7 @@
       // repli temps réel (navigateurs sans WebCodecs) : capture le canvas en direct
       function renderRealtime() {
         return new Promise((resolve, reject) => {
-          const stream = canvas.captureStream(CFG.fps);
+          const stream = canvas.captureStream(CFG.drawFps);
           const mimeType = MediaRecorder.isTypeSupported(
             "video/webm;codecs=vp9",
           )
@@ -1592,21 +2401,30 @@
         resetStage();
         setProgress(0);
 
+        // démarré en parallèle (pas attendu tout de suite) pour chevaucher
+        // avec la récupération du lot et le préchargement des images
+        const logoImgPromise = logoImg
+          ? Promise.resolve(logoImg)
+          : loadImage("/logo.png").catch((e) => {
+              console.warn("Logo indisponible pour le splash :", e.message);
+              return null;
+            });
+
         try {
           const count = Math.min(100, Math.max(5, currentCount()));
-          const imagesPerFilm = Math.min(
-            6,
-            Math.max(1, currentImagesPerFilm()),
+          const imagesPerItem = Math.min(
+            5,
+            Math.max(1, currentImagesPerItem()),
           );
           const categories = [...selectedCategories].join(",");
           const exclude = getSeenIds().join(",");
 
           setStatus(
-            `Récupération d\u2019un lot de ${count} titres (${imagesPerFilm} images chacun)…`,
+            `Récupération d\u2019un lot de ${count} titres (${imagesPerItem} images chacun)…`,
           );
           setStagePlaceholder("Récupération de la liste des titres…");
           const res = await fetch(
-            `/api/quiz-batch?count=${count}&imagesPerFilm=${imagesPerFilm}&categories=${categories}&exclude=${exclude}`,
+            `/api/quiz-batch?count=${count}&imagesPerItem=${imagesPerItem}&categories=${categories}&exclude=${exclude}`,
           );
           if (!res.ok)
             throw new Error((await res.json()).error || res.statusText);
@@ -1625,8 +2443,48 @@
           }
 
           setStagePlaceholder("Préchargement des images et extraits audio…");
-          movies = await preloadAll(data.movies);
-          addSeenIds(data.movies.map((m) => m.id));
+          items = await preloadAll(data.items);
+          addSeenIds(data.items.map((m) => m.id));
+          const failedCount = data.items.length - items.length;
+          if (failedCount > 0) {
+            setStatus(
+              `${failedCount} image(s) illisible(s) côté navigateur, exclue(s) du quiz.`,
+            );
+          }
+          if (items.length === 0) {
+            throw new Error(
+              "Aucune image n'a pu être chargée pour ce lot, réessaie.",
+            );
+          }
+
+          // pistes audio fournies (splash / devinette), toujours rejouées
+          // depuis leur début — seul le rendu rapide sait encoder de
+          // l'audio, inutile de les charger pour le repli temps réel
+          if (supportsFastEncode) {
+            setStagePlaceholder("Préparation des pistes audio…");
+            const [splashSrc, guessingSrc] = await Promise.all([
+              loadCueBuffer("splash"),
+              loadCueBuffer("guessing"),
+            ]);
+            splashAudioBuffer = loopBufferToDuration(
+              splashSrc,
+              CFG.splashMs / 1000,
+            );
+            for (const m of items) {
+              if (m.mediaType !== "music") {
+                m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
+                  loopBufferToDuration(
+                    guessingSrc,
+                    m.backdropImgs.length * currentImageSec(),
+                  ),
+                );
+              }
+            }
+          } else {
+            splashAudioBuffer = null;
+          }
+
+          logoImg = await logoImgPromise;
 
           const built = buildTimeline(
             currentImageSec() * 1000,
@@ -1637,7 +2495,7 @@
           timeline = built.timeline;
           totalDurationMs = built.total;
 
-          const hasMusic = movies.some((m) => m.mediaType === "music");
+          const hasMusic = items.some((m) => m.mediaType === "music");
           setStagePlaceholder(
             supportsFastEncode
               ? "Rendu rapide en cours (canvas invisible)…"
@@ -1665,7 +2523,7 @@
           stage.appendChild(video);
 
           downloadLink.href = url;
-          downloadLink.download = `movie-quiz.${ext}`;
+          downloadLink.download = `guess-it.${ext}`;
           resultRow.classList.add("show");
           setStatus(
             "Vidéo générée — prête à être visionnée (plein écran natif du lecteur).",
@@ -1696,13 +2554,13 @@
         updateDurationHint();
         saveSettings();
       });
-      imagesPerFilmRange.addEventListener("input", () => {
-        imagesPerFilmNumber.value = imagesPerFilmRange.value;
+      imagesPerItemRange.addEventListener("input", () => {
+        imagesPerItemNumber.value = imagesPerItemRange.value;
         updateDurationHint();
         saveSettings();
       });
-      imagesPerFilmNumber.addEventListener("input", () => {
-        imagesPerFilmRange.value = imagesPerFilmNumber.value;
+      imagesPerItemNumber.addEventListener("input", () => {
+        imagesPerItemRange.value = imagesPerItemNumber.value;
         updateDurationHint();
         saveSettings();
       });
@@ -1736,13 +2594,16 @@
         updateDurationHint();
         saveSettings();
       });
+      categorySearch.addEventListener("input", () => {
+        categoryFilter = categorySearch.value;
+        renderChips();
+      });
 
       btnGenerate.addEventListener("click", generateQuiz);
-      btnAgain.addEventListener("click", generateQuiz);
       btnToggleAnswers.addEventListener("click", () => {
         answersRevealed = !answersRevealed;
         if (answersRevealed) {
-          answersEl.innerHTML = movies
+          answersEl.innerHTML = items
             .map((m, i) => `<span>${i + 1}. ${m.title}</span>`)
             .join("<br>");
           answersEl.classList.add("show");
