@@ -424,6 +424,9 @@
         overflow-y: auto;
         padding: 2px;
       }
+      #chipsQuality {
+        justify-content: center;
+      }
       .chip {
         font-family: var(--mono);
         font-size: 12px;
@@ -681,7 +684,7 @@
       <div class="card">
         <div class="settings">
           <div class="settings-row">
-            <span class="settings-label" id="typeLabel">Type</span>
+            <span class="settings-label" id="typeLabel">Type de question</span>
             <div
               id="chipsContentType"
               class="chips"
@@ -689,132 +692,118 @@
               aria-labelledby="typeLabel"
             ></div>
           </div>
-          <div class="settings-row">
-            <label class="settings-label" for="countRange"
-              >Nombre de titres</label
-            >
-            <input
-              type="range"
-              id="countRange"
-              min="5"
-              max="100"
-              step="1"
-              value="10"
-            />
-            <input
-              type="number"
-              id="countNumber"
-              min="5"
-              max="100"
-              value="10"
-            />
-            <span
-              id="countCapNote"
-              class="hint"
-              style="display: none; margin: 0"
-            ></span>
+          <div class="chip-group" id="groupImageParams">
+            <span class="chip-group-label">🖼️ Photo</span>
+            <div class="settings-row" id="rowImagesPerItem">
+              <label class="settings-label" for="imagesPerItemRange"
+                >Nombre de photos</label
+              >
+              <input
+                type="range"
+                id="imagesPerItemRange"
+                min="1"
+                max="5"
+                step="1"
+                value="3"
+              />
+              <input
+                type="number"
+                id="imagesPerItemNumber"
+                min="1"
+                max="5"
+                value="3"
+              />
+            </div>
+            <div class="settings-row" id="rowImageSec">
+              <label class="settings-label" for="imageSecRange"
+                >Durée par photo</label
+              >
+              <input
+                type="range"
+                id="imageSecRange"
+                min="2"
+                max="10"
+                step="1"
+                value="5"
+              />
+              <input
+                type="number"
+                id="imageSecNumber"
+                min="2"
+                max="10"
+                value="5"
+              /><span class="settings-label" style="min-width: auto">sec</span>
+            </div>
           </div>
-          <div class="settings-row" id="rowImagesPerItem">
-            <label class="settings-label" for="imagesPerItemRange"
-              >Images / titre</label
-            >
-            <input
-              type="range"
-              id="imagesPerItemRange"
-              min="1"
-              max="5"
-              step="1"
-              value="3"
-            />
-            <input
-              type="number"
-              id="imagesPerItemNumber"
-              min="1"
-              max="5"
-              value="3"
-            />
+          <div class="chip-group" id="groupAudioParams">
+            <span class="chip-group-label">🎧 Extrait audio</span>
+            <div class="settings-row" id="rowMusicClip">
+              <label class="settings-label" for="musicClipSecRange"
+                >Durée de l'extrait</label
+              >
+              <input
+                type="range"
+                id="musicClipSecRange"
+                min="3"
+                max="28"
+                step="1"
+                value="10"
+              />
+              <input
+                type="number"
+                id="musicClipSecNumber"
+                min="3"
+                max="28"
+                value="10"
+              />
+            </div>
           </div>
-          <div class="settings-row" id="rowImageSec">
-            <label class="settings-label" for="imageSecRange"
-              >Temps / image</label
-            >
-            <input
-              type="range"
-              id="imageSecRange"
-              min="2"
-              max="10"
-              step="1"
-              value="5"
-            />
-            <input
-              type="number"
-              id="imageSecNumber"
-              min="2"
-              max="10"
-              value="5"
-            /><span class="settings-label" style="min-width: auto">sec</span>
+          <div class="chip-group" id="groupFlagParams">
+            <span class="chip-group-label">🚩 Drapeau</span>
+            <div class="settings-row" id="rowFlagSec">
+              <label class="settings-label" for="flagSecRange"
+                >Durée d'affichage</label
+              >
+              <input
+                type="range"
+                id="flagSecRange"
+                min="2"
+                max="10"
+                step="1"
+                value="5"
+              />
+              <input
+                type="number"
+                id="flagSecNumber"
+                min="2"
+                max="10"
+                value="5"
+              /><span class="settings-label" style="min-width: auto">sec</span>
+            </div>
           </div>
-          <div class="settings-row">
-            <label class="settings-label" for="revealSecRange"
-              >Temps réponse</label
-            >
-            <input
-              type="range"
-              id="revealSecRange"
-              min="2"
-              max="15"
-              step="1"
-              value="5"
-            />
-            <input
-              type="number"
-              id="revealSecNumber"
-              min="2"
-              max="15"
-              value="5"
-            /><span class="settings-label" style="min-width: auto">sec</span>
+          <div class="chip-group" id="groupSynopsisParams">
+            <span class="chip-group-label">📖 Synopsis</span>
+            <div class="settings-row" id="rowSynopsisSec">
+              <label class="settings-label" for="synopsisSecRange"
+                >Durée d'affichage</label
+              >
+              <input
+                type="range"
+                id="synopsisSecRange"
+                min="5"
+                max="50"
+                step="1"
+                value="20"
+              />
+              <input
+                type="number"
+                id="synopsisSecNumber"
+                min="5"
+                max="50"
+                value="20"
+              /><span class="settings-label" style="min-width: auto">sec</span>
+            </div>
           </div>
-          <div class="settings-row" id="rowMusicClip">
-            <label class="settings-label" for="musicClipSecRange"
-              >Extrait audio</label
-            >
-            <input
-              type="range"
-              id="musicClipSecRange"
-              min="3"
-              max="28"
-              step="1"
-              value="10"
-            />
-            <input
-              type="number"
-              id="musicClipSecNumber"
-              min="3"
-              max="28"
-              value="10"
-            />
-          </div>
-          <div class="settings-row" id="rowFlagSec">
-            <label class="settings-label" for="flagSecRange"
-              >Temps drapeau</label
-            >
-            <input
-              type="range"
-              id="flagSecRange"
-              min="2"
-              max="10"
-              step="1"
-              value="5"
-            />
-            <input
-              type="number"
-              id="flagSecNumber"
-              min="2"
-              max="10"
-              value="5"
-            /><span class="settings-label" style="min-width: auto">sec</span>
-          </div>
-
           <div class="settings-row">
             <label class="settings-label" for="categorySearch"
               >Rechercher</label
@@ -831,6 +820,10 @@
             </div>
           </div>
 
+          <span class="chip-group-label" style="font-size: 13px"
+            >Filtres — sans sélection, toutes les réponses possibles sont
+            incluses</span
+          >
           <div class="chip-group">
             <span class="chip-group-label" id="listesLabel">Listes</span>
             <div
@@ -874,6 +867,53 @@
             ></div>
           </div>
 
+          <div class="settings-row">
+            <label class="settings-label" for="countRange"
+              >Nombre de questions</label
+            >
+            <input
+              type="range"
+              id="countRange"
+              min="5"
+              max="50"
+              step="1"
+              value="10"
+            />
+            <input
+              type="number"
+              id="countNumber"
+              min="5"
+              max="50"
+              value="10"
+            />
+            <span
+              id="countCapNote"
+              class="hint"
+              style="display: none; margin: 0"
+            ></span>
+          </div>
+
+          <div class="settings-row">
+            <label class="settings-label" for="revealSecRange"
+              >Temps réponse</label
+            >
+            <input
+              type="range"
+              id="revealSecRange"
+              min="2"
+              max="15"
+              step="1"
+              value="5"
+            />
+            <input
+              type="number"
+              id="revealSecNumber"
+              min="2"
+              max="15"
+              value="5"
+            /><span class="settings-label" style="min-width: auto">sec</span>
+          </div>
+
           <div id="durationHint" class="duration-hint" aria-live="polite">
             Durée estimée : — · max disponible : —
           </div>
@@ -887,6 +927,13 @@
         <div class="progress">
           <div id="progressBar" class="progress-bar"></div>
         </div>
+
+        <div
+          id="chipsQuality"
+          class="chips"
+          role="group"
+          aria-label="Qualité de rendu"
+        ></div>
 
         <div class="controls">
           <button id="btnGenerate">Générer le quizz</button>
@@ -924,17 +971,44 @@
 
       const CFG = {
         preloadConcurrency: 8,
-        drawFps: 12, // cadence de redessin du contenu (hors splash) : photos, textes, etc.
-        encodeFps: 12, // cadence d'encodage/conteneur vidéo (fluidité de lecture, notamment le splash)
         splashMs: 5000,
       };
       const STORAGE_PREFIX = "guessit_seen_";
       const SETTINGS_KEY = "guessit_settings";
 
-      // canvas de rendu, jamais attaché au DOM : sert uniquement de source aux frames encodées
+      // une seule cadence, utilisée à la fois pour redessiner le canvas et
+      // pour encoder (voir renderFast/renderRealtime) : le coût réel est
+      // dans l'encodage des frames, pas dans le dessin — inutile de les
+      // découpler, ça n'accélère rien et ça ajoute juste de la complexité.
+      // Trois préréglages exposés à l'utilisateur (voir renderQualityChips)
+      // plutôt qu'un curseur libre : la vitesse de rendu comme la fluidité
+      // de la vidéo en dépendent directement, donc un choix explicite entre
+      // options connues est plus lisible qu'un nombre arbitraire. Résolution
+      // couplée au même préréglage (même ratio 16:9 que l'actuel 1280x720) :
+      // baisser la résolution réduit aussi le travail d'encodage par frame.
+      const RENDER_QUALITIES = [
+        { key: "low", label: "🐢 Faible", fps: 8, width: 854, height: 480 },
+        { key: "medium", label: "⚖️ Moyen", fps: 12, width: 1280, height: 720 },
+        { key: "high", label: "🚀 Élevé", fps: 24, width: 1920, height: 1080 },
+      ];
+      let renderFps = 12;
+      // échelle de rendu = ratio entre la résolution active et celle de
+      // "moyen" (1280x720, base historique) : tous les repères en pixels
+      // (polices, marges, rayons...) du dessin sont exprimés en fraction de
+      // cette base, donc "moyen" reste rendu à l'identique (RS = 1) et
+      // "faible"/"élevé" mettent juste l'échelle à jour proportionnellement
+      let RS = 1;
+      function currentRenderQuality() {
+        return (
+          RENDER_QUALITIES.find((q) => q.fps === renderFps) ||
+          RENDER_QUALITIES[1]
+        );
+      }
+
+      // canvas de rendu, jamais attaché au DOM : sert uniquement de source aux
+      // frames encodées — dimensionné selon la qualité sélectionnée (voir
+      // applyRenderQuality, appelé au chargement et à chaque changement)
       const canvas = document.createElement("canvas");
-      canvas.width = 1280;
-      canvas.height = 720;
       const ctx = canvas.getContext("2d", { desynchronized: true });
 
       const stage = document.getElementById("stage");
@@ -952,17 +1026,22 @@
       const musicClipSecNumber = document.getElementById("musicClipSecNumber");
       const flagSecRange = document.getElementById("flagSecRange");
       const flagSecNumber = document.getElementById("flagSecNumber");
+      const synopsisSecRange = document.getElementById("synopsisSecRange");
+      const synopsisSecNumber = document.getElementById("synopsisSecNumber");
       const chipsListes = document.getElementById("chipsListes");
       const chipsDecades = document.getElementById("chipsDecades");
       const chipsGenres = document.getElementById("chipsGenres");
       const chipsGeography = document.getElementById("chipsGeography");
       const chipsContentType = document.getElementById("chipsContentType");
+      const chipsQuality = document.getElementById("chipsQuality");
       const categorySearch = document.getElementById("categorySearch");
       const countCapNote = document.getElementById("countCapNote");
-      const rowImagesPerItem = document.getElementById("rowImagesPerItem");
-      const rowImageSec = document.getElementById("rowImageSec");
-      const rowMusicClip = document.getElementById("rowMusicClip");
-      const rowFlagSec = document.getElementById("rowFlagSec");
+      const groupImageParams = document.getElementById("groupImageParams");
+      const groupAudioParams = document.getElementById("groupAudioParams");
+      const groupFlagParams = document.getElementById("groupFlagParams");
+      const groupSynopsisParams = document.getElementById(
+        "groupSynopsisParams",
+      );
       const durationHint = document.getElementById("durationHint");
       const btnGenerate = document.getElementById("btnGenerate");
       const btnToggleAnswers = document.getElementById("btnToggleAnswers");
@@ -976,11 +1055,23 @@
       const serverStatusLed = document.getElementById("serverStatusLed");
 
       // état de la session en cours
-      let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv','person'}
+      // chaque mediaType a au moins un questionType (voir
+      // questionTypesByMediaType, chargé depuis /api/categories), même sans
+      // choix possible (ex: "movie" n'a que "image") : la rangée "Type" est
+      // donc entièrement composée de combinaisons "mediaType:questionType"
+      // indépendantes, jamais de simples mediaType nus — chaque chip montre
+      // ainsi systématiquement les deux emoji (contenu de la question +
+      // résultat). Un chip indépendant par combinaison plutôt qu'une rangée
+      // "Mode" partagée : une rangée partagée forcerait le produit
+      // cartésien entre tous les mediaType à plusieurs modes actifs à la
+      // fois, sans pouvoir composer une combinaison précise (voir historique)
+      let activeQuestionTypes = new Set(["movie:image"]);
+      let questionTypesByMediaType = {}; // ex: { country: ["image", "flag"] }
+      let questionTypeDetails = {}; // ex: { image: { label: "Photo", icon: "🖼️" }, flag: {...} }
       let availableCategories = [];
       let selectedCategories = new Set();
       let categoryFilter = "";
-      let currentMaxAvailable = 100;
+      let currentMaxAvailable = 50;
       let items = [];
       let timeline = [];
       let totalDurationMs = 0;
@@ -989,7 +1080,17 @@
       let logoImg = null; // logo préchargé une fois, dessiné de façon synchrone par drawSplash
 
       function typeActive(mediaType) {
-        return activeContentTypes.has(mediaType);
+        return [...activeQuestionTypes].some((k) =>
+          k.startsWith(mediaType + ":"),
+        );
+      }
+
+      // clé de filtre catégorie : brute ("genre_28") ou combinée avec un
+      // questionType ("country_europe:flag", voir renderChips) — pour
+      // comparer à availableCategories, qui ne connaît que les clés brutes
+      function baseCategoryKey(k) {
+        const idx = k.indexOf(":");
+        return idx === -1 ? k : k.slice(0, idx);
       }
 
       // chip cliquable + accessible clavier (rôle bouton, Entrée/Espace, aria-pressed)
@@ -1013,20 +1114,29 @@
         return chip;
       }
 
-      // affiche/masque les réglages qui ne s'appliquent pas aux types actifs
+      // affiche/masque les réglages qui ne s'appliquent pas aux combinaisons
+      // actives. "music:audio", "country:flag" et "movie|tv:synopsis" ont
+      // chacun leur propre durée dédiée (pas images/titre ni temps/image) —
+      // nommés explicitement ici : cette durée dédiée est une spécificité de
+      // ces modes, pas quelque chose de générique à tout questionType (voir
+      // aussi totalDurationSec)
       function updateSettingsVisibility() {
-        const hasMusic = typeActive("music");
-        const hasFlag = typeActive("flag");
-        // "flag" a sa propre durée dédiée (comme la musique), donc pas
-        // besoin d'images/titre ni de temps/image tant que rien d'autre
-        // n'est actif
-        const hasStandard = [...activeContentTypes].some(
-          (t) => t !== "music" && t !== "flag",
+        const hasMusic = activeQuestionTypes.has("music:audio");
+        const hasFlag = activeQuestionTypes.has("country:flag");
+        const hasSynopsis =
+          activeQuestionTypes.has("movie:synopsis") ||
+          activeQuestionTypes.has("tv:synopsis");
+        const hasStandard = [...activeQuestionTypes].some(
+          (k) =>
+            k !== "music:audio" &&
+            k !== "country:flag" &&
+            k !== "movie:synopsis" &&
+            k !== "tv:synopsis",
         );
-        rowMusicClip.style.display = hasMusic ? "" : "none";
-        rowFlagSec.style.display = hasFlag ? "" : "none";
-        rowImagesPerItem.style.display = hasStandard ? "" : "none";
-        rowImageSec.style.display = hasStandard ? "" : "none";
+        groupAudioParams.style.display = hasMusic ? "" : "none";
+        groupFlagParams.style.display = hasFlag ? "" : "none";
+        groupSynopsisParams.style.display = hasSynopsis ? "" : "none";
+        groupImageParams.style.display = hasStandard ? "" : "none";
       }
 
       const supportsFastEncode =
@@ -1071,7 +1181,10 @@
       }
 
       function currentCount() {
-        return parseInt(countNumber.value, 10) || 5;
+        // `|| 5` traiterait un pool à 0 dispo (valeur "0" légitime) comme
+        // absent et le remonterait à tort à 5
+        const v = parseInt(countNumber.value, 10);
+        return Number.isNaN(v) ? 5 : v;
       }
       function currentImagesPerItem() {
         return parseInt(imagesPerItemNumber.value, 10) || 1;
@@ -1087,6 +1200,9 @@
       }
       function currentFlagSec() {
         return parseInt(flagSecNumber.value, 10) || 5;
+      }
+      function currentSynopsisSec() {
+        return parseInt(synopsisSecNumber.value, 10) || 20;
       }
 
       function formatDuration(totalSec) {
@@ -1104,19 +1220,49 @@
         const itemSecByBucket = {
           music: currentMusicClipSec() + currentRevealSec(),
           flag: currentFlagSec() + currentRevealSec(),
+          synopsis: currentSynopsisSec() + currentRevealSec(),
           standard:
             currentImagesPerItem() * currentImageSec() + currentRevealSec(),
         };
-        const bucketOf = (mediaType) =>
-          mediaType === "music" || mediaType === "flag" ? mediaType : "standard";
 
         const selected = availableCategories.filter((c) =>
           selectedCategories.has(c.key),
         );
         const totalAvailable = selected.reduce((s, c) => s + c.available, 0);
-        const availableByBucket = { music: 0, flag: 0, standard: 0 };
+        const availableByBucket = {
+          music: 0,
+          flag: 0,
+          synopsis: 0,
+          standard: 0,
+        };
         for (const c of selected) {
-          availableByBucket[bucketOf(c.mediaType)] += c.available;
+          if (c.mediaType === "music") {
+            availableByBucket.music += c.available;
+          } else if (
+            c.mediaType === "country" ||
+            c.mediaType === "movie" ||
+            c.mediaType === "tv"
+          ) {
+            // le pool "country"/"movie"/"tv" mélange les entrées de leurs
+            // questionType respectifs (image/flag ou image/synopsis) : on
+            // répartit son "available" au prorata du nombre de modes actifs
+            // — approximation suffisante pour un simple indicateur de durée.
+            // Buckets "flag"/"synopsis" toujours nommés explicitement : leur
+            // durée dédiée est une spécificité de ces modes, pas générique à
+            // tout questionType (voir plus haut)
+            const activeModes = [...activeQuestionTypes]
+              .filter((k) => k.startsWith(`${c.mediaType}:`))
+              .map((k) => k.slice(c.mediaType.length + 1));
+            const n = activeModes.length || 1;
+            if (activeModes.includes("flag"))
+              availableByBucket.flag += c.available / n;
+            if (activeModes.includes("synopsis"))
+              availableByBucket.synopsis += c.available / n;
+            if (activeModes.includes("image"))
+              availableByBucket.standard += c.available / n;
+          } else {
+            availableByBucket.standard += c.available;
+          }
         }
 
         let avgItemSec;
@@ -1128,10 +1274,19 @@
           );
         } else {
           // pool encore inconnu (ex: juste après un changement de type) :
-          // à défaut de mieux, suppose que tous les types actifs partagent
-          // le même seul bucket de durée s'ils y correspondent tous
+          // à défaut de mieux, suppose que toutes les combinaisons actives
+          // partagent le même seul bucket de durée si elles y correspondent
+          // toutes
+          const bucketOf = (comboKey) =>
+            comboKey === "music:audio"
+              ? "music"
+              : comboKey === "country:flag"
+                ? "flag"
+                : comboKey === "movie:synopsis" || comboKey === "tv:synopsis"
+                  ? "synopsis"
+                  : "standard";
           const activeBuckets = new Set(
-            [...activeContentTypes].map(bucketOf),
+            [...activeQuestionTypes].map(bucketOf),
           );
           const bucket =
             activeBuckets.size === 1 ? [...activeBuckets][0] : "standard";
@@ -1171,7 +1326,9 @@
           revealSec: currentRevealSec(),
           musicClipSec: currentMusicClipSec(),
           flagSec: currentFlagSec(),
-          contentTypes: [...activeContentTypes],
+          synopsisSec: currentSynopsisSec(),
+          renderFps,
+          questionTypes: [...activeQuestionTypes],
           categories: [...selectedCategories],
         };
         try {
@@ -1212,23 +1369,52 @@
           flagSecNumber.value = s.flagSec;
           flagSecRange.value = s.flagSec;
         }
-        if (Array.isArray(s.contentTypes)) {
-          const valid = s.contentTypes.filter(
-            (t) =>
-              t === "movie" ||
-              t === "tv" ||
-              t === "person" ||
-              t === "game" ||
-              t === "music" ||
-              t === "country" ||
-              t === "painting" ||
-              t === "flag",
-          );
-          if (valid.length) activeContentTypes = new Set(valid);
+        if (s.synopsisSec) {
+          synopsisSecNumber.value = s.synopsisSec;
+          synopsisSecRange.value = s.synopsisSec;
+        }
+        if (RENDER_QUALITIES.some((q) => q.fps === s.renderFps)) {
+          renderFps = s.renderFps;
+        }
+        // migration : plusieurs générations de format de sauvegarde se sont
+        // succédé le temps de généraliser ce système à tous les mediaType —
+        // on les couvre pour ne pas faire disparaître silencieusement les
+        // réglages des utilisateurs existants.
+        let restoredQuestionTypes = false;
+        if (Array.isArray(s.questionTypes)) {
+          // format actuel : clés "mediaType:questionType" ; format
+          // intermédiaire (avant généralisation à tous les mediaType) :
+          // clés nues ("image"/"flag"), toujours pour "country" à l'époque
+          const valid = s.questionTypes
+            .map((t) =>
+              typeof t === "string" && !t.includes(":") ? `country:${t}` : t,
+            )
+            .filter((t) => {
+              const [mt, qt] = t.split(":");
+              return (questionTypesByMediaType[mt] || []).includes(qt);
+            });
+          if (valid.length) {
+            activeQuestionTypes = new Set(valid);
+            restoredQuestionTypes = true;
+          }
+        }
+        // format historique (avant l'introduction de questionTypes) :
+        // simples mediaType dans contentTypes, plus "country"/"flag" à part
+        if (!restoredQuestionTypes && Array.isArray(s.contentTypes)) {
+          const legacy = new Set();
+          for (const t of s.contentTypes) {
+            if (t === "country") legacy.add("country:image");
+            else if (t === "flag") legacy.add("country:flag");
+            else if (questionTypesByMediaType[t]) {
+              for (const qt of questionTypesByMediaType[t])
+                legacy.add(`${t}:${qt}`);
+            }
+          }
+          if (legacy.size) activeQuestionTypes = legacy;
         }
         if (Array.isArray(s.categories) && s.categories.length) {
           const valid = s.categories.filter((c) =>
-            availableCategories.some((ac) => ac.key === c),
+            availableCategories.some((ac) => ac.key === baseCategoryKey(c)),
           );
           if (valid.length) selectedCategories = new Set(valid);
         }
@@ -1238,75 +1424,128 @@
         const res = await fetch("/api/categories");
         const data = await res.json();
         availableCategories = data.categories;
-        selectedCategories = new Set(
-          availableCategories
-            .filter((c) => c.key === "popular" || c.key === "top_rated")
-            .map((c) => c.key),
-        );
+        questionTypesByMediaType = data.questionTypes || {};
+        questionTypeDetails = data.questionTypeDetails || {};
+        // les catégories sont un filtre optionnel (voir renderChips/
+        // updatePoolSize) : aucune sélectionnée par défaut = pas de filtre
+        // = toutes les réponses possibles pour le(s) mediaType actif(s)
+        selectedCategories = new Set();
         applySavedSettings();
         renderContentTypeChips();
+        renderQualityChips();
         updateSettingsVisibility();
         renderChips();
         await updatePoolSize();
       }
 
+      // total de chips actifs dans la rangée "Type" — sert à garantir qu'au
+      // moins un chip reste actif, quel qu'il soit
+      function totalActiveTypeCount() {
+        return activeQuestionTypes.size;
+      }
+
+      // suite commune à tout changement de sélection dans la rangée "Type"
+      // (type simple ou combinaison country) : re-rendu, purge des filtres
+      // devenus invalides, rafraîchissement de la taille de pool, sauvegarde.
+      // Un selectedCategories vide après purge est un état normal ("pas de
+      // filtre"), pas un cas à secourir.
+      async function onActiveTypesChanged() {
+        renderContentTypeChips();
+        updateSettingsVisibility();
+
+        selectedCategories = new Set(
+          [...selectedCategories].filter((k) => {
+            const cat = availableCategories.find(
+              (c) => c.key === baseCategoryKey(k),
+            );
+            return cat && typeActive(cat.mediaType);
+          }),
+        );
+
+        renderChips();
+        await updatePoolSize();
+        saveSettings();
+      }
+
+      // libellé de base par mediaType (l'emoji "résultat"), préfixé au
+      // libellé/icône du questionType (l'emoji "contenu de la question",
+      // voir questionTypeDetails) pour former le texte de chaque chip
+      const MEDIA_TYPE_BASE_LABELS = {
+        movie: "🎬 Films",
+        tv: "📺 Séries",
+        person: "🎭 Acteurs",
+        game: "🎮 Jeux vidéo",
+        music: "🎵 Musique",
+        country: "🌍 Pays",
+        painting: "🎨 Peintres",
+      };
+
+      // une seule rangée pour tous les mediaType, générique à n'importe
+      // quel questionType (voir questionTypesByMediaType et
+      // questionTypeDetails, chargés depuis /api/categories) : chaque
+      // mediaType a au moins un questionType, donc chaque chip est
+      // TOUJOURS une combinaison "mediaType:questionType" indépendante
+      // (toggle activeQuestionTypes), même quand il n'y a qu'un seul mode
+      // possible — pas de cas particulier "chip simple", et donc toujours
+      // les deux emoji (contenu de la question + résultat). Un chip par
+      // combinaison plutôt qu'une rangée "Mode" partagée : une rangée
+      // partagée forcerait le produit cartésien de tous les mediaType à
+      // plusieurs modes actifs à la fois, sans pouvoir composer une
+      // combinaison précise
       function renderContentTypeChips() {
         chipsContentType.innerHTML = "";
-        const options = [
-          { key: "movie", label: "🎬 Films" },
-          { key: "tv", label: "📺 Séries" },
-          { key: "person", label: "🎭 Acteurs" },
-          { key: "game", label: "🎮 Jeux vidéo" },
-          { key: "music", label: "🎵 Musique" },
-          { key: "country", label: "🌍 Pays" },
-          { key: "painting", label: "🎨 Peintres" },
-          { key: "flag", label: "🚩 Drapeaux" },
-        ];
-        for (const opt of options) {
+        for (const [mediaType, baseLabel] of Object.entries(
+          MEDIA_TYPE_BASE_LABELS,
+        )) {
+          for (const qt of questionTypesByMediaType[mediaType] || []) {
+            const comboKey = `${mediaType}:${qt}`;
+            const info = questionTypeDetails[qt] || {};
+            const label = `${baseLabel} ${info.icon || ""} ${info.label || qt}`.trim();
+            const chip = makeChip(
+              label,
+              activeQuestionTypes.has(comboKey),
+              async () => {
+                if (activeQuestionTypes.has(comboKey)) {
+                  if (totalActiveTypeCount() === 1) return; // garder au moins un chip actif
+                  activeQuestionTypes.delete(comboKey);
+                } else {
+                  activeQuestionTypes.add(comboKey);
+                }
+                await onActiveTypesChanged();
+              },
+              "chip-type",
+            );
+            chipsContentType.appendChild(chip);
+          }
+        }
+      }
+
+      // dimensionne le canvas de rendu selon la qualité sélectionnée — appelé
+      // au chargement et à chaque changement (voir renderQualityChips)
+      function applyRenderQuality(q) {
+        canvas.width = q.width;
+        canvas.height = q.height;
+        RS = q.width / 1280;
+      }
+
+      // sélection exclusive (un seul actif à la fois, jamais zéro) : à la
+      // différence des autres groupes de chips (multi-sélection)
+      function renderQualityChips() {
+        applyRenderQuality(currentRenderQuality());
+        chipsQuality.innerHTML = "";
+        for (const q of RENDER_QUALITIES) {
           const chip = makeChip(
-            opt.label,
-            typeActive(opt.key),
-            async () => {
-              if (activeContentTypes.has(opt.key)) {
-                if (activeContentTypes.size === 1) return; // garder au moins un type actif
-                activeContentTypes.delete(opt.key);
-              } else {
-                activeContentTypes.add(opt.key);
-              }
-              renderContentTypeChips();
-              updateSettingsVisibility();
-
-              selectedCategories = new Set(
-                [...selectedCategories].filter((k) => {
-                  const cat = availableCategories.find((c) => c.key === k);
-                  return cat && typeActive(cat.mediaType);
-                }),
-              );
-              if (selectedCategories.size === 0) {
-                const fallback = [
-                  ...(typeActive("movie") ? ["popular", "top_rated"] : []),
-                  ...(typeActive("tv") ? ["tv_popular", "tv_top_rated"] : []),
-                  ...(typeActive("person") ? ["person_popular"] : []),
-                  ...(typeActive("game") ? ["game_popular"] : []),
-                  ...(typeActive("music") ? ["music_popular_fr"] : []),
-                  ...(typeActive("country") ? ["country_all"] : []),
-                  ...(typeActive("painting") ? ["painting_popular"] : []),
-                  ...(typeActive("flag") ? ["flag_all"] : []),
-                ];
-                selectedCategories = new Set(
-                  fallback.filter((k) =>
-                    availableCategories.some((c) => c.key === k),
-                  ),
-                );
-              }
-
-              renderChips();
-              await updatePoolSize();
+            `${q.label} · ${q.fps} fps · ${q.width}×${q.height}`,
+            renderFps === q.fps,
+            () => {
+              if (renderFps === q.fps) return;
+              renderFps = q.fps;
+              renderQualityChips();
               saveSettings();
             },
             "chip-type",
           );
-          chipsContentType.appendChild(chip);
+          chipsQuality.appendChild(chip);
         }
       }
 
@@ -1330,22 +1569,45 @@
 
         for (const cat of visible) {
           const container = groups[cat.group] || chipsListes;
-          const chip = makeChip(
-            `${cat.label}<span class="count">${cat.available}</span>`,
-            selectedCategories.has(cat.key),
-            async () => {
-              if (selectedCategories.has(cat.key)) {
-                if (selectedCategories.size === 1) return;
-                selectedCategories.delete(cat.key);
-              } else {
-                selectedCategories.add(cat.key);
-              }
-              renderChips();
-              await updatePoolSize();
-              saveSettings();
-            },
+          // un chip par questionType ACTIF (rangée "Type de question", voir
+          // activeQuestionTypes) pour ce mediaType, pas par questionType
+          // simplement disponible : si seul "tv:synopsis" est coché en haut,
+          // les catégories séries n'affichent que leur chip synopsis, pas un
+          // chip photo qu'aucun filtre "Type de question" ne couvre. Quand
+          // plusieurs modes du même mediaType sont actifs à la fois (ex.
+          // Pays en drapeau ET en photo), un chip par mode reste nécessaire
+          // pour pouvoir cibler ex. l'Europe en drapeau et l'Asie en photo
+          // dans le même filtre — `visible` garantit déjà via typeActive()
+          // qu'au moins un mode est actif, `modes` n'est donc jamais vide ici
+          const modes = (questionTypesByMediaType[cat.mediaType] || []).filter(
+            (qt) => activeQuestionTypes.has(`${cat.mediaType}:${qt}`),
           );
-          container.appendChild(chip);
+          const keysAndLabels = modes.map((qt) => [
+            `${cat.key}:${qt}`,
+            modes.length > 1
+              ? `${cat.label} ${questionTypeDetails[qt]?.icon || ""}`
+              : `${cat.label} ${questionTypeDetails[qt]?.icon || ""}<span class="count">${cat.available}</span>`,
+          ]);
+
+          for (const [selKey, label] of keysAndLabels) {
+            const chip = makeChip(
+              label,
+              selectedCategories.has(selKey),
+              async () => {
+                // filtre : aucune catégorie sélectionnée est un état valide
+                // ("pas de filtre"), pas besoin d'en garder au moins une
+                if (selectedCategories.has(selKey)) {
+                  selectedCategories.delete(selKey);
+                } else {
+                  selectedCategories.add(selKey);
+                }
+                renderChips();
+                await updatePoolSize();
+                saveSettings();
+              },
+            );
+            container.appendChild(chip);
+          }
         }
 
         // masque entièrement une section (label compris) dès qu'elle n'a
@@ -1371,21 +1633,38 @@
 
       async function updatePoolSize() {
         const categories = [...selectedCategories].join(",");
+        const questionTypes = [...activeQuestionTypes].join(",");
         try {
-          const res = await fetch(`/api/pool-size?categories=${categories}`);
+          const res = await fetch(
+            `/api/pool-size?categories=${categories}&questionTypes=${questionTypes}`,
+          );
           const data = await res.json();
-          currentMaxAvailable = Math.max(5, data.available);
+          currentMaxAvailable = data.available;
         } catch {
-          currentMaxAvailable = 100;
+          currentMaxAvailable = 50;
         }
-        const clampedMax = Math.min(100, currentMaxAvailable);
+        const clampedMax = Math.min(50, currentMaxAvailable);
+        // en dessous de 5 titres dispo, le plancher habituel (min="5") n'a
+        // plus de sens : on aligne min sur max pour figer le curseur sur la
+        // seule valeur possible plutôt que de mentir sur la dispo réelle
+        const clampedMin = Math.min(5, clampedMax);
+        countRange.min = clampedMin;
+        countNumber.min = clampedMin;
         countRange.max = clampedMax;
         countNumber.max = clampedMax;
         if (currentCount() > clampedMax) {
           countNumber.value = clampedMax;
           countRange.value = clampedMax;
+        } else if (currentCount() < clampedMin) {
+          countNumber.value = clampedMin;
+          countRange.value = clampedMin;
         }
-        if (clampedMax < 100) {
+        btnGenerate.disabled = clampedMax === 0;
+        if (clampedMax === 0) {
+          countCapNote.textContent =
+            "Aucun contenu disponible pour cette sélection";
+          countCapNote.style.display = "inline";
+        } else if (clampedMax < 50) {
           countCapNote.textContent = `Limité à ${clampedMax} (pool des catégories choisies)`;
           countCapNote.style.display = "inline";
         } else {
@@ -1575,7 +1854,9 @@
             sum +
             (m.mediaType === "music"
               ? 2
-              : m.mediaType === "flag"
+              : (m.mediaType === "country" && m.questionType === "flag") ||
+                  ((m.mediaType === "movie" || m.mediaType === "tv") &&
+                    m.questionType === "synopsis")
                 ? 1
                 : m.imageUrls.length + 1),
           0,
@@ -1620,15 +1901,33 @@
                 };
                 continue;
               }
-              if (m.mediaType === "flag") {
+              if (m.mediaType === "country" && m.questionType === "flag") {
                 const posterImg = await loadImage(m.posterUrl).then((img) => {
                   bump();
                   return img;
                 });
                 results[my] = {
                   title: m.title,
-                  mediaType: "flag",
+                  mediaType: "country",
+                  questionType: "flag",
                   capital: m.capital,
+                  posterImg,
+                };
+                continue;
+              }
+              if (
+                (m.mediaType === "movie" || m.mediaType === "tv") &&
+                m.questionType === "synopsis"
+              ) {
+                const posterImg = await loadImage(m.posterUrl).then((img) => {
+                  bump();
+                  return img;
+                });
+                results[my] = {
+                  title: m.title,
+                  mediaType: m.mediaType,
+                  questionType: "synopsis",
+                  overview: m.overview,
                   posterImg,
                 };
                 continue;
@@ -1652,6 +1951,7 @@
                 mediaType: m.mediaType,
                 backdropImgs,
                 posterImg,
+                director: m.director,
               };
             } catch (e) {
               // une image qui ne charge pas (ex: pare-feu Cloudflare sur les
@@ -1674,7 +1974,14 @@
       }
 
       // le timeline démarre par un écran splash, puis enchaîne les films
-      function buildTimeline(imageMs, revealMs, splashMs, musicClipMs, flagMs) {
+      function buildTimeline(
+        imageMs,
+        revealMs,
+        splashMs,
+        musicClipMs,
+        flagMs,
+        synopsisMs,
+      ) {
         const tl = [];
         let t = 0;
         if (splashMs > 0) {
@@ -1699,7 +2006,7 @@
             t += revealMs;
             return;
           }
-          if (m.mediaType === "flag") {
+          if (m.mediaType === "country" && m.questionType === "flag") {
             tl.push({
               type: "flag-guess",
               itemIdx: i,
@@ -1713,6 +2020,23 @@
               start: t,
               dur: revealMs,
             });
+            t += revealMs;
+            return;
+          }
+          if (
+            (m.mediaType === "movie" || m.mediaType === "tv") &&
+            m.questionType === "synopsis"
+          ) {
+            tl.push({
+              type: "synopsis-guess",
+              itemIdx: i,
+              start: t,
+              dur: synopsisMs,
+            });
+            t += synopsisMs;
+            // reveal générique : identique à celui du mode "image" (poster
+            // + titre), aucune branche dédiée nécessaire (voir drawReveal)
+            tl.push({ type: "reveal", itemIdx: i, start: t, dur: revealMs });
             t += revealMs;
             return;
           }
@@ -1797,6 +2121,13 @@
       // qui a le sien) : reprend la palette et les codes visuels de la page
       // web (pilules translucides, dégradé cyan->violet, halo, confettis) ---
 
+      // taille de police mise à l'échelle de la résolution (voir RS) — garde
+      // le rendu de "moyen" identique tout en gardant "faible"/"élevé"
+      // proportionnels plutôt que d'utiliser la même taille absolue partout
+      function gameFont(weight, size, family = "ui-monospace, Menlo, monospace") {
+        return `${weight} ${Math.round(size * RS)}px ${family}`;
+      }
+
       function roundedRectPath(x, y, w, h, r) {
         const rr = Math.min(r, w / 2, h / 2);
         ctx.beginPath();
@@ -1814,7 +2145,7 @@
         const bg = ctx.createRadialGradient(
           canvas.width / 2,
           canvas.height * 0.4,
-          60,
+          60 * RS,
           canvas.width / 2,
           canvas.height * 0.4,
           canvas.width * 0.75,
@@ -1833,7 +2164,7 @@
       // élément central (poster, pochette…) comme sur le splash
       function drawGlowBurst(cx, cy, elapsedMs, baseR = 260) {
         const pulse = 0.8 + 0.2 * Math.sin(elapsedMs / 900);
-        const r = baseR * pulse;
+        const r = baseR * RS * pulse;
         const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
         glow.addColorStop(0, "rgba(79,209,232,0.3)");
         glow.addColorStop(0.55, "rgba(157,92,230,0.16)");
@@ -1849,42 +2180,42 @@
       function drawBadge(text, x, y, opts = {}) {
         const {
           align = "left",
-          font = "700 24px ui-monospace, Menlo, monospace",
+          font = gameFont(700, 24),
           fg = "#ede8de",
           border = "rgba(157,92,230,0.6)",
           bg = "rgba(18,16,28,0.72)",
-          paddingX = 20,
-          paddingY = 11,
+          paddingX = 20 * RS,
+          paddingY = 11 * RS,
         } = opts;
         ctx.save();
         ctx.font = font;
         const textW = ctx.measureText(text).width;
         const w = textW + paddingX * 2;
-        const h = paddingY * 2 + 22;
+        const h = paddingY * 2 + 22 * RS;
         const bx =
           align === "right" ? x - w : align === "center" ? x - w / 2 : x;
         const by = y - h / 2;
         roundedRectPath(bx, by, w, h, h / 2);
         ctx.fillStyle = bg;
         ctx.fill();
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 * RS;
         ctx.strokeStyle = border;
         ctx.stroke();
         ctx.fillStyle = fg;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(text, bx + w / 2, by + h / 2 + 1);
+        ctx.fillText(text, bx + w / 2, by + h / 2 + 1 * RS);
         ctx.restore();
       }
 
       // bannière "RÉPONSE" façon jeu télévisé (pilule dégradée + halo)
       function drawRevealBanner(centerX, y) {
         ctx.save();
-        ctx.font = "800 26px ui-monospace, Menlo, monospace";
+        ctx.font = gameFont(800, 26);
         const text = "RÉPONSE";
         const textW = ctx.measureText(text).width;
-        const w = textW + 74;
-        const h = 48;
+        const w = textW + 74 * RS;
+        const h = 48 * RS;
         roundedRectPath(centerX - w / 2, y - h / 2, w, h, h / 2);
         const grad = ctx.createLinearGradient(
           centerX - w / 2,
@@ -1896,13 +2227,13 @@
         grad.addColorStop(1, "#9d5ce6");
         ctx.fillStyle = grad;
         ctx.shadowColor = "rgba(157,92,230,0.5)";
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * RS;
         ctx.fill();
         ctx.shadowBlur = 0;
         ctx.fillStyle = "#0a0a10";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(text, centerX, y + 2);
+        ctx.fillText(text, centerX, y + 2 * RS);
         ctx.restore();
       }
 
@@ -1910,13 +2241,13 @@
       // splash pour rappeler la bordure lumineuse du panneau sur la page web
       function drawFrameBorder() {
         ctx.save();
-        const inset = 10;
+        const inset = 10 * RS;
         roundedRectPath(
           inset,
           inset,
           canvas.width - inset * 2,
           canvas.height - inset * 2,
-          24,
+          24 * RS,
         );
         const grad = ctx.createLinearGradient(
           0,
@@ -1927,7 +2258,7 @@
         grad.addColorStop(0, "rgba(79,209,232,0.4)");
         grad.addColorStop(0.5, "rgba(157,92,230,0.4)");
         grad.addColorStop(1, "rgba(232,163,61,0.4)");
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 4 * RS;
         ctx.strokeStyle = grad;
         ctx.stroke();
         ctx.restore();
@@ -1935,9 +2266,9 @@
 
       // barre de progression façon jauge de jeu : piste sombre, remplissage
       // en dégradé cyan -> violet avec un léger halo, extrémités arrondies
-      function drawGameProgress(frac, width, y = 46, h = 14) {
+      function drawGameProgress(frac, width, y = 46 * RS, h = 14 * RS) {
         const w = width || canvas.width;
-        const pad = 24;
+        const pad = 24 * RS;
         const barW = w - pad * 2;
         ctx.save();
         roundedRectPath(pad, y, barW, h, h / 2);
@@ -1950,7 +2281,7 @@
         grad.addColorStop(1, "#9d5ce6");
         ctx.fillStyle = grad;
         ctx.shadowColor = "rgba(79,209,232,0.55)";
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = 12 * RS;
         ctx.fill();
         ctx.restore();
       }
@@ -1958,18 +2289,20 @@
       function drawSideThumbnails(m, upToIdx, colX, colW) {
         // miniatures 3x plus grandes, centrées dans leur propre colonne,
         // coins arrondis + liseré qui alterne cyan/violet façon petites cartes
-        const thumbW = 240,
-          thumbH = 135,
-          gap = 14,
-          startY = 50,
-          r = 14;
+        const thumbW = 240 * RS,
+          thumbH = 135 * RS,
+          gap = 14 * RS,
+          startY = 50 * RS,
+          r = 14 * RS,
+          m4 = 4 * RS,
+          m8 = 8 * RS;
         const x = colX + (colW - thumbW) / 2;
         for (let j = 0; j < upToIdx; j++) {
           const y = startY + j * (thumbH + gap);
-          if (y + thumbH > canvas.height - 40) break;
+          if (y + thumbH > canvas.height - 40 * RS) break;
           ctx.save();
           ctx.globalAlpha = 0.9;
-          roundedRectPath(x - 4, y - 4, thumbW + 8, thumbH + 8, r + 4);
+          roundedRectPath(x - m4, y - m4, thumbW + m8, thumbH + m8, r + m4);
           ctx.fillStyle = "#111113";
           ctx.fill();
           ctx.save();
@@ -1978,7 +2311,7 @@
           drawCover(m.backdropImgs[j], x, y, thumbW, thumbH);
           ctx.restore();
           roundedRectPath(x, y, thumbW, thumbH, r);
-          ctx.lineWidth = 2.5;
+          ctx.lineWidth = 2.5 * RS;
           ctx.strokeStyle = j % 2 === 0 ? "#4fd1e8" : "#9d5ce6";
           ctx.stroke();
           ctx.restore();
@@ -2028,7 +2361,7 @@
         const x = p.xFrac * canvas.width;
         const y =
           p.yFrac * canvas.height +
-          Math.sin(elapsedMs / p.driftMs + p.phase) * p.driftPx;
+          Math.sin(elapsedMs / p.driftMs + p.phase) * p.driftPx * RS;
         const rot = p.rot + elapsedMs * p.rotSpeed;
         const alpha = 0.18 + 0.12 * Math.sin(elapsedMs / 900 + p.phase);
         ctx.save();
@@ -2036,7 +2369,7 @@
         ctx.rotate(rot);
         ctx.globalAlpha = Math.max(0, alpha);
         ctx.fillStyle = p.color;
-        const s = p.size;
+        const s = p.size * RS;
         if (p.shape === "triangle") {
           ctx.beginPath();
           ctx.moveTo(0, -s);
@@ -2070,7 +2403,7 @@
         const bg = ctx.createRadialGradient(
           canvas.width / 2,
           canvas.height * 0.4,
-          60,
+          60 * RS,
           canvas.width / 2,
           canvas.height * 0.4,
           canvas.width * 0.75,
@@ -2086,7 +2419,7 @@
         const centerY = canvas.height * 0.42;
 
         const glowPulse = 0.75 + 0.25 * Math.sin(elapsedMs / 700);
-        const glowR = 230 * glowPulse;
+        const glowR = 230 * RS * glowPulse;
         const glow = ctx.createRadialGradient(
           centerX,
           centerY,
@@ -2106,10 +2439,10 @@
         if (logoImg) {
           const enterT = Math.min(1, elapsedMs / 700);
           const eased = easeOutBack(enterT);
-          const baseSize = 300;
+          const baseSize = 300 * RS;
           const scale = 0.3 + 0.7 * eased;
           const idleT = Math.max(0, elapsedMs - 700);
-          const bobY = enterT >= 1 ? Math.sin(idleT / 450) * 7 : 0;
+          const bobY = enterT >= 1 ? Math.sin(idleT / 450) * 7 * RS : 0;
           const rot =
             enterT < 1 ? (1 - enterT) * -0.16 : Math.sin(idleT / 750) * 0.025;
           const alpha = Math.min(1, elapsedMs / 220);
@@ -2123,12 +2456,12 @@
           ctx.translate(centerX, centerY + bobY);
           ctx.rotate(rot);
           ctx.shadowColor = "rgba(0,0,0,0.55)";
-          ctx.shadowBlur = 28;
-          ctx.shadowOffsetY = 10;
+          ctx.shadowBlur = 28 * RS;
+          ctx.shadowOffsetY = 10 * RS;
           ctx.drawImage(logoImg, -w / 2, -h / 2, w, h);
           ctx.restore();
         } else {
-          ctx.font = "800 64px ui-monospace, Menlo, monospace";
+          ctx.font = gameFont(800, 64);
           ctx.fillStyle = "#ede8de";
           ctx.textAlign = "center";
           ctx.fillText("GUESS IT", centerX, centerY);
@@ -2138,8 +2471,8 @@
         if (subT > 0) {
           ctx.save();
           ctx.globalAlpha = subT;
-          const slideY = (1 - subT) * 16;
-          ctx.font = "700 30px ui-monospace, Menlo, monospace";
+          const slideY = (1 - subT) * 16 * RS;
+          ctx.font = gameFont(700, 30);
           ctx.fillStyle = "#ede8de";
           ctx.textAlign = "center";
           ctx.fillText(
@@ -2150,31 +2483,39 @@
           ctx.restore();
         }
 
-        drawSplashCategoryChips(elapsedMs);
+        drawSplashInfoChips(elapsedMs);
       }
 
-      // pilules des catégories sélectionnées, façon chips de l'écran de
-      // config — apparaissent juste après le sous-titre, réparties sur une
-      // ou deux lignes centrées ; au-delà de MAX_SPLASH_CHIPS, le reste est
-      // condensé en une pilule "+N"
-      function drawSplashCategoryChips(elapsedMs) {
-        const labels = availableCategories
-          .filter((c) => selectedCategories.has(c.key))
-          .map((c) => c.label);
-        if (labels.length === 0) return;
+      // pilules façon chips de l'écran de config, réparties sur une ou
+      // plusieurs lignes centrées ; au-delà de maxChips, le reste est
+      // condensé en une pilule "+N". Retourne le bas (Y) de la dernière
+      // ligne dessinée, pour pouvoir empiler une rangée suivante dessous.
+      function drawChipRow(
+        labels,
+        startY,
+        elapsedMs,
+        appearDelayMs,
+        fillColor,
+        strokeColor,
+        maxChips,
+        fontSize = 20,
+        h = 36 * RS,
+      ) {
+        if (labels.length === 0) return startY;
 
-        const appearT = Math.max(0, Math.min(1, (elapsedMs - 1100) / 500));
-        if (appearT <= 0) return;
+        const appearT = Math.max(
+          0,
+          Math.min(1, (elapsedMs - appearDelayMs) / 500),
+        );
+        if (appearT <= 0) return startY;
 
-        const MAX_SPLASH_CHIPS = 8;
-        const shown = labels.slice(0, MAX_SPLASH_CHIPS);
+        const shown = labels.slice(0, maxChips);
         const extra = labels.length - shown.length;
 
-        const font = "700 20px ui-monospace, Menlo, monospace";
-        const paddingX = 16,
-          gapX = 10,
-          gapY = 10,
-          h = 36;
+        const font = gameFont(700, fontSize);
+        const paddingX = 16 * RS,
+          gapX = 10 * RS,
+          gapY = 10 * RS;
         ctx.font = font;
         const chips = shown.map((text) => ({
           text,
@@ -2192,7 +2533,7 @@
 
         // répartit les pilules sur des lignes qui ne dépassent pas la
         // largeur dispo, centrées horizontalement
-        const maxRowWidth = canvas.width - 160;
+        const maxRowWidth = canvas.width - 160 * RS;
         const rows = [];
         let row = [],
           rowW = 0;
@@ -2208,7 +2549,7 @@
         }
         if (row.length) rows.push(row);
 
-        const startY = canvas.height * 0.85 + (1 - appearT) * 12;
+        const rowStartY = startY + (1 - appearT) * 12 * RS;
         ctx.save();
         ctx.globalAlpha = appearT;
         ctx.textAlign = "center";
@@ -2219,33 +2560,85 @@
             0,
           );
           let x = canvas.width / 2 - rowWidth / 2;
-          const y = startY + ri * (h + gapY);
+          const y = rowStartY + ri * (h + gapY);
           for (const chip of r) {
             roundedRectPath(x, y - h / 2, chip.w, h, h / 2);
-            ctx.fillStyle = chip.extra
-              ? "rgba(157,92,230,0.2)"
-              : "rgba(79,209,232,0.14)";
+            ctx.fillStyle = chip.extra ? "rgba(157,92,230,0.2)" : fillColor;
             ctx.fill();
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.5 * RS;
             ctx.strokeStyle = chip.extra
               ? "rgba(157,92,230,0.6)"
-              : "rgba(79,209,232,0.55)";
+              : strokeColor;
             ctx.stroke();
             ctx.font = font;
             ctx.fillStyle = "#ede8de";
-            ctx.fillText(chip.text, x + chip.w / 2, y + 1);
+            ctx.fillText(chip.text, x + chip.w / 2, y + 1 * RS);
             x += chip.w + gapX;
           }
         });
         ctx.restore();
+
+        return rowStartY + rows.length * (h + gapY) - gapY;
+      }
+
+      // libellés des combinaisons "mediaType:questionType" actives, mêmes
+      // libellés que la rangée "Type" de l'écran de config (voir
+      // renderContentTypeChips) — rappelle sur le splash ce qui a été
+      // choisi pour générer ce quiz
+      function splashTypeLabels() {
+        return [...activeQuestionTypes].map((combo) => {
+          const [mediaType, qt] = combo.split(":");
+          const baseLabel = MEDIA_TYPE_BASE_LABELS[mediaType] || mediaType;
+          const info = questionTypeDetails[qt] || {};
+          return `${baseLabel} ${info.icon || ""} ${info.label || qt}`.trim();
+        });
+      }
+
+      // libellés des catégories utilisées comme filtre — un par catégorie
+      // de base même si plusieurs questionType y sont sélectionnés (le
+      // filtre affiché est le même quel que soit le mode, voir
+      // baseCategoryKey) ; vide si aucun filtre (= toutes les réponses
+      // possibles, rien à afficher)
+      function splashFilterLabels() {
+        const bases = new Set([...selectedCategories].map(baseCategoryKey));
+        return availableCategories
+          .filter((c) => bases.has(c.key))
+          .map((c) => c.label);
+      }
+
+      // deux rangées de pilules en bas du splash : les types de question
+      // actifs (toujours au moins un), puis en dessous les filtres de
+      // catégorie s'il y en a — la rangée des filtres démarre juste sous
+      // celle des types, quelle que soit sa hauteur (1 ou 2 lignes)
+      function drawSplashInfoChips(elapsedMs) {
+        const typeBottom = drawChipRow(
+          splashTypeLabels(),
+          canvas.height * 0.79,
+          elapsedMs,
+          1000,
+          "rgba(232,163,61,0.16)",
+          "rgba(232,163,61,0.6)",
+          6,
+          17,
+          30 * RS,
+        );
+        drawChipRow(
+          splashFilterLabels(),
+          Math.max(typeBottom + 14 * RS, canvas.height * 0.87),
+          elapsedMs,
+          1250,
+          "rgba(79,209,232,0.14)",
+          "rgba(79,209,232,0.55)",
+          8,
+        );
       }
       // dessine un poster/pochette avec coins arrondis + ombre portée
       // correcte (l'ombre est dessinée séparément, avant le clip, sinon le
       // clip aux coins arrondis coupe aussi l'ombre) + liseré violet
-      function drawFramedImage(img, dx, dy, dw, dh, radius = 18) {
+      function drawFramedImage(img, dx, dy, dw, dh, radius = 18 * RS) {
         ctx.save();
         ctx.shadowColor = "rgba(0,0,0,0.6)";
-        ctx.shadowBlur = 30;
+        ctx.shadowBlur = 30 * RS;
         ctx.fillStyle = "#000";
         roundedRectPath(dx, dy, dw, dh, radius);
         ctx.fill();
@@ -2259,7 +2652,7 @@
 
         ctx.save();
         roundedRectPath(dx, dy, dw, dh, radius);
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3 * RS;
         ctx.strokeStyle = "rgba(157,92,230,0.6)";
         ctx.stroke();
         ctx.restore();
@@ -2269,9 +2662,9 @@
       // décoratif (basé sur des sinusoïdes déphasées par barre, pas une
       // vraie analyse audio) mais donne un vrai feeling "jeu musical"
       function drawEqualizer(centerX, centerY, elapsedMs, barCount = 9) {
-        const barW = 20,
-          gap = 12,
-          maxH = 130;
+        const barW = 20 * RS,
+          gap = 12 * RS,
+          maxH = 130 * RS;
         const totalW = barCount * barW + (barCount - 1) * gap;
         const startX = centerX - totalW / 2;
         const colors = ["#4fd1e8", "#9d5ce6", "#e8a33d"];
@@ -2279,7 +2672,7 @@
           const freq = 240 + i * 53;
           const phase = i * 1.7;
           const t = (Math.sin(elapsedMs / freq + phase) + 1) / 2;
-          const h = 16 + t * maxH;
+          const h = 16 * RS + t * maxH;
           const x = startX + i * (barW + gap);
           const y = centerY - h / 2;
           roundedRectPath(x, y, barW, h, barW / 2);
@@ -2288,11 +2681,22 @@
         }
       }
 
+      // libellé "mediaType + questionType" d'un item (même format que
+      // splashTypeLabels), affiché en coin de l'écran de devinette pour
+      // rappeler de quel type est la question — utile quand plusieurs
+      // mediaType/questionType sont mélangés dans le même quiz
+      function questionTypeLabel(m) {
+        const qt = m.questionType || (m.mediaType === "music" ? "audio" : "image");
+        const baseLabel = MEDIA_TYPE_BASE_LABELS[m.mediaType] || m.mediaType;
+        const info = questionTypeDetails[qt] || {};
+        return `${baseLabel} ${info.icon || ""} ${info.label || qt}`.trim();
+      }
+
       function drawGuess(m, seg, withinMs) {
         const itemIdx = seg.itemIdx,
           imgIdx = seg.imgIdx;
         const hasSideStrip = m.backdropImgs.length > 1;
-        const colW = hasSideStrip ? 280 : 0;
+        const colW = hasSideStrip ? 280 * RS : 0;
         const mainW = canvas.width - colW;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2301,12 +2705,12 @@
 
         // un peu de marge autour de l'image pour qu'elle reste bien à
         // l'intérieur du liseré décoratif plutôt que de le toucher
-        const pad = 22;
+        const pad = 22 * RS;
         const imgX = pad,
           imgY = pad,
           imgW = mainW - pad * 2,
           imgH = canvas.height - pad * 2,
-          radius = 16;
+          radius = 16 * RS;
 
         ctx.save();
         roundedRectPath(imgX, imgY, imgW, imgH, radius);
@@ -2327,7 +2731,7 @@
 
         ctx.save();
         roundedRectPath(imgX, imgY, imgW, imgH, radius);
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2.5 * RS;
         ctx.strokeStyle = "rgba(157,92,230,0.5)";
         ctx.stroke();
         ctx.restore();
@@ -2338,9 +2742,12 @@
 
         drawBadge(
           `N° ${itemIdx + 1} / ${items.length}`,
-          50,
-          canvas.height - 58,
+          50 * RS,
+          canvas.height - 58 * RS,
         );
+        drawBadge(questionTypeLabel(m), mainW - 50 * RS, canvas.height - 58 * RS, {
+          align: "right",
+        });
         drawFrameBorder();
       }
       function drawReveal(m, itemIdx, withinMs) {
@@ -2348,10 +2755,10 @@
         drawGameBackdrop();
         drawGameParticles(withinMs);
 
-        const posterH = canvas.height - 220;
+        const posterH = canvas.height - 220 * RS;
         const posterW = posterH * (2 / 3);
         const px = (canvas.width - posterW) / 2;
-        const py = 90;
+        const py = 90 * RS;
 
         drawGlowBurst(canvas.width / 2, py + posterH / 2, withinMs, 300);
 
@@ -2371,37 +2778,58 @@
           drawFramedImage(m.posterImg, dx, dy, dw, dh);
         }
 
-        drawRevealBanner(canvas.width / 2, 62);
+        drawRevealBanner(canvas.width / 2, 62 * RS);
 
         ctx.save();
-        ctx.font = "700 34px ui-monospace, Menlo, monospace";
+        ctx.font = gameFont(700, 34);
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "center";
         ctx.shadowColor = "rgba(0,0,0,0.5)";
-        ctx.shadowBlur = 10;
-        ctx.fillText(m.title, canvas.width / 2, canvas.height - 55);
+        ctx.shadowBlur = 10 * RS;
+        ctx.fillText(m.title, canvas.width / 2, canvas.height - 55 * RS);
         ctx.restore();
+
+        if (m.mediaType === "movie" && m.director) {
+          ctx.save();
+          ctx.font = gameFont(600, 22);
+          ctx.fillStyle = "#c9bfe8";
+          ctx.textAlign = "center";
+          ctx.shadowColor = "rgba(0,0,0,0.5)";
+          ctx.shadowBlur = 8 * RS;
+          ctx.fillText(
+            `Réalisé par ${m.director}`,
+            canvas.width / 2,
+            canvas.height - 24 * RS,
+          );
+          ctx.restore();
+        }
 
         drawBadge(
           `N° ${itemIdx + 1} / ${items.length}`,
-          50,
-          canvas.height - 58,
+          50 * RS,
+          canvas.height - 58 * RS,
         );
         drawFrameBorder();
       }
-      function drawMusicGuess(seg, withinMs) {
+      function drawMusicGuess(m, seg, withinMs) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawGameBackdrop();
         drawGameParticles(withinMs);
 
-        drawEqualizer(canvas.width / 2, canvas.height / 2 + 20, withinMs);
+        drawEqualizer(canvas.width / 2, canvas.height / 2 + 20 * RS, withinMs);
 
         drawGameProgress(withinMs / seg.dur, canvas.width);
 
         drawBadge(
           `N° ${seg.itemIdx + 1} / ${items.length}`,
-          50,
-          canvas.height - 58,
+          50 * RS,
+          canvas.height - 58 * RS,
+        );
+        drawBadge(
+          questionTypeLabel(m),
+          canvas.width - 50 * RS,
+          canvas.height - 58 * RS,
+          { align: "right" },
         );
         drawFrameBorder();
       }
@@ -2413,9 +2841,9 @@
 
         // pochette carrée, contain-fit dans une boîte carrée (même logique
         // que le poster des autres types, juste un ratio 1:1 au lieu de 2:3)
-        const boxSize = canvas.height - 260;
+        const boxSize = canvas.height - 260 * RS;
         const bx = (canvas.width - boxSize) / 2;
-        const by = 80;
+        const by = 80 * RS;
 
         drawGlowBurst(canvas.width / 2, by + boxSize / 2, withinMs, 300);
 
@@ -2434,23 +2862,23 @@
           drawFramedImage(m.posterImg, dx, dy, dw, dh);
         }
 
-        drawRevealBanner(canvas.width / 2, 62);
+        drawRevealBanner(canvas.width / 2, 62 * RS);
 
         ctx.save();
-        ctx.font = "700 32px ui-monospace, Menlo, monospace";
+        ctx.font = gameFont(700, 32);
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "center";
-        ctx.fillText(m.artist, canvas.width / 2, canvas.height - 86);
+        ctx.fillText(m.artist, canvas.width / 2, canvas.height - 86 * RS);
 
-        ctx.font = "600 24px ui-monospace, Menlo, monospace";
+        ctx.font = gameFont(600, 24);
         ctx.fillStyle = "#e8a33d";
-        ctx.fillText(m.track, canvas.width / 2, canvas.height - 55);
+        ctx.fillText(m.track, canvas.width / 2, canvas.height - 55 * RS);
         ctx.restore();
 
         drawBadge(
           `N° ${itemIdx + 1} / ${items.length}`,
-          50,
-          canvas.height - 58,
+          50 * RS,
+          canvas.height - 58 * RS,
         );
         drawFrameBorder();
       }
@@ -2459,10 +2887,10 @@
       // réponse (contrairement aux autres types) : c'est le principe même de
       // cette catégorie, voir fetchFlagCategory côté serveur
       function drawFlagBox(m, withinMs) {
-        const boxW = 420,
-          boxH = 300;
+        const boxW = 420 * RS,
+          boxH = 300 * RS;
         const cx = canvas.width / 2;
-        const cy = canvas.height / 2 - 10;
+        const cy = canvas.height / 2 - 10 * RS;
 
         drawGlowBurst(cx, cy, withinMs, 300);
 
@@ -2478,7 +2906,7 @@
           }
           const dx = cx - dw / 2;
           const dy = cy - dh / 2;
-          drawFramedImage(m.posterImg, dx, dy, dw, dh, 12);
+          drawFramedImage(m.posterImg, dx, dy, dw, dh, 12 * RS);
         }
       }
 
@@ -2493,8 +2921,14 @@
 
         drawBadge(
           `N° ${seg.itemIdx + 1} / ${items.length}`,
-          50,
-          canvas.height - 58,
+          50 * RS,
+          canvas.height - 58 * RS,
+        );
+        drawBadge(
+          questionTypeLabel(m),
+          canvas.width - 50 * RS,
+          canvas.height - 58 * RS,
+          { align: "right" },
         );
         drawFrameBorder();
       }
@@ -2506,23 +2940,106 @@
 
         drawFlagBox(m, withinMs);
 
-        drawRevealBanner(canvas.width / 2, 62);
+        drawRevealBanner(canvas.width / 2, 62 * RS);
 
         ctx.save();
-        ctx.font = "700 32px ui-monospace, Menlo, monospace";
+        ctx.font = gameFont(700, 32);
         ctx.fillStyle = "#ede8de";
         ctx.textAlign = "center";
-        ctx.fillText(m.title, canvas.width / 2, canvas.height - 86);
+        ctx.fillText(m.title, canvas.width / 2, canvas.height - 86 * RS);
 
-        ctx.font = "600 24px ui-monospace, Menlo, monospace";
+        ctx.font = gameFont(600, 24);
         ctx.fillStyle = "#e8a33d";
-        ctx.fillText(`Capitale : ${m.capital}`, canvas.width / 2, canvas.height - 55);
+        ctx.fillText(`Capitale : ${m.capital}`, canvas.width / 2, canvas.height - 55 * RS);
         ctx.restore();
 
         drawBadge(
           `N° ${itemIdx + 1} / ${items.length}`,
-          50,
-          canvas.height - 58,
+          50 * RS,
+          canvas.height - 58 * RS,
+        );
+        drawFrameBorder();
+      }
+
+      // découpe `text` en lignes qui tiennent chacune dans `maxWidth`, avec
+      // la police déjà active sur `ctx` au moment de l'appel — mot par mot,
+      // pas de coupure au milieu d'un mot
+      function wrapText(text, maxWidth) {
+        const words = text.split(/\s+/).filter(Boolean);
+        const lines = [];
+        let line = "";
+        for (const word of words) {
+          const test = line ? `${line} ${word}` : word;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            lines.push(line);
+            line = word;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      // écran de devinette du mode "synopsis" (movie/tv) : le texte du
+      // résumé remplace l'image, seul l'écran réponse (générique, voir
+      // buildTimeline) affiche poster + titre comme le mode "image"
+      function drawSynopsisGuess(m, seg, withinMs) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGameBackdrop();
+        drawGameParticles(withinMs);
+        drawGlowBurst(canvas.width / 2, canvas.height / 2, withinMs, 340);
+
+        const boxW = canvas.width - 220 * RS;
+        ctx.save();
+        ctx.font = gameFont(500, 30);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ede8de";
+        ctx.shadowColor = "rgba(0,0,0,0.6)";
+        ctx.shadowBlur = 10 * RS;
+        const lineHeight = 44 * RS;
+        const lines = wrapText(m.overview, boxW);
+        const textH = lines.length * lineHeight;
+        // zone verticale sûre, sous la barre de progression et au-dessus des
+        // badges (voir drawGameProgress/drawBadge plus bas) : le texte y est
+        // clippé dès qu'il ne tient plus, pour ne jamais les chevaucher
+        const topMargin = 110 * RS;
+        const bottomMargin = 110 * RS;
+        const zoneH = canvas.height - topMargin - bottomMargin;
+
+        let startY;
+        if (textH <= zoneH) {
+          // tient dans la zone visible : centré sur tout le canvas, comme
+          // pour un synopsis court
+          startY = (canvas.height - textH) / 2;
+        } else {
+          // trop long pour tenir : défilement façon téléprompteur sur toute
+          // la durée de la devinette (voir seg.dur), plutôt qu'un texte
+          // tronqué ou débordant
+          const scrollRange = textH - zoneH;
+          const p = Math.min(1, Math.max(0, withinMs / seg.dur));
+          startY = topMargin - scrollRange * p;
+          ctx.beginPath();
+          ctx.rect(0, topMargin, canvas.width, zoneH);
+          ctx.clip();
+        }
+        lines.forEach((line, i) => {
+          ctx.fillText(line, canvas.width / 2, startY + i * lineHeight);
+        });
+        ctx.restore();
+
+        drawGameProgress(withinMs / seg.dur, canvas.width);
+
+        drawBadge(
+          `N° ${seg.itemIdx + 1} / ${items.length}`,
+          50 * RS,
+          canvas.height - 58 * RS,
+        );
+        drawBadge(
+          questionTypeLabel(m),
+          canvas.width - 50 * RS,
+          canvas.height - 58 * RS,
+          { align: "right" },
         );
         drawFrameBorder();
       }
@@ -2532,18 +3049,20 @@
           drawSplash(withinMs);
           return;
         }
-        if (seg.type === "music-guess") {
-          drawMusicGuess(seg, withinMs);
-          return;
-        }
         const m = items[seg.itemIdx];
         if (!m) return;
+        if (seg.type === "music-guess") {
+          drawMusicGuess(m, seg, withinMs);
+          return;
+        }
         if (seg.type === "guess") drawGuess(m, seg, withinMs);
         else if (seg.type === "music-reveal")
           drawMusicReveal(m, seg.itemIdx, withinMs);
         else if (seg.type === "flag-guess") drawFlagGuess(m, seg, withinMs);
         else if (seg.type === "flag-reveal")
           drawFlagReveal(m, seg.itemIdx, withinMs);
+        else if (seg.type === "synopsis-guess")
+          drawSynopsisGuess(m, seg, withinMs);
         else drawReveal(m, seg.itemIdx, withinMs);
       }
       function findSegment(elapsed) {
@@ -2557,44 +3076,168 @@
       // durées de frame — on lui donne juste (timestamp, durée) en secondes
       // pour chaque image dessinée sur le canvas invisible.
       //
-      // deux cadences distinctes : on ENCODE à CFG.encodeFps (16fps, pour une
-      // lecture bien fluide et calée dès le début — un cadencement
-      // d'encodage trop grossier fait "traîner" le calage de lecture du
-      // navigateur au tout début, ce qui se traduit ensuite par un décalage
-      // audio/vidéo constant), mais on ne REDESSINE (la partie coûteuse :
-      // photos, dégradés, texte) qu'à CFG.drawFps (4fps) — les frames
-      // d'encodage intermédiaires réencodent simplement le même canvas, ce
-      // qui coûte bien moins cher que de le redessiner. Le splash est
-      // l'exception : seul moment réellement animé, il est redessiné à
-      // chaque frame d'encodage pour rester fluide.
+      // une seule cadence (renderFps, voir RENDER_QUALITIES) pour dessiner
+      // ET encoder : le coût réel est dans l'encodage de chaque frame, pas
+      // dans son dessin, donc découpler les deux (redessiner moins souvent
+      // que l'encodage) n'accélérait rien — seulement plus de complexité.
+      //
+      // lecture progressive pendant l'encodage : au lieu d'accumuler la
+      // vidéo entière en mémoire (BufferTarget) puis de l'attacher au
+      // <video> une fois finie, on mux en MP4 fragmenté (append-only) vers
+      // un MediaSource — chaque fragment produit est ajouté au SourceBuffer
+      // dès qu'il est prêt, donc le navigateur peut commencer la lecture
+      // avant la fin du rendu. Le codec exact (profil/niveau) n'est connu
+      // qu'à la configuration réelle de l'encodeur (onEncoderConfig) : on
+      // ne peut créer le SourceBuffer qu'à ce moment-là, donc les tout
+      // premiers fragments (ftyp/moov) sont mis en file d'attente le temps
+      // que le SourceBuffer existe.
       async function renderFast() {
-        const drawFps = CFG.drawFps;
-        const encodeFps = CFG.encodeFps;
-        const encodeFrameDurationSec = 1 / encodeFps;
+        const encodeFrameDurationSec = 1 / renderFps;
         const totalEncodeFrames = Math.max(
           1,
-          Math.round((totalDurationMs / 1000) * encodeFps),
-        );
-        // nombre de frames d'encodage entre deux redessins réels (hors splash)
-        const drawEveryNEncodeFrames = Math.max(
-          1,
-          Math.round(encodeFps / drawFps),
+          Math.round((totalDurationMs / 1000) * renderFps),
         );
 
+        const mediaSource = new MediaSource();
+        const mediaSourceUrl = URL.createObjectURL(mediaSource);
+        let currentObjectUrl = mediaSourceUrl;
+        stage.innerHTML = "";
+        const video = document.createElement("video");
+        video.controls = true;
+        video.src = mediaSourceUrl;
+        stage.appendChild(video);
+
+        await new Promise((resolve) => {
+          if (mediaSource.readyState === "open") resolve();
+          else mediaSource.addEventListener("sourceopen", resolve, { once: true });
+        });
+
+        let sourceBuffer = null;
+        let videoCodec = null;
+        let audioCodec = null;
+        let sourceBufferReady;
+        const sourceBufferReadyPromise = new Promise((resolve) => {
+          sourceBufferReady = resolve;
+        });
+        function ensureSourceBuffer() {
+          if (sourceBuffer || !videoCodec || !audioCodec) return;
+          sourceBuffer = mediaSource.addSourceBuffer(
+            `video/mp4; codecs="${videoCodec}, ${audioCodec}"`,
+          );
+          sourceBufferReady();
+        }
+
+        const allChunks = [];
+        // reprend `allChunks` (qui a toujours tout, contrairement au
+        // SourceBuffer) dans un Blob et rebascule le lecteur dessus en
+        // conservant position/lecture — même mécanisme que la bascule finale
+        // ci-dessous, réutilisé comme filet de secours quand le SourceBuffer
+        // live est plein (voir appendChunk). Changer `src` interrompt
+        // implicitement la lecture : chaque étape (métadonnées, currentTime,
+        // play()) doit attendre la précédente, sinon le navigateur ignore
+        // silencieusement certains appels.
+        async function reloadFromChunks() {
+          const blob = new Blob(allChunks, { type: "video/mp4" });
+          const wasPlaying = !video.paused;
+          const savedTime = video.currentTime;
+          const nextUrl = URL.createObjectURL(blob);
+          await new Promise((resolve) => {
+            video.addEventListener("loadedmetadata", resolve, { once: true });
+            video.src = nextUrl;
+          });
+          URL.revokeObjectURL(currentObjectUrl);
+          currentObjectUrl = nextUrl;
+          if (savedTime > 0) {
+            await new Promise((resolve) => {
+              video.addEventListener("seeked", resolve, { once: true });
+              video.currentTime = savedTime;
+            });
+          }
+          if (wasPlaying) await video.play().catch(() => {});
+          return blob;
+        }
+        // chaîne de promesses : chaque chunk n'est ajouté qu'une fois le
+        // précédent terminé (appendBuffer refuse d'être rappelé tant que
+        // updating === true), et write() ne se résout — donnant le feu
+        // vert à Mediabunny pour le chunk suivant — qu'une fois CE chunk
+        // réellement ajouté, pour respecter la contre-pression du flux.
+        let appendChain = Promise.resolve();
+        // une fois vrai, on a définitivement abandonné l'ajout live (voir
+        // appendChunk) : plus aucun appendBuffer n'est tenté, seul
+        // `allChunks` continue de grandir jusqu'à la bascule finale.
+        let liveAppendBroken = false;
+        async function appendChunk(chunk) {
+          if (liveAppendBroken) return;
+          try {
+            await new Promise((resolve, reject) => {
+              const onDone = () => {
+                sourceBuffer.removeEventListener("error", onError);
+                resolve();
+              };
+              const onError = (e) => {
+                sourceBuffer.removeEventListener("updateend", onDone);
+                reject(e);
+              };
+              sourceBuffer.addEventListener("updateend", onDone, {
+                once: true,
+              });
+              sourceBuffer.addEventListener("error", onError, {
+                once: true,
+              });
+              sourceBuffer.appendBuffer(chunk);
+            });
+          } catch (e) {
+            // SourceBuffer plein (quota du navigateur) : évincer des données
+            // déjà bufferisées risquait de couper sous la tête de lecture en
+            // cours (vécu en pratique). Plus simple et plus sûr : abandonner
+            // l'ajout live pour de bon et rebasculer sur un blob de tout ce
+            // qui est rendu jusqu'ici — ne plante jamais, au prix d'un
+            // aperçu qui arrête de grandir en direct jusqu'à la fin du rendu.
+            if (liveAppendBroken) return;
+            liveAppendBroken = true;
+            await reloadFromChunks();
+          }
+        }
+
+        const writable = new WritableStream({
+          write(chunk) {
+            allChunks.push(chunk);
+            if (liveAppendBroken) return;
+            appendChain = appendChain
+              .then(() => sourceBufferReadyPromise)
+              .then(() => appendChunk(chunk));
+            return appendChain;
+          },
+          async close() {
+            await appendChain;
+            if (!liveAppendBroken && mediaSource.readyState === "open") {
+              mediaSource.endOfStream();
+            }
+          },
+        });
+
         const output = new Mediabunny.Output({
-          format: new Mediabunny.Mp4OutputFormat(),
-          target: new Mediabunny.BufferTarget(),
+          format: new Mediabunny.Mp4OutputFormat({ fastStart: "fragmented" }),
+          target: new Mediabunny.AppendOnlyStreamTarget(writable),
         });
 
         const videoSource = new Mediabunny.CanvasSource(canvas, {
           codec: "avc",
           bitrate: Mediabunny.QUALITY_HIGH,
+          onEncoderConfig: (config) => {
+            videoCodec = config.codec;
+            ensureSourceBuffer();
+          },
         });
         output.addVideoTrack(videoSource);
 
         const audioSource = new Mediabunny.AudioBufferSource({
           codec: "aac",
           bitrate: Mediabunny.QUALITY_HIGH,
+          onEncoderConfig: (config) => {
+            audioCodec = config.codec;
+            ensureSourceBuffer();
+          },
         });
         output.addAudioTrack(audioSource);
 
@@ -2636,7 +3279,10 @@
             ) {
               i++; // déjà couvert par le buffer de devinette ajouté ci-dessus
             }
-          } else if (seg.type === "flag-guess") {
+          } else if (
+            seg.type === "flag-guess" ||
+            seg.type === "synopsis-guess"
+          ) {
             const m = items[seg.itemIdx];
             await audioSource.add(m.guessAudioBuffer || silentBuffer(seg.dur));
           } else {
@@ -2646,15 +3292,9 @@
         audioSource.close();
 
         for (let i = 0; i < totalEncodeFrames; i++) {
-          const elapsedMs = (i / encodeFps) * 1000;
+          const elapsedMs = (i / renderFps) * 1000;
           const seg = findSegment(elapsedMs);
-          // le splash est le seul moment vraiment animé (rebond du logo,
-          // halo, confettis) : on le redessine à chaque frame d'encodage
-          // pour une animation fluide, contrairement au reste de la vidéo
-          // (photos fixes) qui n'a besoin que du rythme visuel habituel
-          if (seg.type === "splash" || i % drawEveryNEncodeFrames === 0) {
-            drawSegment(seg, elapsedMs - seg.start);
-          }
+          drawSegment(seg, elapsedMs - seg.start);
 
           await videoSource.add(
             i * encodeFrameDurationSec,
@@ -2673,15 +3313,20 @@
         videoSource.close();
 
         await output.finalize();
-        const buffer = output.target.buffer;
         setProgress(100);
-        return { blob: new Blob([buffer], { type: "video/mp4" }), ext: "mp4" };
+
+        // bascule systématique sur un blob complet en fin de rendu (même
+        // mécanisme que le filet de secours de appendChunk) pour garantir un
+        // lecteur entièrement rembobinable, que le direct ait décroché ou non.
+        const blob = await reloadFromChunks();
+
+        return { blob, ext: "mp4" };
       }
 
       // repli temps réel (navigateurs sans WebCodecs) : capture le canvas en direct
       function renderRealtime() {
         return new Promise((resolve, reject) => {
-          const stream = canvas.captureStream(CFG.drawFps);
+          const stream = canvas.captureStream(renderFps);
           const mimeType = MediaRecorder.isTypeSupported(
             "video/webm;codecs=vp9",
           )
@@ -2740,20 +3385,23 @@
             });
 
         try {
-          const count = Math.min(100, Math.max(5, currentCount()));
+          const count = Math.min(50, Math.max(1, currentCount()));
           const imagesPerItem = Math.min(
             5,
             Math.max(1, currentImagesPerItem()),
           );
           const categories = [...selectedCategories].join(",");
           const exclude = getSeenIds().join(",");
+          // mêmes clés "mediaType:questionType" que server.js
+          // parseRequestedQuestionTypes/filterByQuestionTypes
+          const questionTypes = [...activeQuestionTypes].join(",");
 
           setStatus(
             `Récupération d\u2019un lot de ${count} titres (${imagesPerItem} images chacun)…`,
           );
           setStagePlaceholder("Récupération de la liste des titres…");
           const res = await fetch(
-            `/api/quiz-batch?count=${count}&imagesPerItem=${imagesPerItem}&categories=${categories}&exclude=${exclude}`,
+            `/api/quiz-batch?count=${count}&imagesPerItem=${imagesPerItem}&categories=${categories}&exclude=${exclude}&questionTypes=${questionTypes}`,
           );
           if (!res.ok)
             throw new Error((await res.json()).error || res.statusText);
@@ -2802,9 +3450,12 @@
             for (const m of items) {
               if (m.mediaType === "music") continue;
               const guessDurSec =
-                m.mediaType === "flag"
+                m.mediaType === "country" && m.questionType === "flag"
                   ? currentFlagSec()
-                  : m.backdropImgs.length * currentImageSec();
+                  : (m.mediaType === "movie" || m.mediaType === "tv") &&
+                      m.questionType === "synopsis"
+                    ? currentSynopsisSec()
+                    : m.backdropImgs.length * currentImageSec();
               m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
                 loopBufferToDuration(guessingSrc, guessDurSec),
               );
@@ -2821,6 +3472,7 @@
             CFG.splashMs,
             currentMusicClipSec() * 1000,
             currentFlagSec() * 1000,
+            currentSynopsisSec() * 1000,
           );
           timeline = built.timeline;
           totalDurationMs = built.total;
@@ -2841,18 +3493,26 @@
           }
           setProgress(0);
 
+          // renderFast() attache déjà son <video> dès le début du rendu et
+          // le nourrit au fil de l'eau (voir MediaSource dans renderFast) ;
+          // le repli temps réel construit son blob d'un coup, donc on
+          // n'attache le <video> qu'ici, une fois qu'il existe vraiment.
+          // Important : ne JAMAIS toucher stage.innerHTML dans le cas
+          // rapide, sinon ça détruit le <video> en cours de lecture que
+          // renderFast() vient de reprendre après le rendu.
           const { blob, ext } = supportsFastEncode
             ? await renderFast()
             : await renderRealtime();
-          const url = URL.createObjectURL(blob);
 
-          stage.innerHTML = "";
-          const video = document.createElement("video");
-          video.src = url;
-          video.controls = true;
-          stage.appendChild(video);
+          if (!supportsFastEncode) {
+            stage.innerHTML = "";
+            const video = document.createElement("video");
+            video.src = URL.createObjectURL(blob);
+            video.controls = true;
+            stage.appendChild(video);
+          }
 
-          downloadLink.href = url;
+          downloadLink.href = URL.createObjectURL(blob);
           downloadLink.download = `guess-it.${ext}`;
           resultRow.classList.add("show");
           setStatus(
@@ -2875,10 +3535,11 @@
         saveSettings();
       });
       countNumber.addEventListener("input", () => {
-        const max = parseInt(countNumber.max, 10) || 100;
+        const max = parseInt(countNumber.max, 10) || 50;
+        const min = parseInt(countNumber.min, 10) || 5;
         const v = Math.min(
           max,
-          Math.max(5, parseInt(countNumber.value, 10) || 5),
+          Math.max(min, parseInt(countNumber.value, 10) || min),
         );
         countRange.value = v;
         updateDurationHint();
@@ -2931,6 +3592,16 @@
       });
       flagSecNumber.addEventListener("input", () => {
         flagSecRange.value = flagSecNumber.value;
+        updateDurationHint();
+        saveSettings();
+      });
+      synopsisSecRange.addEventListener("input", () => {
+        synopsisSecNumber.value = synopsisSecRange.value;
+        updateDurationHint();
+        saveSettings();
+      });
+      synopsisSecNumber.addEventListener("input", () => {
+        synopsisSecRange.value = synopsisSecNumber.value;
         updateDurationHint();
         saveSettings();
       });

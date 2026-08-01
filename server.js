@@ -16,14 +16,12 @@ const APP_VERSION = JSON.parse(
   readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
 ).version;
 const TMDB_KEY = process.env.TMDB_API_KEY;
-// deux cadences de rafraîchissement distinctes (voir refreshReservoir) : les
-// catégories volatiles (now_playing, trending, etc.) toutes les 6h, tout le
-// reste toutes les semaines — même valeur que RESERVOIR_CACHE_TTL_MS plus
-// bas, qui sert de seule source de vérité pour "une donnée stable reste
-// valide combien de temps".
-const VOLATILE_REFRESH_MS = 6 * 60 * 60 * 1000; // 6h
 const MIN_COUNT = 5;
-const MAX_COUNT = 100;
+// plafonné à 50 (pas 100) : la lecture progressive pendant le rendu (voir
+// renderFast côté client) n'évince rien du SourceBuffer, donc une vidéo
+// trop longue peut dépasser le quota mémoire du navigateur — 50 titres
+// reste dans une plage sûre sans avoir besoin d'éviction.
+const MAX_COUNT = 50;
 const MIN_IMAGES_PER_ITEM = 1;
 const MAX_IMAGES_PER_ITEM = 5;
 const IMAGE_FETCH_CONCURRENCY = 8;
@@ -35,16 +33,10 @@ const IMAGE_FETCH_CONCURRENCY = 8;
 const CATEGORY_FETCH_CONCURRENCY = 6;
 const PAGE_FETCH_CONCURRENCY = 4;
 
-// mode dev (--dev) : réduit le nombre de pages récupérées par catégorie pour
-// démarrer vite en local (moins de requêtes TMDb/IGDB, donc moins d'attente
-// sur le throttle global)
-const DEV_MODE = process.argv.includes("--dev");
-const DEV_MAX_PAGES = 1;
-
 // --only=movie,painting : ne construit/rafraîchit que les catégories de ces
 // médias (les autres sont ignorées avant même d'être fetchées), pour tester
-// une seule fonctionnalité sans attendre tout le reste. Combinable avec
-// --dev (ex: node server.js --dev --only=painting).
+// une seule fonctionnalité sans attendre tout le reste (ex: node server.js
+// --only=painting).
 const ONLY_ARG = process.argv.find((a) => a.startsWith("--only="));
 const ONLY_TYPES = ONLY_ARG
   ? new Set(
@@ -57,6 +49,12 @@ const ONLY_TYPES = ONLY_ARG
 function onlyWants(mediaType) {
   return !ONLY_TYPES || ONLY_TYPES.has(mediaType);
 }
+
+// --no-write-cache : lit le cache disque normalement (démarrage rapide)
+// mais n'y écrit jamais (réservoir ni caches "warm" pays/peintures/
+// anniversaires) — pour lancer un serveur de test sans risquer d'altérer
+// le cache d'un autre serveur qui tourne en parallèle sur la même machine.
+const NO_WRITE_CACHE = process.argv.includes("--no-write-cache");
 
 if (!TMDB_KEY) {
   console.error("TMDB_API_KEY manquante dans .env");
@@ -75,12 +73,13 @@ if (!igdbEnabled) {
 }
 
 // Pexels (photos pays) est optionnel : sans clé, le serveur démarre quand
-// même, simplement sans la catégorie Pays.
+// même — la catégorie Pays reste active pour son questionType "flag", qui
+// n'en a pas besoin, seul son questionType "image" (photos) est indisponible.
 const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
 const pexelsEnabled = Boolean(PEXELS_API_KEY);
 if (!pexelsEnabled) {
   console.warn(
-    "PEXELS_API_KEY absente dans .env : catégorie Pays désactivée.",
+    "PEXELS_API_KEY absente dans .env : mode photo de la catégorie Pays désactivé (le mode drapeau reste disponible).",
   );
 }
 
@@ -122,6 +121,10 @@ const PERSON_BIRTHDAY_WARM_CACHE_PATH = path.join(
   CACHE_DIR,
   "warm-person-birthdays.json",
 );
+const MOVIE_DIRECTOR_WARM_CACHE_PATH = path.join(
+  CACHE_DIR,
+  "warm-movie-directors.json",
+);
 const RESERVOIR_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 semaine
 
 // écriture atomique (fichier temporaire + rename) : un kill/crash pendant
@@ -155,7 +158,6 @@ const STATIC_LISTS = {
     label: "Au cinéma (Films)",
     group: "liste",
     mediaType: "movie",
-    volatile: true,
   },
   upcoming: {
     pathAndQuery: "movie/upcoming",
@@ -163,7 +165,6 @@ const STATIC_LISTS = {
     label: "À venir (Films)",
     group: "liste",
     mediaType: "movie",
-    volatile: true,
   },
   trending_day: {
     pathAndQuery: "trending/movie/day",
@@ -171,7 +172,6 @@ const STATIC_LISTS = {
     label: "Tendances du jour (Films)",
     group: "liste",
     mediaType: "movie",
-    volatile: true,
   },
   trending_week: {
     pathAndQuery: "trending/movie/week",
@@ -179,7 +179,6 @@ const STATIC_LISTS = {
     label: "Tendances de la semaine (Films)",
     group: "liste",
     mediaType: "movie",
-    volatile: true,
   },
 };
 
@@ -265,7 +264,6 @@ const TV_STATIC_LISTS = {
     label: "En cours de diffusion",
     group: "liste",
     mediaType: "tv",
-    volatile: true,
   },
   tv_airing_today: {
     pathAndQuery: "tv/airing_today",
@@ -273,7 +271,6 @@ const TV_STATIC_LISTS = {
     label: "À l'antenne aujourd'hui",
     group: "liste",
     mediaType: "tv",
-    volatile: true,
   },
   tv_trending_day: {
     pathAndQuery: "trending/tv/day",
@@ -281,7 +278,6 @@ const TV_STATIC_LISTS = {
     label: "Tendances du jour (Séries)",
     group: "liste",
     mediaType: "tv",
-    volatile: true,
   },
   tv_trending_week: {
     pathAndQuery: "trending/tv/week",
@@ -289,7 +285,6 @@ const TV_STATIC_LISTS = {
     label: "Tendances de la semaine (Séries)",
     group: "liste",
     mediaType: "tv",
-    volatile: true,
   },
 };
 
@@ -422,7 +417,6 @@ const GAME_STATIC_LISTS = {
     label: "Sorties récentes",
     group: "liste",
     mediaType: "game",
-    volatile: true,
   },
 };
 
@@ -620,10 +614,12 @@ const PERSON_BIRTHDAY_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 jours
 // pays — liste depuis mledoze/countries (mirroir libre et sans clé des
 // données historiques de REST Countries, elle-même dépréciée et payante
 // depuis 2024 ; mêmes champs region/subregion/traductions, activement
-// maintenu). Les images de "devinette" viennent d'une recherche Pexels par
-// mot-clé (voir fetchCountryPhotos, nécessite PEXELS_API_KEY) ; le drapeau
-// (flagcdn.com, gratuit sans clé) sert uniquement d'illustration sur l'écran
-// réponse.
+// maintenu). Un même pays alimente deux `questionType` distincts (voir
+// QUESTION_TYPES) : "image" (photo Pexels en devinette, nécessite
+// PEXELS_API_KEY, voir fetchCountryPhotos ; le drapeau flagcdn.com ne sert
+// alors que d'illustration sur l'écran réponse) et "flag" (le drapeau
+// flagcdn.com sert directement d'image de devinette ET de réponse, gratuit
+// sans clé — la question porte alors sur le pays ET sa capitale).
 const COUNTRY_LIST_URL =
   "https://raw.githubusercontent.com/mledoze/countries/master/countries.json";
 const COUNTRY_CONTINENTS = [
@@ -648,7 +644,13 @@ async function loadCountryList() {
 // construit le pool "léger" (id/titre/drapeau) — les photos ne sont
 // récupérées qu'à la génération du quiz (voir fetchCountryPhotos), comme les
 // backdrops films/séries : coûteux de tout précharger pour ~245 pays alors
-// qu'un lot n'en tire qu'une poignée.
+// qu'un lot n'en tire qu'une poignée. Chaque pays alimente jusqu'à deux
+// entrées distinctes (un `id` par questionType, voir QUESTION_TYPES) pour
+// pouvoir apparaître sous les deux formes dans un même quiz sans que le
+// dédoublonnage global par id (stratifiedSelection) ne les confonde :
+// "image" (photo Pexels, décalage 1e12) et, si le pays a une capitale
+// exploitable, "flag" (le drapeau sert alors d'image de devinette ET de
+// réponse, décalage 3e12 — distinct de "painting" qui utilise 2e12).
 async function fetchCountryCategory(def) {
   const all = await loadCountryList();
   const filtered = all.filter(
@@ -658,49 +660,27 @@ async function fetchCountryCategory(def) {
   for (const c of filtered) {
     const numId = Number(c.ccn3);
     if (!numId || !c.cca2) continue;
-    result.push({
-      // décalage large : le ccn3 (code numérique ISO, 3 chiffres) collerait
-      // sinon avec des ids TMDb/IGDB/iTunes réels si l'utilisateur mélange
-      // pays et un autre type dans le même quiz (dédoublonnage global par id
-      // dans stratifiedSelection)
-      id: 1_000_000_000_000 + numId,
-      title: c.translations?.fra?.common || c.name.common,
-      mediaType: "country",
-      photoQuery: c.name.common,
-      posterUrl: `https://flagcdn.com/w320/${c.cca2.toLowerCase()}.png`,
-    });
-  }
-  return result;
-}
-
-// drapeaux — même source mledoze/countries (déjà en cache via
-// loadCountryList) et même image flagcdn.com, mais ici le drapeau EST
-// l'image de devinette ET de réponse (contrairement à "country" où il ne
-// sert qu'à l'écran réponse) : pas besoin de Pexels, donc pas besoin de
-// PEXELS_API_KEY, contrairement à la catégorie "Pays". La question porte sur
-// le pays ET sa capitale (champ `capital` de mledoze), affichée à l'écran
-// réponse — un pays sans capitale exploitable (rare, quelques territoires)
-// est simplement exclu.
-async function fetchFlagCategory(def) {
-  const all = await loadCountryList();
-  const filtered = all.filter(
-    (c) => c.region !== "Antarctic" && (!def.region || c.region === def.region),
-  );
-  const result = [];
-  for (const c of filtered) {
-    const numId = Number(c.ccn3);
-    const capital = c.capital?.[0];
-    if (!numId || !c.cca2 || !capital) continue;
+    const title = c.translations?.fra?.common || c.name.common;
     const flagUrl = `https://flagcdn.com/w320/${c.cca2.toLowerCase()}.png`;
     result.push({
-      // décalage distinct de "country" (1e12) et "painting" (2e12) pour
-      // éviter toute collision si l'utilisateur mélange plusieurs types
-      id: 3_000_000_000_000 + numId,
-      title: c.translations?.fra?.common || c.name.common,
-      capital,
-      mediaType: "flag",
+      id: 1_000_000_000_000 + numId,
+      title,
+      mediaType: "country",
+      questionType: "image",
+      photoQuery: c.name.common,
       posterUrl: flagUrl,
     });
+    const capital = c.capital?.[0];
+    if (capital) {
+      result.push({
+        id: 3_000_000_000_000 + numId,
+        title,
+        capital,
+        mediaType: "country",
+        questionType: "flag",
+        posterUrl: flagUrl,
+      });
+    }
   }
   return result;
 }
@@ -840,6 +820,34 @@ function paintingSparql(filter, limit) {
   );
 }
 
+// filtre "country" spécifiquement : un simple LIMIT sur les TABLEAUX favorise
+// mécaniquement les 1-2 peintres les plus prolifiques sur Commons (constaté :
+// la France ne renvoyait que Monet + Ingres sur les 200 premières lignes,
+// l'ordre par défaut de Wikidata regroupant les résultats par créateur). On
+// récupère donc d'abord les créateurs DISTINCTS (requête rapide : peut
+// s'arrêter dès qu'elle en a trouvé assez, contrairement à un ORDER BY/GROUP
+// BY qui doit d'abord évaluer tout le résultat — testé à 16s+, trop proche
+// du timeout de wikidataQuery), puis une image par créateur via VALUES.
+function paintingCountryCreatorsSparql(qid, limit) {
+  return (
+    "SELECT DISTINCT ?creator WHERE { " +
+    `?creator wdt:P27 wd:${qid}. ` +
+    "?item wdt:P31 wd:Q3305213; wdt:P170 ?creator; wdt:P18 ?image. " +
+    `} LIMIT ${limit}`
+  );
+}
+
+function paintingCreatorImagesSparql(creatorQids) {
+  const values = creatorQids.map((qid) => `wd:${qid}`).join(" ");
+  return (
+    "SELECT ?creator (SAMPLE(?image) AS ?image) (SAMPLE(?portrait) AS ?portrait) WHERE { " +
+    `VALUES ?creator { ${values} } ` +
+    "?item wdt:P31 wd:Q3305213; wdt:P170 ?creator; wdt:P18 ?image. " +
+    "OPTIONAL { ?creator wdt:P18 ?portrait. } " +
+    "} GROUP BY ?creator"
+  );
+}
+
 // résout les labels (français, repli anglais) d'une liste de QID en un seul
 // aller-retour groupé — l'API accepte jusqu'à 50 ids par appel.
 async function resolveWikidataLabels(qids) {
@@ -863,13 +871,35 @@ async function resolveWikidataLabels(qids) {
 // sont donc regroupées par créateur ; la liste complète des tableaux d'un
 // peintre n'est récupérée qu'à la génération du quiz, voir fetchExtraBackdrops.
 async function fetchPaintingCategory(def) {
-  const data = await wikidataQuery(
-    `https://query.wikidata.org/sparql?query=${encodeURIComponent(
-      paintingSparql(def.paintingFilter, PAINTING_QUERY_LIMIT),
-    )}`,
-  );
+  let bindings;
+  if (def.paintingFilter.kind === "country") {
+    const creatorsData = await wikidataQuery(
+      `https://query.wikidata.org/sparql?query=${encodeURIComponent(
+        paintingCountryCreatorsSparql(def.paintingFilter.qid, PAINTING_QUERY_LIMIT),
+      )}`,
+    );
+    const creatorQids = (creatorsData.results?.bindings || [])
+      .map((b) => b.creator?.value?.split("/").pop())
+      .filter((qid) => qid && /^Q\d+$/.test(qid));
+    bindings = creatorQids.length
+      ? (
+          await wikidataQuery(
+            `https://query.wikidata.org/sparql?query=${encodeURIComponent(
+              paintingCreatorImagesSparql(creatorQids),
+            )}`,
+          )
+        ).results?.bindings || []
+      : [];
+  } else {
+    const data = await wikidataQuery(
+      `https://query.wikidata.org/sparql?query=${encodeURIComponent(
+        paintingSparql(def.paintingFilter, PAINTING_QUERY_LIMIT),
+      )}`,
+    );
+    bindings = data.results?.bindings || [];
+  }
   const byCreator = new Map(); // creatorQid -> { numId, image, portrait }
-  for (const b of data.results?.bindings || []) {
+  for (const b of bindings) {
     const creatorQid = b.creator?.value?.split("/").pop();
     const image = b.image?.value;
     // créateur "anonyme" : Wikidata sérialise les blank nodes en URI
@@ -1112,6 +1142,62 @@ async function personDecadeWarmLoop() {
       }
     } catch (e) {
       console.error("Erreur warm cache dates de naissance acteurs:", e.message);
+    }
+    await new Promise((r) => setTimeout(r, sleepMs));
+  }
+}
+
+// chauffe le cache "réalisateur par film" en tâche de fond, comme les autres
+// warm loops — un réalisateur manquant du cache n'exclut jamais l'item (voir
+// getCachedMovieDirector), donc pas de flag "ready" à exposer ici : c'est un
+// bonus d'affichage, pas une condition de jouabilité.
+async function movieDirectorWarmLoop() {
+  for (;;) {
+    let sleepMs = 60 * 60 * 1000; // repasse dans 1h par défaut
+    try {
+      const movies = new Map();
+      for (const [key, def] of Object.entries(CATEGORIES)) {
+        if (def.mediaType !== "movie") continue;
+        for (const m of reservoirByCategory[key] || []) {
+          // exclut les entrées synopsis synthétiques (id décalé, pas un
+          // vrai id TMDb — voir fetchCategory) : leur film réel est déjà
+          // couvert par l'entrée "image" du même titre
+          if (m.questionType === "synopsis") continue;
+          movies.set(m.id, m);
+        }
+      }
+      if (movies.size === 0) {
+        // le réservoir n'a pas encore fini son premier passage (démarrage) —
+        // réessaie bientôt plutôt que d'attendre 1h pour rien
+        sleepMs = 10_000;
+      } else {
+        const toWarm = [...movies.values()].filter(
+          (m) => !cacheGet(`movie_director:${m.id}`),
+        );
+        console.log(
+          `Films : cache réalisateurs — ${movies.size - toWarm.length}/${movies.size} déjà chauds, ${toWarm.length} à récupérer…`,
+        );
+        let warmed = 0;
+        await mapWithConcurrency(toWarm, IMAGE_FETCH_CONCURRENCY, async (m) => {
+          try {
+            await fetchAndCacheMovieDirector(m.id);
+          } catch (e) {
+            // erreur réseau : on retentera au prochain passage
+            return;
+          }
+          warmed++;
+          if (warmed % 100 === 0 || warmed === toWarm.length) {
+            console.log(`Films : ${warmed}/${toWarm.length} — dernier : ${m.title}`);
+            persistCacheSubset(MOVIE_DIRECTOR_WARM_CACHE_PATH, "movie_director:");
+          }
+        });
+        persistCacheSubset(MOVIE_DIRECTOR_WARM_CACHE_PATH, "movie_director:");
+        console.log(
+          `Films : passage de warm-cache réalisateurs terminé — ${movies.size} films en cache. Prochain contrôle dans 1h (ne re-télécharge que les entrées expirées, TTL 30j).`,
+        );
+      }
+    } catch (e) {
+      console.error("Erreur warm cache réalisateurs films:", e.message);
     }
     await new Promise((r) => setTimeout(r, sleepMs));
   }
@@ -1406,45 +1492,23 @@ function urlFor(pathAndQuery, page) {
 }
 
 // pas d'appel réseau (juste des clés/labels fixes) : pas besoin de les
-// réduire en mode dev comme les genres/décennies TMDb/IGDB.
+// réduire en mode dev comme les genres/décennies TMDb/IGDB. Jamais filtrée
+// par pexelsEnabled : ces catégories portent aussi bien les entrées
+// questionType "image" (qui ont besoin de Pexels) que "flag" (qui n'en a
+// pas besoin) — sans clé Pexels, les entrées "image" restent présentes dans
+// le pool mais seront exclues à la génération faute de photo en cache,
+// comme n'importe quel item sans image exploitable. Pas de catégorie
+// "country_all" : les catégories sont un filtre (voir filterByCategories),
+// donc ne rien sélectionner en géographie couvre déjà tous les pays — un
+// chip "Tous les pays" serait strictement redondant avec ça.
 function countryCategoryDefs() {
-  if (!pexelsEnabled) return {};
-  const defs = {
-    country_all: {
-      region: null,
-      label: "Tous les pays",
-      group: "geography",
-      mediaType: "country",
-    },
-  };
+  const defs = {};
   for (const c of COUNTRY_CONTINENTS) {
     defs[`country_${c.code}`] = {
       region: c.region,
       label: `${c.label} (Pays)`,
       group: "geography",
       mediaType: "country",
-    };
-  }
-  return defs;
-}
-
-// pas d'appel réseau, pas de clé requise (contrairement à countryCategoryDefs
-// / PEXELS_API_KEY) : jamais filtrée par pexelsEnabled.
-function flagCategoryDefs() {
-  const defs = {
-    flag_all: {
-      region: null,
-      label: "Tous les pays",
-      group: "geography",
-      mediaType: "flag",
-    },
-  };
-  for (const c of COUNTRY_CONTINENTS) {
-    defs[`flag_${c.code}`] = {
-      region: c.region,
-      label: `${c.label} (Pays)`,
-      group: "geography",
-      mediaType: "flag",
     };
   }
   return defs;
@@ -1463,22 +1527,6 @@ function filterOnlyTypes(defs) {
 }
 
 async function buildCategoryDefs() {
-  // mode dev : seulement les listes "populaires" de chaque média, aucun appel
-  // genres/décennies (ce sont eux qui multiplient le nombre de catégories)
-  if (DEV_MODE) {
-    const devDefs = {
-      ...STATIC_LISTS,
-      ...TV_STATIC_LISTS,
-      ...PERSON_STATIC_LISTS,
-      ...MUSIC_STATIC_LISTS,
-      ...countryCategoryDefs(),
-      ...flagCategoryDefs(),
-      painting_popular: paintingCategoryDefs().painting_popular,
-    };
-    if (igdbEnabled) Object.assign(devDefs, GAME_STATIC_LISTS);
-    return filterOnlyTypes(devDefs);
-  }
-
   const defs = {
     ...STATIC_LISTS,
     ...DECADE_LISTS,
@@ -1486,7 +1534,6 @@ async function buildCategoryDefs() {
     ...TV_DECADE_LISTS,
     ...PERSON_STATIC_LISTS,
     ...countryCategoryDefs(),
-    ...flagCategoryDefs(),
     ...paintingCategoryDefs(),
   };
   if (onlyWants("movie")) {
@@ -1743,15 +1790,26 @@ async function fetchPersonCountryCategory(def) {
   return [...seen.values()];
 }
 
+// décalages d'id pour les entrées synopsis synthétiques (voir
+// fetchCategory) : movie et tv ont chacun leur propre espace d'id TMDb, qui
+// peuvent se chevaucher (id 550 existe potentiellement à la fois côté film
+// et côté série) — un décalage partagé recréerait donc une collision entre
+// les deux. Suite des décalages déjà utilisés par country (1e12/3e12) et
+// painting (2e12).
+const SYNOPSIS_ID_OFFSET = { movie: 4_000_000_000_000, tv: 5_000_000_000_000 };
+// en dessous, un synopsis est jugé trop court pour être une devinette
+// exploitable (ex: "Documentaire.")
+const MIN_SYNOPSIS_LEN = 30;
+
 async function fetchCategory(def) {
   if (def.mediaType === "game") return fetchGameCategory(def);
   if (def.mediaType === "music") return fetchMusicCategory(def);
   if (def.mediaType === "country") return fetchCountryCategory(def);
-  if (def.mediaType === "flag") return fetchFlagCategory(def);
   if (def.mediaType === "painting") return fetchPaintingCategory(def);
   if (def.originCountry) return fetchPersonCountryCategory(def);
   const seen = new Map();
   const pages = Array.from({ length: def.pages }, (_, i) => i + 1);
+  const hasSynopsisMode = def.mediaType === "movie" || def.mediaType === "tv";
   // pages en concurrence (voir CATEGORY_FETCH_CONCURRENCY plus haut) : l'ordre
   // n'a pas d'importance, on ne fait que fusionner dans `seen` par id
   await mapWithConcurrency(pages, PAGE_FETCH_CONCURRENCY, async (page) => {
@@ -1762,21 +1820,40 @@ async function fetchCategory(def) {
           ? Boolean(m.profile_path)
           : Boolean(m.backdrop_path) && Boolean(m.poster_path);
       if (!valid || seen.has(m.id)) continue;
-      seen.set(m.id, toEntry(m, def.mediaType));
+      const entry = toEntry(m, def.mediaType);
+      seen.set(m.id, entry);
+      if (!hasSynopsisMode) continue;
+      // movie/tv ont désormais deux questionType (voir MEDIA_TYPE_QUESTION_TYPES) :
+      // taguer explicitement l'entrée "image", sinon une entrée sans
+      // questionType passe tous les filtres par convention (voir
+      // filterByQuestionTypes) et fuiterait dans un quiz "synopsis only"
+      entry.questionType = "image";
+      const overview = (m.overview || "").trim();
+      if (overview.length < MIN_SYNOPSIS_LEN) continue;
+      const synId = SYNOPSIS_ID_OFFSET[def.mediaType] + m.id;
+      seen.set(synId, {
+        id: synId,
+        title: entry.title,
+        overview,
+        mediaType: def.mediaType,
+        questionType: "synopsis",
+        posterUrl: entry.posterUrl,
+      });
     }
   });
   return [...seen.values()];
 }
 
 // empreinte de ce qui a produit un cache disque donné : version de l'appli
-// + flags/config qui changent la FORME du réservoir (--only, clés API
-// activées). Si l'un de ces éléments diffère de maintenant, le cache est
-// ignoré entièrement plutôt que rechargé partiellement — un cache "--only=painting"
-// ne doit jamais se faire passer pour un réservoir complet, silencieusement.
+// + clés API activées, qui changent la FORME du réservoir. Si l'un de ces
+// éléments diffère de maintenant, le cache est ignoré entièrement plutôt
+// que rechargé partiellement. `--only` n'en fait volontairement pas partie :
+// un cache partiel reste une base valide pour un démarrage complet (voir
+// saveReservoirCache plus bas, qui empêche l'inverse : un run `--only`
+// n'écrase jamais le cache complet).
 function reservoirCacheFingerprint() {
   return JSON.stringify({
     version: APP_VERSION,
-    only: ONLY_TYPES ? [...ONLY_TYPES].sort() : null,
     igdbEnabled,
     pexelsEnabled,
   });
@@ -1811,62 +1888,54 @@ function loadReservoirCache() {
   }
 }
 
+// fusionne avec ce qui existe déjà sur disque plutôt que d'écraser tout le
+// fichier : un run `--only=X` ne doit mettre à jour QUE les catégories
+// qu'il vient de rafraîchir, sans effacer celles des autres mediaType
+// laissées par un précédent run complet (ou un autre `--only`).
 function saveReservoirCache(categories) {
+  if (NO_WRITE_CACHE) return;
   try {
+    let existing = {};
+    if (existsSync(RESERVOIR_CACHE_PATH)) {
+      const raw = JSON.parse(readFileSync(RESERVOIR_CACHE_PATH, "utf8"));
+      if (raw.fingerprint === reservoirCacheFingerprint()) {
+        existing = raw.categories || {};
+      }
+    }
     writeJsonAtomic(RESERVOIR_CACHE_PATH, {
       fingerprint: reservoirCacheFingerprint(),
       writtenAt: Date.now(),
-      categories,
+      categories: { ...existing, ...categories },
     });
   } catch (e) {
     console.error("Erreur écriture cache réservoir:", e.message);
   }
 }
 
-// deux cadences indépendantes tournent en parallèle (voir les setInterval en
-// bas de fichier) : `includeVolatile` seul toutes les 6h (now_playing,
-// trending, etc.), `includeStable` seul toutes les semaines (tout le reste —
-// c'est aussi la cadence de rafraîchissement naturelle du cache disque,
-// même valeur que RESERVOIR_CACHE_TTL_MS). Chaque passage ne touche QUE les
-// catégories de son tiers, fusionnées dans le réservoir existant, pour ne
-// jamais écraser l'autre tiers avec du vide. `useDiskCache` n'est vrai qu'au
-// tout premier démarrage.
-async function refreshReservoir({
-  useDiskCache = false,
-  includeVolatile = true,
-  includeStable = true,
-} = {}) {
+// une seule cadence de rafraîchissement, pilotée par RESERVOIR_CACHE_TTL_MS
+// (voir le setInterval en bas de fichier) — c'est aussi la durée de vie du
+// cache disque. `useDiskCache` n'est vrai qu'au tout premier démarrage.
+async function refreshReservoir({ useDiskCache = false } = {}) {
   const startTs = Date.now();
   CATEGORIES = await buildCategoryDefs();
-  if (DEV_MODE) {
-    for (const def of Object.values(CATEGORIES)) {
-      if (def.pages) def.pages = Math.min(def.pages, DEV_MAX_PAGES);
-    }
-  }
-  const fetchable = Object.entries(CATEGORIES).filter(([, def]) => {
-    if (def.derived) return false;
-    return def.volatile ? includeVolatile : includeStable;
-  });
+  const fetchable = Object.entries(CATEGORIES).filter(
+    ([, def]) => !def.derived,
+  );
 
   const next = {};
-  // en mode dev, le réservoir est déjà volontairement réduit (--dev) : ne
-  // jamais lire/écrire le cache disque, sinon un futur démarrage en prod
-  // complet risquerait de reprendre un cache réduit par erreur
   let diskCache = null;
   if (!useDiskCache) {
     console.log(
       "Réservoir : cache disque non consulté (rafraîchissement périodique, toujours en direct).",
     );
-  } else if (DEV_MODE) {
-    console.log("Réservoir : cache disque non consulté (mode dev).");
   } else {
     diskCache = loadReservoirCache();
   }
   const toFetch = [];
   if (diskCache) {
     for (const entry of fetchable) {
-      const [key, def] = entry;
-      if (!def.volatile && diskCache.categories[key]) {
+      const [key] = entry;
+      if (diskCache.categories[key]) {
         next[key] = diskCache.categories[key];
       } else {
         toFetch.push(entry);
@@ -1877,7 +1946,7 @@ async function refreshReservoir({
       3_600_000
     ).toFixed(1);
     console.log(
-      `Réservoir : cache disque valide (écrit il y a ${cacheAgeH}h) — ${fetchable.length - toFetch.length}/${fetchable.length} catégories reprises telles quelles, ${toFetch.length} à récupérer (volatiles ou absentes du cache).`,
+      `Réservoir : cache disque valide (écrit il y a ${cacheAgeH}h) — ${fetchable.length - toFetch.length}/${fetchable.length} catégories reprises telles quelles, ${toFetch.length} à récupérer (absentes du cache).`,
     );
   } else {
     toFetch.push(...fetchable);
@@ -1887,13 +1956,13 @@ async function refreshReservoir({
     `Réservoir : démarrage du rafraîchissement (${toFetch.length} catégories à récupérer)…`,
   );
   let done = 0;
+  let lastLoggedPct = 0;
   // catégories en concurrence (voir CATEGORY_FETCH_CONCURRENCY plus haut) —
   // chaque catégorie fetch elle-même ses pages en concurrence (voir
   // fetchCategory/fetchGameCategory), les deux niveaux se contentent de
   // garder les files tmdbGate/igdbGate pleines, elles restent la vraie
   // limite de débit quel que soit le nombre d'appelants.
   await mapWithConcurrency(toFetch, CATEGORY_FETCH_CONCURRENCY, async ([key, def]) => {
-    console.log(`Réservoir : → "${key}"…`);
     const catStartTs = Date.now();
     try {
       next[key] = await fetchCategory(def);
@@ -1903,47 +1972,47 @@ async function refreshReservoir({
     }
     done++;
     const pct = Math.round((done / toFetch.length) * 100);
-    const catElapsed = ((Date.now() - catStartTs) / 1000).toFixed(1);
-    console.log(
-      `Réservoir : ${done}/${toFetch.length} (${pct}%) — "${key}" terminée en ${catElapsed}s (${next[key].length} items)`,
-    );
+    // des centaines de catégories en usage réel : un point tous les 5% de
+    // progression suffit à suivre l'avancement sans noyer la sortie
+    if (pct >= lastLoggedPct + 5 || done === toFetch.length) {
+      lastLoggedPct = pct;
+      const catElapsed = ((Date.now() - catStartTs) / 1000).toFixed(1);
+      console.log(
+        `Réservoir : ${done}/${toFetch.length} (${pct}%) — dernière : "${key}" (${catElapsed}s, ${next[key].length} items)`,
+      );
+    }
   });
 
   // décennies musique : pas de requête dédiée (Apple n'expose que le
   // classement courant) — on redispatche les titres déjà récupérés (listes +
   // genres, dédupliqués) selon leur releaseDate plutôt que d'aller en chercher
   // de nouveaux. Absentes en mode dev (buildCategoryDefs ne les crée pas).
-  // Uniquement sur un passage qui inclut le tiers stable : la musique n'a
-  // aucune catégorie volatile, donc `next` serait vide côté musique sur un
-  // passage volatile-only, et écraserait les décennies avec du vide.
-  if (includeStable) {
-    const musicDecadeKeys = Object.entries(CATEGORIES)
-      .filter(([, def]) => def.derived && def.mediaType === "music")
-      .map(([key]) => key);
-    const musicByDecade = new Map(musicDecadeKeys.map((k) => [k, new Map()]));
-    for (const [key, def] of Object.entries(CATEGORIES)) {
-      if (def.mediaType !== "music" || def.derived) continue;
-      for (const track of next[key] || []) {
-        const year = track.releaseDate
-          ? new Date(track.releaseDate).getFullYear()
-          : NaN;
-        if (Number.isNaN(year)) continue;
-        const bucket = MUSIC_DECADE_BOUNDS.find(
-          (b) => year >= b.minYear && year <= b.maxYear,
-        );
-        if (bucket && musicByDecade.has(bucket.key)) {
-          musicByDecade.get(bucket.key).set(track.id, track);
-        }
+  const musicDecadeKeys = Object.entries(CATEGORIES)
+    .filter(([, def]) => def.derived && def.mediaType === "music")
+    .map(([key]) => key);
+  const musicByDecade = new Map(musicDecadeKeys.map((k) => [k, new Map()]));
+  for (const [key, def] of Object.entries(CATEGORIES)) {
+    if (def.mediaType !== "music" || def.derived) continue;
+    for (const track of next[key] || []) {
+      const year = track.releaseDate
+        ? new Date(track.releaseDate).getFullYear()
+        : NaN;
+      if (Number.isNaN(year)) continue;
+      const bucket = MUSIC_DECADE_BOUNDS.find(
+        (b) => year >= b.minYear && year <= b.maxYear,
+      );
+      if (bucket && musicByDecade.has(bucket.key)) {
+        musicByDecade.get(bucket.key).set(track.id, track);
       }
     }
-    for (const [key, tracks] of musicByDecade) next[key] = [...tracks.values()];
-
-    // décennies acteurs : uniquement du tri à partir du cache déjà chauffé
-    // par personDecadeWarmLoop() — aucun appel réseau ici (c'était la vraie
-    // lenteur : ~15 min pour ~2800 acteurs). Voir bucketPersonsByDecade et
-    // le commentaire sur personDecadeWarmLoop.
-    bucketPersonsByDecade(next, next);
   }
+  for (const [key, tracks] of musicByDecade) next[key] = [...tracks.values()];
+
+  // décennies acteurs : uniquement du tri à partir du cache déjà chauffé
+  // par personDecadeWarmLoop() — aucun appel réseau ici (c'était la vraie
+  // lenteur : ~15 min pour ~2800 acteurs). Voir bucketPersonsByDecade et
+  // le commentaire sur personDecadeWarmLoop.
+  bucketPersonsByDecade(next, next);
 
   const wasReady = reservoirReady;
   reservoirByCategory = { ...reservoirByCategory, ...next };
@@ -1952,33 +2021,19 @@ async function refreshReservoir({
   );
   const elapsedSec = ((Date.now() - startTs) / 1000).toFixed(1);
   console.log(
-    `Réservoir rafraîchi en ${elapsedSec}s : ${Object.keys(CATEGORIES).length} catégories.${
-      DEV_MODE
-        ? ` (mode dev : listes "populaires" uniquement, ${DEV_MAX_PAGES} page/catégorie max)`
-        : ""
-    }`,
+    `Réservoir rafraîchi en ${elapsedSec}s : ${Object.keys(CATEGORIES).length} catégories.`,
   );
   if (!wasReady && reservoirReady) {
     console.log(
       "Serveur opérationnel — /api/quiz-batch peut désormais répondre.",
     );
   }
-  // uniquement sur un passage qui inclut le tiers stable (sinon on écrirait
-  // un cache disque qui ne reflète que les catégories volatiles) ; jamais en
-  // mode dev (voir plus haut) — un réservoir réduit ne doit jamais pouvoir
-  // être repris par un futur démarrage en prod complet.
-  if (includeStable && !DEV_MODE) saveReservoirCache(reservoirByCategory);
+  // safe même en `--only`, saveReservoirCache fusionne au lieu d'écraser
+  saveReservoirCache(reservoirByCategory);
 }
 
-refreshReservoir({ useDiskCache: true }); // démarrage : tout, stable depuis le cache disque si valide
-setInterval(
-  () => refreshReservoir({ includeStable: false }),
-  VOLATILE_REFRESH_MS,
-).unref();
-setInterval(
-  () => refreshReservoir({ includeVolatile: false }),
-  RESERVOIR_CACHE_TTL_MS,
-).unref();
+refreshReservoir({ useDiskCache: true }); // démarrage : depuis le cache disque si valide
+setInterval(() => refreshReservoir(), RESERVOIR_CACHE_TTL_MS).unref();
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -1989,37 +2044,137 @@ function shuffle(arr) {
   return a;
 }
 
-function mergedPool(categoryKeys) {
+// générique à n'importe quel mediaType à plusieurs questionType (voir
+// QUESTION_TYPES/MEDIA_TYPE_QUESTION_TYPES plus bas, aujourd'hui seul
+// "country" en a) : un item du pool n'a de champ `questionType` que s'il
+// vient d'un mediaType à plusieurs modes (voir fetchCountryCategory) — les
+// autres passent toujours, seuls ceux qui en portent un sont filtrés,
+// comparés en clé "mediaType:questionType" (même format que côté client,
+// voir activeQuestionTypes) pour ne jamais coupler deux mediaType qui
+// réutiliseraient le même nom de questionType. `requestedQuestionTypes`
+// optionnel (undefined = pas de filtrage, tout passe).
+function filterByQuestionTypes(pool, requestedQuestionTypes) {
+  if (!requestedQuestionTypes) return pool;
+  return pool.filter(
+    (m) =>
+      !m.questionType ||
+      requestedQuestionTypes.has(`${m.mediaType}:${m.questionType}`),
+  );
+}
+
+// mediaType uniques déduits des clés "mediaType:questionType" actives
+function activeMediaTypesFrom(requestedQuestionTypes) {
+  return [...new Set([...requestedQuestionTypes].map((k) => k.split(":")[0]))];
+}
+
+// pool de base : union dédupliquée (par id) de TOUTES les catégories dont
+// le mediaType est actif, pas seulement celles explicitement sélectionnées
+// — les catégories ne sont plus un mécanisme d'inclusion mais un filtre
+// optionnel appliqué ensuite (voir filterByCategories) : sans filtre, tout
+// ce qui existe pour un mediaType actif fait partie du pool.
+function allItemsForQuestionTypes(requestedQuestionTypes) {
+  const activeMediaTypes = new Set(activeMediaTypesFrom(requestedQuestionTypes));
   const merged = new Map();
-  for (const cat of categoryKeys) {
-    for (const m of reservoirByCategory[cat] || []) merged.set(m.id, m);
+  for (const [key, def] of Object.entries(CATEGORIES)) {
+    if (!activeMediaTypes.has(def.mediaType)) continue;
+    for (const m of filterByQuestionTypes(
+      reservoirByCategory[key] || [],
+      requestedQuestionTypes,
+    ))
+      merged.set(m.id, m);
   }
   return [...merged.values()];
 }
 
-// répartit `count` aussi équitablement que possible entre les catégories
-// sélectionnées (ex: acteurs + jeux + films populaires -> ~1/3 de chaque),
-// au lieu de piocher dans le pool fusionné où les grosses catégories
-// écraseraient statistiquement les petites. Comble les manques (catégorie
-// trop petite) en piochant ailleurs pour quand même atteindre `count`.
-function stratifiedSelection(categoryKeys, count, excludeIds) {
-  const n = categoryKeys.length;
+// une clé de filtre est soit une clé de catégorie brute ("genre_28"), soit
+// une combinaison "catégorie:questionType" ("country_europe:flag") pour
+// cibler un mode précis sur les mediaType qui en ont plusieurs (voir
+// questionTypesByMediaType côté client, qui construit ces clés)
+function splitFilterKey(rawKey) {
+  const idx = rawKey.indexOf(":");
+  return idx === -1
+    ? [rawKey, null]
+    : [rawKey.slice(0, idx), rawKey.slice(idx + 1)];
+}
+
+// filtre à facettes : OU entre catégories d'un même groupe (liste/décennie/
+// genre/géographie), ET entre groupes différents — un groupe vide (aucune
+// catégorie sélectionnée dedans) n'impose aucune contrainte. Liste vide =
+// pas de filtre du tout, tout passe. C'est la seule interprétation
+// cohérente pour décennie/géographie : un item n'appartient qu'à une seule
+// valeur à la fois, donc un ET strict entre deux décennies donnerait
+// toujours zéro résultat.
+//
+// Les groupes sont scopés PAR mediaType : un filtre choisi pour un
+// mediaType (ex. "tous les continents", geography de country) ne doit
+// jamais contraindre les items d'un AUTRE mediaType actif en même temps
+// (ex. movie) — sinon "continents" (country) + "Films populaires" (movie)
+// s'ET-ent entre eux alors qu'aucun item ne peut être à la fois country et
+// movie, donnant toujours zéro résultat.
+function filterByCategories(items, requestedCategoryKeys) {
+  if (requestedCategoryKeys.length === 0) return items;
+  const idsByMediaTypeGroup = new Map(); // "mediaType:group" -> Set<id>
+  for (const rawKey of requestedCategoryKeys) {
+    const [key, questionType] = splitFilterKey(rawKey);
+    const def = CATEGORIES[key];
+    if (!def) continue;
+    const groupKey = `${def.mediaType}:${def.group}`;
+    if (!idsByMediaTypeGroup.has(groupKey))
+      idsByMediaTypeGroup.set(groupKey, new Set());
+    const ids = idsByMediaTypeGroup.get(groupKey);
+    for (const m of reservoirByCategory[key] || []) {
+      // clé combinée ("country_europe:flag") : ne garder que ce mode précis
+      // pour cette catégorie, permet ex. Europe en drapeau + Asie en photo
+      // dans le même filtre (les deux tombent dans le même groupe
+      // "country:geography" et s'OR-ent). Un item sans questionType du tout
+      // (tout ce qui n'a qu'un seul mode, ex movie) est compatible avec
+      // n'importe quelle clé combinée — même convention que
+      // filterByQuestionTypes plus haut.
+      if (questionType && m.questionType && m.questionType !== questionType)
+        continue;
+      ids.add(m.id);
+    }
+  }
+  const constraintsByMediaType = new Map(); // mediaType -> Set<id>[]
+  for (const [groupKey, ids] of idsByMediaTypeGroup) {
+    const mediaType = groupKey.slice(0, groupKey.indexOf(":"));
+    if (!constraintsByMediaType.has(mediaType))
+      constraintsByMediaType.set(mediaType, []);
+    constraintsByMediaType.get(mediaType).push(ids);
+  }
+  return items.filter((m) => {
+    const constraints = constraintsByMediaType.get(m.mediaType);
+    // aucun filtre ne concerne ce mediaType : rien ne le restreint
+    if (!constraints) return true;
+    return constraints.every((ids) => ids.has(m.id));
+  });
+}
+
+// répartit `count` aussi équitablement que possible entre les mediaType
+// actifs (ex: acteurs + jeux + films -> ~1/3 de chaque), au lieu de piocher
+// dans le pool fusionné où les gros mediaType écraseraient statistiquement
+// les petits. Comble les manques (mediaType trop petit une fois filtré) en
+// piochant ailleurs pour quand même atteindre `count`. Stratifie par
+// mediaType et non plus par catégorie sélectionnée : les catégories sont
+// maintenant un filtre optionnel (voir filterByCategories) appliqué en
+// amont sur `pool`, pas le mécanisme de sélection lui-même.
+function stratifiedSelection(pool, mediaTypes, count, excludeIds) {
+  const n = mediaTypes.length;
   if (n === 0) return [];
 
-  const perCategoryPools = categoryKeys.map((key) =>
-    shuffle(
-      (reservoirByCategory[key] || []).filter((m) => !excludeIds.has(m.id)),
-    ),
+  const available = pool.filter((m) => !excludeIds.has(m.id));
+  const perMediaTypePools = mediaTypes.map((mt) =>
+    shuffle(available.filter((m) => m.mediaType === mt)),
   );
 
   const baseShare = Math.floor(count / n);
   const remainder = count - baseShare * n;
-  // le reste (division non entière) est distribué à des catégories tirées
-  // au hasard plutôt que toujours aux premières de la liste
+  // le reste (division non entière) est distribué à des mediaType tirés au
+  // hasard plutôt que toujours aux premiers de la liste
   const remainderIdx = new Set(
     shuffle([...Array(n).keys()]).slice(0, remainder),
   );
-  const shares = perCategoryPools.map(
+  const shares = perMediaTypePools.map(
     (_, i) => baseShare + (remainderIdx.has(i) ? 1 : 0),
   );
 
@@ -2029,19 +2184,19 @@ function stratifiedSelection(categoryKeys, count, excludeIds) {
 
   for (let i = 0; i < n; i++) {
     let taken = 0;
-    while (taken < shares[i] && poolIdx[i] < perCategoryPools[i].length) {
-      const item = perCategoryPools[i][poolIdx[i]++];
-      if (pickedIds.has(item.id)) continue; // déjà pris via une autre catégorie (chevauchement)
+    while (taken < shares[i] && poolIdx[i] < perMediaTypePools[i].length) {
+      const item = perMediaTypePools[i][poolIdx[i]++];
+      if (pickedIds.has(item.id)) continue; // déjà pris via un autre mediaType (chevauchement)
       pickedIds.add(item.id);
       primary.push(item);
       taken++;
     }
   }
 
-  // comble le manque si une catégorie était trop petite pour sa part
+  // comble le manque si un mediaType était trop petit pour sa part
   if (primary.length < count) {
     const shortfall = shuffle(
-      perCategoryPools
+      perMediaTypePools
         .flatMap((pool, i) => pool.slice(poolIdx[i]))
         .filter((m) => !pickedIds.has(m.id)),
     );
@@ -2055,7 +2210,7 @@ function stratifiedSelection(categoryKeys, count, excludeIds) {
   // réserve : tout ce qui reste, mélangé — permet à l'appelant de remplacer
   // les titres dont la récupération d'images échoue, sans sous-livrer
   const reserve = shuffle(
-    perCategoryPools
+    perMediaTypePools
       .flatMap((pool) => pool)
       .filter((m) => !pickedIds.has(m.id)),
   );
@@ -2109,6 +2264,9 @@ const COUNTRY_PHOTOS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // paintingWarmLoop (qui passe toutes les heures) re-tapait Wikidata pour
 // tout le monde dès que le TTL générique (6h) expirait.
 const PAINTING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// le réalisateur d'un film ne change jamais : même raisonnement que
+// PAINTING_TTL_MS/COUNTRY_PHOTOS_TTL_MS.
+const MOVIE_DIRECTOR_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const apiCache = new Map(); // key -> { value, expiresAt }
 
 function cacheGet(key) {
@@ -2126,6 +2284,7 @@ function cacheSet(key, value, ttlMs = CACHE_TTL_MS) {
 // entrée expirée n'invalide pas les autres : chacune garde son propre
 // expiresAt, vérifié à nouveau au rechargement.
 function persistCacheSubset(filePath, keyPrefix) {
+  if (NO_WRITE_CACHE) return;
   const entries = {};
   for (const [key, entry] of apiCache.entries()) {
     if (key.startsWith(keyPrefix) && entry.expiresAt > Date.now()) {
@@ -2133,12 +2292,21 @@ function persistCacheSubset(filePath, keyPrefix) {
     }
   }
   try {
-    writeJsonAtomic(filePath, { writtenAt: Date.now(), entries });
+    writeJsonAtomic(filePath, {
+      fingerprint: reservoirCacheFingerprint(),
+      writtenAt: Date.now(),
+      entries,
+    });
   } catch (e) {
     console.error(`Erreur écriture cache ${filePath}:`, e.message);
   }
 }
 
+// même empreinte que le cache réservoir (version + --only + clés API
+// activées) : sans ça, un warm-cache écrit par une version antérieure (dont
+// la logique de fetch ou la forme des données a pu changer) serait rechargé
+// aveuglément après un déploiement, alors que reservoir.json, lui, serait
+// correctement invalidé dans le même cas.
 function loadCacheSubset(filePath) {
   const name = path.basename(filePath);
   try {
@@ -2147,6 +2315,12 @@ function loadCacheSubset(filePath) {
       return;
     }
     const raw = JSON.parse(readFileSync(filePath, "utf8"));
+    if (raw.fingerprint !== reservoirCacheFingerprint()) {
+      console.log(
+        `Cache disque : ${name} ignoré (version ou configuration différente depuis son écriture).`,
+      );
+      return;
+    }
     let loaded = 0;
     let expired = 0;
     for (const [key, entry] of Object.entries(raw.entries || {})) {
@@ -2195,6 +2369,31 @@ async function fetchRawBackdrops(item) {
     }));
   cacheSet(cacheKey, backdrops);
   return backdrops;
+}
+
+// écran réponse film : nom du/des réalisateur(s), lu dans les crédits TMDb
+// (le job "Director" du crew — jamais présent dans les endpoints de liste
+// utilisés pour peupler le pool). Comme pour les tableaux/pays/dates de
+// naissance, la génération de quiz ne doit JAMAIS attendre un appel réseau en
+// direct : lecture cache uniquement ici, chauffée par movieDirectorWarmLoop
+// en tâche de fond. Absent du cache = simplement pas affiché (contrairement
+// aux images, un réalisateur manquant n'exclut pas l'item).
+function getCachedMovieDirector(movieId) {
+  return cacheGet(`movie_director:${movieId}`) || null;
+}
+
+async function fetchAndCacheMovieDirector(movieId) {
+  const cacheKey = `movie_director:${movieId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const data = await tmdbJSON(
+    `https://api.themoviedb.org/3/movie/${movieId}/credits?api_key=${TMDB_KEY}&language=fr-FR`,
+  );
+  const directors = (data.crew || []).filter((c) => c.job === "Director");
+  const director = directors.map((d) => d.name).join(", ");
+  cacheSet(cacheKey, director, MOVIE_DIRECTOR_TTL_MS);
+  return director;
 }
 
 // IGDB n'a pas de notion de texte/langue ni de vote par image : on neutralise
@@ -2469,15 +2668,31 @@ async function selectItemsWithBackdrops(
             posterUrl: m.posterUrl,
           };
         }
-        if (m.mediaType === "flag") {
+        if (m.mediaType === "country" && m.questionType === "flag") {
           // une seule image (le drapeau), pas de fetchExtraBackdrops : voir
-          // fetchFlagCategory, c'est déjà la seule image nécessaire
+          // fetchCountryCategory, c'est déjà la seule image nécessaire
           return {
             id: m.id,
             title: m.title,
             capital: m.capital,
-            mediaType: "flag",
+            mediaType: "country",
+            questionType: "flag",
             posterUrl: m.posterUrl,
+          };
+        }
+        if (
+          (m.mediaType === "movie" || m.mediaType === "tv") &&
+          m.questionType === "synopsis"
+        ) {
+          // pas d'image à récupérer : la devinette se joue sur le texte du
+          // synopsis, déjà connu depuis le réservoir (voir fetchCategory)
+          return {
+            id: m.id,
+            title: m.title,
+            overview: m.overview,
+            posterUrl: m.posterUrl,
+            mediaType: m.mediaType,
+            questionType: "synopsis",
           };
         }
         const imageUrls = await fetchExtraBackdrops(m, imagesPerItem);
@@ -2488,12 +2703,16 @@ async function selectItemsWithBackdrops(
           m.mediaType === "painting"
             ? commonsThumbUrl(m.posterUrl)
             : m.posterUrl;
+        const director =
+          m.mediaType === "movie" ? getCachedMovieDirector(m.id) : null;
         return {
           id: m.id,
           title: m.title,
           posterUrl,
           mediaType: m.mediaType,
+          questionType: m.questionType,
           imageUrls,
+          ...(director ? { director } : {}),
         };
       },
     );
@@ -2508,6 +2727,29 @@ async function selectItemsWithBackdrops(
   return { items: result, excludedCount };
 }
 
+// axe orthogonal à `mediaType` : comment une question est posée (l'image
+// devinée n'est pas forcément la même que ce qu'on demande). Chaque
+// mediaType a au moins un questionType, même s'il n'y a pas de choix
+// possible (ex: "movie" n'a que "image") : le client en a besoin pour
+// afficher systématiquement les deux emoji d'un chip (contenu de la
+// question + résultat), pas seulement pour les mediaType à plusieurs modes.
+// Pensé pour être étendu plus tard (ex: "synopsis" pour movie/tv).
+const QUESTION_TYPES = {
+  image: { label: "Photo", icon: "🖼️" },
+  flag: { label: "Drapeau", icon: "🚩" },
+  audio: { label: "Extrait", icon: "🎧" },
+  synopsis: { label: "Synopsis", icon: "📖" },
+};
+const MEDIA_TYPE_QUESTION_TYPES = {
+  movie: ["image", "synopsis"],
+  tv: ["image", "synopsis"],
+  person: ["image"],
+  game: ["image"],
+  music: ["audio"],
+  country: ["image", "flag"],
+  painting: ["image"],
+};
+
 // emoji affiché en préfixe de chaque label de catégorie, à la place du
 // suffixe "(Type)" redondant qu'on retire du texte (ex: "Action (Films)" ->
 // "🎬 Action") — mêmes emoji que les puces de type de contenu côté client
@@ -2519,7 +2761,6 @@ const MEDIA_TYPE_EMOJI = {
   music: "🎵",
   country: "🌍",
   painting: "🎨",
-  flag: "🚩",
 };
 // mots (tels qu'utilisés dans les labels) désignant le type lui-même, à
 // retirer du texte puisque l'emoji le porte déjà désormais — volontairement
@@ -2533,7 +2774,6 @@ const MEDIA_TYPE_LABEL_WORDS = {
   music: ["Musique"],
   country: ["Pays"],
   painting: ["Peintres"],
-  flag: ["Pays"],
 };
 
 function formatCategoryLabel(label, mediaType) {
@@ -2556,6 +2796,25 @@ function formatCategoryLabel(label, mediaType) {
   return emoji ? `${emoji} ${text}` : text;
 }
 
+// req.query.questionTypes optionnel : liste de clés "mediaType:questionType"
+// séparées par virgules (même format que activeQuestionTypes côté client) ;
+// vide ou absent = toutes les combinaisons connues (comportement historique,
+// où "country:image" et "country:flag" étaient toutes deux disponibles par
+// défaut)
+function parseRequestedQuestionTypes(raw) {
+  const allCombos = Object.entries(MEDIA_TYPE_QUESTION_TYPES).flatMap(
+    ([mediaType, types]) => types.map((qt) => `${mediaType}:${qt}`),
+  );
+  const requested = (raw || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => {
+      const [mediaType, qt] = s.split(":");
+      return (MEDIA_TYPE_QUESTION_TYPES[mediaType] || []).includes(qt);
+    });
+  return new Set(requested.length ? requested : allCombos);
+}
+
 app.get("/api/categories", (req, res) => {
   const list = Object.entries(CATEGORIES).map(([key, def]) => ({
     key,
@@ -2564,15 +2823,32 @@ app.get("/api/categories", (req, res) => {
     mediaType: def.mediaType,
     available: (reservoirByCategory[key] || []).length,
   }));
-  res.json({ categories: list, minCount: MIN_COUNT, maxCount: MAX_COUNT });
+  res.json({
+    categories: list,
+    minCount: MIN_COUNT,
+    maxCount: MAX_COUNT,
+    questionTypes: MEDIA_TYPE_QUESTION_TYPES,
+    // label/icon de chaque questionType (voir QUESTION_TYPES) : le client
+    // construit ses chips combinés à partir de ça plutôt que de coder en
+    // dur "image"/"flag", pour ne rien avoir à changer côté client le jour
+    // où un autre mediaType (ex: movie/tv + "synopsis") a plusieurs modes
+    questionTypeDetails: QUESTION_TYPES,
+  });
 });
 
 app.get("/api/pool-size", (req, res) => {
   const requestedCategories = (req.query.categories || "")
     .split(",")
     .map((s) => s.trim())
-    .filter((c) => CATEGORIES[c]);
-  res.json({ available: mergedPool(requestedCategories).length });
+    .filter((c) => CATEGORIES[splitFilterKey(c)[0]]);
+  const requestedQuestionTypes = parseRequestedQuestionTypes(
+    req.query.questionTypes,
+  );
+  const all = filterByCategories(
+    allItemsForQuestionTypes(requestedQuestionTypes),
+    requestedCategories,
+  );
+  res.json({ available: all.length });
 });
 
 app.get("/api/stats", (req, res) => {
@@ -2610,18 +2886,26 @@ app.get("/api/quiz-batch", async (req, res) => {
       });
   }
 
-  const requestedCategories = (req.query.categories || "popular")
+  // catégories = filtre optionnel désormais (voir filterByCategories) : une
+  // liste vide n'est plus un cas à secourir avec un repli sur "popular",
+  // c'est "pas de filtre" — le pool de base vient de allItemsForQuestionTypes
+  const requestedCategories = (req.query.categories || "")
     .split(",")
     .map((s) => s.trim())
-    .filter((c) => CATEGORIES[c]);
-  if (requestedCategories.length === 0) requestedCategories.push("popular");
+    .filter((c) => CATEGORIES[splitFilterKey(c)[0]]);
 
   const imagesPerItem = Math.min(
     MAX_IMAGES_PER_ITEM,
     Math.max(MIN_IMAGES_PER_ITEM, parseInt(req.query.imagesPerItem, 10) || 1),
   );
 
-  const all = mergedPool(requestedCategories);
+  const requestedQuestionTypes = parseRequestedQuestionTypes(
+    req.query.questionTypes,
+  );
+  const all = filterByCategories(
+    allItemsForQuestionTypes(requestedQuestionTypes),
+    requestedCategories,
+  );
   const count = Math.min(
     MAX_COUNT,
     Math.max(MIN_COUNT, parseInt(req.query.count, 10) || 50),
@@ -2644,7 +2928,8 @@ app.get("/api/quiz-batch", async (req, res) => {
   }
 
   const picked = stratifiedSelection(
-    requestedCategories,
+    all,
+    activeMediaTypesFrom(requestedQuestionTypes),
     count,
     effectiveExclude,
   );
@@ -2657,7 +2942,8 @@ app.get("/api/quiz-batch", async (req, res) => {
   // un appel qui produit un lot compte comme un quiz généré, persisté sur disque
   stats.totalGenerated++;
   for (const cat of requestedCategories) {
-    stats.categoryUsage[cat] = (stats.categoryUsage[cat] || 0) + 1;
+    const key = splitFilterKey(cat)[0];
+    stats.categoryUsage[key] = (stats.categoryUsage[key] || 0) + 1;
   }
   saveStats();
 
@@ -2696,4 +2982,8 @@ if (onlyWants("painting")) {
 if (onlyWants("person")) {
   loadCacheSubset(PERSON_BIRTHDAY_WARM_CACHE_PATH);
   personDecadeWarmLoop();
+}
+if (onlyWants("movie")) {
+  loadCacheSubset(MOVIE_DIRECTOR_WARM_CACHE_PATH);
+  movieDirectorWarmLoop();
 }
