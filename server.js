@@ -118,6 +118,10 @@ const CACHE_DIR = path.join(process.cwd(), "cache");
 const RESERVOIR_CACHE_PATH = path.join(CACHE_DIR, "reservoir.json");
 const PAINTING_WARM_CACHE_PATH = path.join(CACHE_DIR, "warm-paintings.json");
 const COUNTRY_WARM_CACHE_PATH = path.join(CACHE_DIR, "warm-countries.json");
+const PERSON_BIRTHDAY_WARM_CACHE_PATH = path.join(
+  CACHE_DIR,
+  "warm-person-birthdays.json",
+);
 const RESERVOIR_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 semaine
 
 // écriture atomique (fichier temporaire + rename) : un kill/crash pendant
@@ -669,6 +673,38 @@ async function fetchCountryCategory(def) {
   return result;
 }
 
+// drapeaux — même source mledoze/countries (déjà en cache via
+// loadCountryList) et même image flagcdn.com, mais ici le drapeau EST
+// l'image de devinette ET de réponse (contrairement à "country" où il ne
+// sert qu'à l'écran réponse) : pas besoin de Pexels, donc pas besoin de
+// PEXELS_API_KEY, contrairement à la catégorie "Pays". La question porte sur
+// le pays ET sa capitale (champ `capital` de mledoze), affichée à l'écran
+// réponse — un pays sans capitale exploitable (rare, quelques territoires)
+// est simplement exclu.
+async function fetchFlagCategory(def) {
+  const all = await loadCountryList();
+  const filtered = all.filter(
+    (c) => c.region !== "Antarctic" && (!def.region || c.region === def.region),
+  );
+  const result = [];
+  for (const c of filtered) {
+    const numId = Number(c.ccn3);
+    const capital = c.capital?.[0];
+    if (!numId || !c.cca2 || !capital) continue;
+    const flagUrl = `https://flagcdn.com/w320/${c.cca2.toLowerCase()}.png`;
+    result.push({
+      // décalage distinct de "country" (1e12) et "painting" (2e12) pour
+      // éviter toute collision si l'utilisateur mélange plusieurs types
+      id: 3_000_000_000_000 + numId,
+      title: c.translations?.fra?.common || c.name.common,
+      capital,
+      mediaType: "flag",
+      posterUrl: flagUrl,
+    });
+  }
+  return result;
+}
+
 // peintures — Wikidata (query.wikidata.org), gratuit, sans clé, couvre
 // toutes les collections (pas un seul musée). On devine le PEINTRE
 // (title = nom du créateur), pas le tableau. Images servies depuis
@@ -911,7 +947,7 @@ async function fetchAndCachePaintingsByArtist(painterQid) {
       seen.add(image);
       images.push(image);
     }
-    cacheSet(cacheKey, images);
+    cacheSet(cacheKey, images, PAINTING_TTL_MS);
     return images;
   } catch (e) {
     console.error(`Erreur tableaux peintre "${painterQid}":`, e.message);
@@ -965,11 +1001,117 @@ async function paintingWarmLoop() {
         paintingWarmReady = true;
         persistCacheSubset(PAINTING_WARM_CACHE_PATH, "painter_paintings:");
         console.log(
-          `Peintres : passage de warm-cache terminé — ${painterQids.size} peintres en cache. Prochain passage dans 1h.`,
+          `Peintres : passage de warm-cache terminé — ${painterQids.size} peintres en cache. Prochain contrôle dans 1h (ne re-télécharge que les entrées expirées, TTL 7j).`,
         );
       }
     } catch (e) {
       console.error("Erreur warm cache tableaux peintres:", e.message);
+    }
+    await new Promise((r) => setTimeout(r, sleepMs));
+  }
+}
+
+// range les acteurs de `sourceByKey` (une catégorie person_* -> items) dans
+// les bonnes catégories person_decade_* de `targetByKey`, uniquement à
+// partir du cache "date de naissance" déjà chauffé (jamais d'appel réseau
+// ici) — utilisée à la fois par refreshReservoir (sur le lot fraîchement
+// fetché) et par personDecadeWarmLoop (directement sur le réservoir en
+// place, pour que les catégories se peuplent au fil du warm loop plutôt que
+// d'attendre le prochain rafraîchissement stable, soit jusqu'à une semaine)
+function bucketPersonsByDecade(sourceByKey, targetByKey) {
+  const personDecadeKeys = PERSON_DECADE_BOUNDS.map((b) => b.key).filter(
+    (k) => CATEGORIES[k],
+  );
+  if (personDecadeKeys.length === 0) return;
+  const persons = new Map();
+  for (const [key, def] of Object.entries(CATEGORIES)) {
+    if (def.mediaType !== "person" || def.derived) continue;
+    for (const p of sourceByKey[key] || []) persons.set(p.id, p);
+  }
+  const personByDecade = new Map(personDecadeKeys.map((k) => [k, new Map()]));
+  for (const p of persons.values()) {
+    const birthday = cacheGet(`person_birthday:${p.id}`);
+    if (!birthday) continue;
+    const year = new Date(birthday).getFullYear();
+    if (Number.isNaN(year)) continue;
+    const bucket = PERSON_DECADE_BOUNDS.find(
+      (b) => year >= b.minYear && year <= b.maxYear,
+    );
+    if (bucket) personByDecade.get(bucket.key).set(p.id, p);
+  }
+  for (const [key, people] of personByDecade) {
+    targetByKey[key] = [...people.values()];
+  }
+}
+
+// chauffe le cache "date de naissance" (pour les décennies acteurs) en
+// tâche de fond, comme paintingWarmLoop/countryPhotoWarmLoop — TMDb n'a pas
+// de /discover/person filtrable par date de naissance, donc le seul moyen
+// est un appel /person/{id} par acteur. Fait exprès HORS de
+// refreshReservoir() (voir bucketPersonsByDecade, qui ne fait plus que lire
+// ce cache) : ~2800 acteurs à chauffer prenait ~15 minutes et bloquait tout
+// le rafraîchissement stable derrière lui.
+async function personDecadeWarmLoop() {
+  for (;;) {
+    let sleepMs = 60 * 60 * 1000; // repasse dans 1h par défaut
+    try {
+      const persons = new Map();
+      for (const [key, def] of Object.entries(CATEGORIES)) {
+        if (def.mediaType !== "person" || def.derived) continue;
+        for (const p of reservoirByCategory[key] || []) persons.set(p.id, p);
+      }
+      if (persons.size === 0) {
+        // le réservoir n'a pas encore fini son premier passage (démarrage) —
+        // réessaie bientôt plutôt que d'attendre 1h pour rien
+        sleepMs = 10_000;
+      } else {
+        const toWarm = [...persons.values()].filter(
+          (p) => !cacheGet(`person_birthday:${p.id}`),
+        );
+        personDecadeWarmReady = toWarm.length === 0;
+        console.log(
+          `Acteurs (décennies) : cache dates de naissance — ${persons.size - toWarm.length}/${persons.size} déjà chauds, ${toWarm.length} à récupérer…`,
+        );
+        let warmed = 0;
+        await mapWithConcurrency(toWarm, IMAGE_FETCH_CONCURRENCY, async (p) => {
+          try {
+            const data = await tmdbJSON(
+              `https://api.themoviedb.org/3/person/${p.id}?api_key=${TMDB_KEY}`,
+            );
+            cacheSet(
+              `person_birthday:${p.id}`,
+              data.birthday || "",
+              PERSON_BIRTHDAY_TTL_MS,
+            );
+          } catch (e) {
+            // erreur réseau : on retentera au prochain passage plutôt que de
+            // mettre en cache une absence de donnée qui n'en est pas vraiment une
+            return;
+          }
+          warmed++;
+          if (warmed % 100 === 0 || warmed === toWarm.length) {
+            console.log(
+              `Acteurs (décennies) : ${warmed}/${toWarm.length} — dernier : ${p.title}`,
+            );
+            persistCacheSubset(
+              PERSON_BIRTHDAY_WARM_CACHE_PATH,
+              "person_birthday:",
+            );
+            // repeuple les catégories person_decade_* au fil de l'eau : sans
+            // ça elles resteraient vides jusqu'au prochain rafraîchissement
+            // stable (jusqu'à une semaine), même une fois le warm loop fini
+            bucketPersonsByDecade(reservoirByCategory, reservoirByCategory);
+          }
+        });
+        personDecadeWarmReady = true;
+        persistCacheSubset(PERSON_BIRTHDAY_WARM_CACHE_PATH, "person_birthday:");
+        bucketPersonsByDecade(reservoirByCategory, reservoirByCategory);
+        console.log(
+          `Acteurs (décennies) : passage de warm-cache terminé — ${persons.size} acteurs en cache. Prochain contrôle dans 1h (ne re-télécharge que les entrées expirées, TTL 30j).`,
+        );
+      }
+    } catch (e) {
+      console.error("Erreur warm cache dates de naissance acteurs:", e.message);
     }
     await new Promise((r) => setTimeout(r, sleepMs));
   }
@@ -1020,6 +1162,7 @@ let reservoirReady = false;
 // statut serveur exposée par /api/stats
 let paintingWarmReady = false;
 let countryWarmReady = false;
+let personDecadeWarmReady = false;
 
 // throttle global : reste sous ~38 requêtes / 10s, marge sous la limite
 // habituelle de TMDb (40-50/10s), s'applique à TOUS les appels TMDb
@@ -1285,6 +1428,28 @@ function countryCategoryDefs() {
   return defs;
 }
 
+// pas d'appel réseau, pas de clé requise (contrairement à countryCategoryDefs
+// / PEXELS_API_KEY) : jamais filtrée par pexelsEnabled.
+function flagCategoryDefs() {
+  const defs = {
+    flag_all: {
+      region: null,
+      label: "Tous les pays",
+      group: "geography",
+      mediaType: "flag",
+    },
+  };
+  for (const c of COUNTRY_CONTINENTS) {
+    defs[`flag_${c.code}`] = {
+      region: c.region,
+      label: `${c.label} (Pays)`,
+      group: "geography",
+      mediaType: "flag",
+    };
+  }
+  return defs;
+}
+
 // --only : supprime du pool final tout ce qui n'est pas demandé — filet de
 // sécurité qui s'applique même aux defs "statiques" (spread sans condition
 // ci-dessous) : c'est cette étape, pas les gardes onlyWants(), qui empêche
@@ -1307,6 +1472,7 @@ async function buildCategoryDefs() {
       ...PERSON_STATIC_LISTS,
       ...MUSIC_STATIC_LISTS,
       ...countryCategoryDefs(),
+      ...flagCategoryDefs(),
       painting_popular: paintingCategoryDefs().painting_popular,
     };
     if (igdbEnabled) Object.assign(devDefs, GAME_STATIC_LISTS);
@@ -1320,6 +1486,7 @@ async function buildCategoryDefs() {
     ...TV_DECADE_LISTS,
     ...PERSON_STATIC_LISTS,
     ...countryCategoryDefs(),
+    ...flagCategoryDefs(),
     ...paintingCategoryDefs(),
   };
   if (onlyWants("movie")) {
@@ -1580,6 +1747,7 @@ async function fetchCategory(def) {
   if (def.mediaType === "game") return fetchGameCategory(def);
   if (def.mediaType === "music") return fetchMusicCategory(def);
   if (def.mediaType === "country") return fetchCountryCategory(def);
+  if (def.mediaType === "flag") return fetchFlagCategory(def);
   if (def.mediaType === "painting") return fetchPaintingCategory(def);
   if (def.originCountry) return fetchPersonCountryCategory(def);
   const seen = new Map();
@@ -1770,62 +1938,11 @@ async function refreshReservoir({
     }
     for (const [key, tracks] of musicByDecade) next[key] = [...tracks.values()];
 
-    // décennies acteurs : TMDb ne permet pas de filtrer /discover/person par
-    // date de naissance — on repart des acteurs déjà récupérés (populaires +
-    // par pays, dédupliqués) et on appelle /person/{id} pour sa date de
-    // naissance (cache ~1 mois, voir PERSON_BIRTHDAY_TTL_MS : une date de
-    // naissance ne change jamais, donc la quasi-totalité des acteurs déjà
-    // vus n'est pas re-demandée aux rafraîchissements suivants). Un acteur
-    // sans date de naissance exploitable exclut juste l'acteur de ces
-    // catégories — il reste disponible partout ailleurs.
-    const personDecadeKeys = PERSON_DECADE_BOUNDS.map((b) => b.key).filter(
-      (k) => CATEGORIES[k],
-    );
-    if (personDecadeKeys.length > 0) {
-      const persons = new Map();
-      for (const [key, def] of Object.entries(CATEGORIES)) {
-        if (def.mediaType !== "person" || def.derived) continue;
-        for (const p of next[key] || []) persons.set(p.id, p);
-      }
-      console.log(
-        `Réservoir : décennies acteurs — ${persons.size} acteurs à vérifier (cache ~1 mois, donc rapide après le premier passage)…`,
-      );
-      const personByDecade = new Map(personDecadeKeys.map((k) => [k, new Map()]));
-      let personDone = 0;
-      await mapWithConcurrency(
-        [...persons.values()],
-        IMAGE_FETCH_CONCURRENCY,
-        async (p) => {
-          const cacheKey = `person_birthday:${p.id}`;
-          let birthday = cacheGet(cacheKey);
-          if (birthday === null) {
-            try {
-              const data = await tmdbJSON(
-                `https://api.themoviedb.org/3/person/${p.id}?api_key=${TMDB_KEY}`,
-              );
-              birthday = data.birthday || "";
-              cacheSet(cacheKey, birthday, PERSON_BIRTHDAY_TTL_MS);
-            } catch (e) {
-              birthday = null;
-            }
-          }
-          personDone++;
-          if (personDone % 100 === 0 || personDone === persons.size) {
-            console.log(
-              `Réservoir : décennies acteurs ${personDone}/${persons.size}`,
-            );
-          }
-          if (!birthday) return;
-          const year = new Date(birthday).getFullYear();
-          if (Number.isNaN(year)) return;
-          const bucket = PERSON_DECADE_BOUNDS.find(
-            (b) => year >= b.minYear && year <= b.maxYear,
-          );
-          if (bucket) personByDecade.get(bucket.key).set(p.id, p);
-        },
-      );
-      for (const [key, people] of personByDecade) next[key] = [...people.values()];
-    }
+    // décennies acteurs : uniquement du tri à partir du cache déjà chauffé
+    // par personDecadeWarmLoop() — aucun appel réseau ici (c'était la vraie
+    // lenteur : ~15 min pour ~2800 acteurs). Voir bucketPersonsByDecade et
+    // le commentaire sur personDecadeWarmLoop.
+    bucketPersonsByDecade(next, next);
   }
 
   const wasReady = reservoirReady;
@@ -1987,6 +2104,11 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 // beaucoup plus long que le TTL générique pour ne pas re-consommer le budget
 // Pexels (200 req/h) inutilement.
 const COUNTRY_PHOTOS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// même raisonnement que COUNTRY_PHOTOS_TTL_MS : les tableaux d'un peintre ne
+// changent pas d'un rafraîchissement à l'autre — sans ce TTL long,
+// paintingWarmLoop (qui passe toutes les heures) re-tapait Wikidata pour
+// tout le monde dès que le TTL générique (6h) expirait.
+const PAINTING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const apiCache = new Map(); // key -> { value, expiresAt }
 
 function cacheGet(key) {
@@ -2187,7 +2309,7 @@ async function countryPhotoWarmLoop() {
       countryWarmReady = true;
       persistCacheSubset(COUNTRY_WARM_CACHE_PATH, "country_photos:");
       console.log(
-        `Pays : passage de warm-cache terminé — ${candidates.length} pays en cache. Prochain passage dans 1h.`,
+        `Pays : passage de warm-cache terminé — ${candidates.length} pays en cache. Prochain contrôle dans 1h (ne re-télécharge que les entrées expirées, TTL 7j).`,
       );
     } catch (e) {
       console.error("Erreur warm cache photos pays:", e.message);
@@ -2347,6 +2469,17 @@ async function selectItemsWithBackdrops(
             posterUrl: m.posterUrl,
           };
         }
+        if (m.mediaType === "flag") {
+          // une seule image (le drapeau), pas de fetchExtraBackdrops : voir
+          // fetchFlagCategory, c'est déjà la seule image nécessaire
+          return {
+            id: m.id,
+            title: m.title,
+            capital: m.capital,
+            mediaType: "flag",
+            posterUrl: m.posterUrl,
+          };
+        }
         const imageUrls = await fetchExtraBackdrops(m, imagesPerItem);
         if (imageUrls.length === 0) return null;
         // écran réponse : même souci CORS que les images de devinette, voir
@@ -2386,6 +2519,7 @@ const MEDIA_TYPE_EMOJI = {
   music: "🎵",
   country: "🌍",
   painting: "🎨",
+  flag: "🚩",
 };
 // mots (tels qu'utilisés dans les labels) désignant le type lui-même, à
 // retirer du texte puisque l'emoji le porte déjà désormais — volontairement
@@ -2399,6 +2533,7 @@ const MEDIA_TYPE_LABEL_WORDS = {
   music: ["Musique"],
   country: ["Pays"],
   painting: ["Peintres"],
+  flag: ["Pays"],
 };
 
 function formatCategoryLabel(label, mediaType) {
@@ -2457,11 +2592,12 @@ app.get("/api/stats", (req, res) => {
   const paintingReady = !onlyWants("painting") || paintingWarmReady;
   const countryReady =
     !(pexelsEnabled && onlyWants("country")) || countryWarmReady;
+  const personDecadeReady = !onlyWants("person") || personDecadeWarmReady;
   res.json({
     totalGenerated: stats.totalGenerated,
     topCategories,
     version: APP_VERSION,
-    ready: reservoirReady && paintingReady && countryReady,
+    ready: reservoirReady && paintingReady && countryReady && personDecadeReady,
   });
 });
 
@@ -2556,4 +2692,8 @@ if (pexelsEnabled && onlyWants("country")) {
 if (onlyWants("painting")) {
   loadCacheSubset(PAINTING_WARM_CACHE_PATH);
   paintingWarmLoop();
+}
+if (onlyWants("person")) {
+  loadCacheSubset(PERSON_BIRTHDAY_WARM_CACHE_PATH);
+  personDecadeWarmLoop();
 }

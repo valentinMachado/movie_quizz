@@ -794,6 +794,26 @@
               value="10"
             />
           </div>
+          <div class="settings-row" id="rowFlagSec">
+            <label class="settings-label" for="flagSecRange"
+              >Temps drapeau</label
+            >
+            <input
+              type="range"
+              id="flagSecRange"
+              min="2"
+              max="10"
+              step="1"
+              value="5"
+            />
+            <input
+              type="number"
+              id="flagSecNumber"
+              min="2"
+              max="10"
+              value="5"
+            /><span class="settings-label" style="min-width: auto">sec</span>
+          </div>
 
           <div class="settings-row">
             <label class="settings-label" for="categorySearch"
@@ -930,6 +950,8 @@
       const revealSecNumber = document.getElementById("revealSecNumber");
       const musicClipSecRange = document.getElementById("musicClipSecRange");
       const musicClipSecNumber = document.getElementById("musicClipSecNumber");
+      const flagSecRange = document.getElementById("flagSecRange");
+      const flagSecNumber = document.getElementById("flagSecNumber");
       const chipsListes = document.getElementById("chipsListes");
       const chipsDecades = document.getElementById("chipsDecades");
       const chipsGenres = document.getElementById("chipsGenres");
@@ -940,6 +962,7 @@
       const rowImagesPerItem = document.getElementById("rowImagesPerItem");
       const rowImageSec = document.getElementById("rowImageSec");
       const rowMusicClip = document.getElementById("rowMusicClip");
+      const rowFlagSec = document.getElementById("rowFlagSec");
       const durationHint = document.getElementById("durationHint");
       const btnGenerate = document.getElementById("btnGenerate");
       const btnToggleAnswers = document.getElementById("btnToggleAnswers");
@@ -993,10 +1016,17 @@
       // affiche/masque les réglages qui ne s'appliquent pas aux types actifs
       function updateSettingsVisibility() {
         const hasMusic = typeActive("music");
-        const hasNonMusic = [...activeContentTypes].some((t) => t !== "music");
+        const hasFlag = typeActive("flag");
+        // "flag" a sa propre durée dédiée (comme la musique), donc pas
+        // besoin d'images/titre ni de temps/image tant que rien d'autre
+        // n'est actif
+        const hasStandard = [...activeContentTypes].some(
+          (t) => t !== "music" && t !== "flag",
+        );
         rowMusicClip.style.display = hasMusic ? "" : "none";
-        rowImagesPerItem.style.display = hasNonMusic ? "" : "none";
-        rowImageSec.style.display = hasNonMusic ? "" : "none";
+        rowFlagSec.style.display = hasFlag ? "" : "none";
+        rowImagesPerItem.style.display = hasStandard ? "" : "none";
+        rowImageSec.style.display = hasStandard ? "" : "none";
       }
 
       const supportsFastEncode =
@@ -1055,6 +1085,9 @@
       function currentMusicClipSec() {
         return Math.min(28, parseInt(musicClipSecNumber.value, 10) || 10);
       }
+      function currentFlagSec() {
+        return parseInt(flagSecNumber.value, 10) || 5;
+      }
 
       function formatDuration(totalSec) {
         const m = Math.floor(totalSec / 60),
@@ -1062,31 +1095,48 @@
         return `${m} min ${s.toString().padStart(2, "0")}`;
       }
       function totalDurationSec() {
-        // la musique n'utilise ni images/titre ni temps/image, juste la
-        // longueur de l'extrait : sa durée par item diffère de celle des
-        // autres médias. Le lot final pioche dans le pool fusionné des
-        // catégories sélectionnées, donc on pondère par la part de musique
-        // dans ce pool plutôt que de tout calculer avec la formule "image"
-        const musicItemSec = currentMusicClipSec() + currentRevealSec();
-        const otherItemSec =
-          currentImagesPerItem() * currentImageSec() + currentRevealSec();
+        // musique et drapeaux ont chacun leur propre durée dédiée (pas
+        // images/titre ni temps/image) : leur durée par item diffère de
+        // celle des autres médias. Le lot final pioche dans le pool
+        // fusionné des catégories sélectionnées, donc on pondère par la
+        // part de chaque catégorie de durée dans ce pool plutôt que de tout
+        // calculer avec la formule "image"
+        const itemSecByBucket = {
+          music: currentMusicClipSec() + currentRevealSec(),
+          flag: currentFlagSec() + currentRevealSec(),
+          standard:
+            currentImagesPerItem() * currentImageSec() + currentRevealSec(),
+        };
+        const bucketOf = (mediaType) =>
+          mediaType === "music" || mediaType === "flag" ? mediaType : "standard";
 
         const selected = availableCategories.filter((c) =>
           selectedCategories.has(c.key),
         );
         const totalAvailable = selected.reduce((s, c) => s + c.available, 0);
-        const musicAvailable = selected
-          .filter((c) => c.mediaType === "music")
-          .reduce((s, c) => s + c.available, 0);
-        const musicFraction =
-          totalAvailable > 0
-            ? musicAvailable / totalAvailable
-            : activeContentTypes.size === 1 && activeContentTypes.has("music")
-              ? 1
-              : 0;
+        const availableByBucket = { music: 0, flag: 0, standard: 0 };
+        for (const c of selected) {
+          availableByBucket[bucketOf(c.mediaType)] += c.available;
+        }
 
-        const avgItemSec =
-          musicFraction * musicItemSec + (1 - musicFraction) * otherItemSec;
+        let avgItemSec;
+        if (totalAvailable > 0) {
+          avgItemSec = Object.entries(availableByBucket).reduce(
+            (sum, [bucket, avail]) =>
+              sum + (avail / totalAvailable) * itemSecByBucket[bucket],
+            0,
+          );
+        } else {
+          // pool encore inconnu (ex: juste après un changement de type) :
+          // à défaut de mieux, suppose que tous les types actifs partagent
+          // le même seul bucket de durée s'ils y correspondent tous
+          const activeBuckets = new Set(
+            [...activeContentTypes].map(bucketOf),
+          );
+          const bucket =
+            activeBuckets.size === 1 ? [...activeBuckets][0] : "standard";
+          avgItemSec = itemSecByBucket[bucket];
+        }
         return currentCount() * avgItemSec;
       }
       function updateDurationHint() {
@@ -1120,6 +1170,7 @@
           imageSec: currentImageSec(),
           revealSec: currentRevealSec(),
           musicClipSec: currentMusicClipSec(),
+          flagSec: currentFlagSec(),
           contentTypes: [...activeContentTypes],
           categories: [...selectedCategories],
         };
@@ -1157,6 +1208,10 @@
           musicClipSecNumber.value = s.musicClipSec;
           musicClipSecRange.value = s.musicClipSec;
         }
+        if (s.flagSec) {
+          flagSecNumber.value = s.flagSec;
+          flagSecRange.value = s.flagSec;
+        }
         if (Array.isArray(s.contentTypes)) {
           const valid = s.contentTypes.filter(
             (t) =>
@@ -1166,7 +1221,8 @@
               t === "game" ||
               t === "music" ||
               t === "country" ||
-              t === "painting",
+              t === "painting" ||
+              t === "flag",
           );
           if (valid.length) activeContentTypes = new Set(valid);
         }
@@ -1204,6 +1260,7 @@
           { key: "music", label: "🎵 Musique" },
           { key: "country", label: "🌍 Pays" },
           { key: "painting", label: "🎨 Peintres" },
+          { key: "flag", label: "🚩 Drapeaux" },
         ];
         for (const opt of options) {
           const chip = makeChip(
@@ -1234,6 +1291,7 @@
                   ...(typeActive("music") ? ["music_popular_fr"] : []),
                   ...(typeActive("country") ? ["country_all"] : []),
                   ...(typeActive("painting") ? ["painting_popular"] : []),
+                  ...(typeActive("flag") ? ["flag_all"] : []),
                 ];
                 selectedCategories = new Set(
                   fallback.filter((k) =>
@@ -1514,7 +1572,12 @@
       async function preloadAll(picked) {
         const totalTasks = picked.reduce(
           (sum, m) =>
-            sum + (m.mediaType === "music" ? 2 : m.imageUrls.length + 1),
+            sum +
+            (m.mediaType === "music"
+              ? 2
+              : m.mediaType === "flag"
+                ? 1
+                : m.imageUrls.length + 1),
           0,
         );
         const results = new Array(picked.length);
@@ -1553,6 +1616,19 @@
                   artist: m.artist,
                   track: m.track,
                   audioBuffer,
+                  posterImg,
+                };
+                continue;
+              }
+              if (m.mediaType === "flag") {
+                const posterImg = await loadImage(m.posterUrl).then((img) => {
+                  bump();
+                  return img;
+                });
+                results[my] = {
+                  title: m.title,
+                  mediaType: "flag",
+                  capital: m.capital,
                   posterImg,
                 };
                 continue;
@@ -1598,7 +1674,7 @@
       }
 
       // le timeline démarre par un écran splash, puis enchaîne les films
-      function buildTimeline(imageMs, revealMs, splashMs, musicClipMs) {
+      function buildTimeline(imageMs, revealMs, splashMs, musicClipMs, flagMs) {
         const tl = [];
         let t = 0;
         if (splashMs > 0) {
@@ -1616,6 +1692,23 @@
             t += musicClipMs;
             tl.push({
               type: "music-reveal",
+              itemIdx: i,
+              start: t,
+              dur: revealMs,
+            });
+            t += revealMs;
+            return;
+          }
+          if (m.mediaType === "flag") {
+            tl.push({
+              type: "flag-guess",
+              itemIdx: i,
+              start: t,
+              dur: flagMs,
+            });
+            t += flagMs;
+            tl.push({
+              type: "flag-reveal",
               itemIdx: i,
               start: t,
               dur: revealMs,
@@ -1901,6 +1994,7 @@
             game: "JEUX",
             country: "PAYS",
             painting: "PEINTRES",
+            flag: "DRAPEAUX",
           };
           return labels[[...types][0]] || "TITRES";
         }
@@ -2361,6 +2455,78 @@
         drawFrameBorder();
       }
 
+      // drapeau centré, coins arrondis + halo, identique en devinette et en
+      // réponse (contrairement aux autres types) : c'est le principe même de
+      // cette catégorie, voir fetchFlagCategory côté serveur
+      function drawFlagBox(m, withinMs) {
+        const boxW = 420,
+          boxH = 300;
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2 - 10;
+
+        drawGlowBurst(cx, cy, withinMs, 300);
+
+        if (m.posterImg) {
+          const ir = m.posterImg.width / m.posterImg.height;
+          let dw, dh;
+          if (ir > boxW / boxH) {
+            dw = boxW;
+            dh = boxW / ir;
+          } else {
+            dh = boxH;
+            dw = boxH * ir;
+          }
+          const dx = cx - dw / 2;
+          const dy = cy - dh / 2;
+          drawFramedImage(m.posterImg, dx, dy, dw, dh, 12);
+        }
+      }
+
+      function drawFlagGuess(m, seg, withinMs) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGameBackdrop();
+        drawGameParticles(withinMs);
+
+        drawFlagBox(m, withinMs);
+
+        drawGameProgress(withinMs / seg.dur, canvas.width);
+
+        drawBadge(
+          `N° ${seg.itemIdx + 1} / ${items.length}`,
+          50,
+          canvas.height - 58,
+        );
+        drawFrameBorder();
+      }
+
+      function drawFlagReveal(m, itemIdx, withinMs) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGameBackdrop();
+        drawGameParticles(withinMs);
+
+        drawFlagBox(m, withinMs);
+
+        drawRevealBanner(canvas.width / 2, 62);
+
+        ctx.save();
+        ctx.font = "700 32px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#ede8de";
+        ctx.textAlign = "center";
+        ctx.fillText(m.title, canvas.width / 2, canvas.height - 86);
+
+        ctx.font = "600 24px ui-monospace, Menlo, monospace";
+        ctx.fillStyle = "#e8a33d";
+        ctx.fillText(`Capitale : ${m.capital}`, canvas.width / 2, canvas.height - 55);
+        ctx.restore();
+
+        drawBadge(
+          `N° ${itemIdx + 1} / ${items.length}`,
+          50,
+          canvas.height - 58,
+        );
+        drawFrameBorder();
+      }
+
       function drawSegment(seg, withinMs) {
         if (seg.type === "splash") {
           drawSplash(withinMs);
@@ -2375,6 +2541,9 @@
         if (seg.type === "guess") drawGuess(m, seg, withinMs);
         else if (seg.type === "music-reveal")
           drawMusicReveal(m, seg.itemIdx, withinMs);
+        else if (seg.type === "flag-guess") drawFlagGuess(m, seg, withinMs);
+        else if (seg.type === "flag-reveal")
+          drawFlagReveal(m, seg.itemIdx, withinMs);
         else drawReveal(m, seg.itemIdx, withinMs);
       }
       function findSegment(elapsed) {
@@ -2467,6 +2636,9 @@
             ) {
               i++; // déjà couvert par le buffer de devinette ajouté ci-dessus
             }
+          } else if (seg.type === "flag-guess") {
+            const m = items[seg.itemIdx];
+            await audioSource.add(m.guessAudioBuffer || silentBuffer(seg.dur));
           } else {
             await audioSource.add(silentBuffer(seg.dur));
           }
@@ -2628,14 +2800,14 @@
               CFG.splashMs / 1000,
             );
             for (const m of items) {
-              if (m.mediaType !== "music") {
-                m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
-                  loopBufferToDuration(
-                    guessingSrc,
-                    m.backdropImgs.length * currentImageSec(),
-                  ),
-                );
-              }
+              if (m.mediaType === "music") continue;
+              const guessDurSec =
+                m.mediaType === "flag"
+                  ? currentFlagSec()
+                  : m.backdropImgs.length * currentImageSec();
+              m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
+                loopBufferToDuration(guessingSrc, guessDurSec),
+              );
             }
           } else {
             splashAudioBuffer = null;
@@ -2648,6 +2820,7 @@
             currentRevealSec() * 1000,
             CFG.splashMs,
             currentMusicClipSec() * 1000,
+            currentFlagSec() * 1000,
           );
           timeline = built.timeline;
           totalDurationMs = built.total;
@@ -2748,6 +2921,16 @@
       });
       musicClipSecNumber.addEventListener("input", () => {
         musicClipSecRange.value = musicClipSecNumber.value;
+        updateDurationHint();
+        saveSettings();
+      });
+      flagSecRange.addEventListener("input", () => {
+        flagSecNumber.value = flagSecRange.value;
+        updateDurationHint();
+        saveSettings();
+      });
+      flagSecNumber.addEventListener("input", () => {
+        flagSecRange.value = flagSecNumber.value;
         updateDurationHint();
         saveSettings();
       });
