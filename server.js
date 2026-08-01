@@ -1,7 +1,13 @@
 import "dotenv/config";
 import express from "express";
 import path from "node:path";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 
 const app = express();
@@ -10,7 +16,12 @@ const APP_VERSION = JSON.parse(
   readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
 ).version;
 const TMDB_KEY = process.env.TMDB_API_KEY;
-const REFRESH_MS = 30 * 60 * 1000; // 30 min (vu le volume de catégories films+séries)
+// deux cadences de rafraîchissement distinctes (voir refreshReservoir) : les
+// catégories volatiles (now_playing, trending, etc.) toutes les 6h, tout le
+// reste toutes les semaines — même valeur que RESERVOIR_CACHE_TTL_MS plus
+// bas, qui sert de seule source de vérité pour "une donnée stable reste
+// valide combien de temps".
+const VOLATILE_REFRESH_MS = 6 * 60 * 60 * 1000; // 6h
 const MIN_COUNT = 5;
 const MAX_COUNT = 100;
 const MIN_IMAGES_PER_ITEM = 1;
@@ -101,6 +112,24 @@ function saveStats() {
   }
 }
 
+// --- cache disque : réservoir + caches de warm loop, pour ne pas repartir de
+// zéro à chaque redémarrage (déploiement, crash, etc.) ---
+const CACHE_DIR = path.join(process.cwd(), "cache");
+const RESERVOIR_CACHE_PATH = path.join(CACHE_DIR, "reservoir.json");
+const PAINTING_WARM_CACHE_PATH = path.join(CACHE_DIR, "warm-paintings.json");
+const COUNTRY_WARM_CACHE_PATH = path.join(CACHE_DIR, "warm-countries.json");
+const RESERVOIR_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 semaine
+
+// écriture atomique (fichier temporaire + rename) : un kill/crash pendant
+// l'écriture ne doit jamais laisser un cache à moitié écrit — ça casserait le
+// prochain démarrage au lieu de juste le ralentir
+function writeJsonAtomic(filePath, data) {
+  if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
+  const tmpPath = `${filePath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(data));
+  renameSync(tmpPath, filePath);
+}
+
 const STATIC_LISTS = {
   popular: {
     pathAndQuery: "movie/popular",
@@ -122,6 +151,7 @@ const STATIC_LISTS = {
     label: "Au cinéma (Films)",
     group: "liste",
     mediaType: "movie",
+    volatile: true,
   },
   upcoming: {
     pathAndQuery: "movie/upcoming",
@@ -129,6 +159,7 @@ const STATIC_LISTS = {
     label: "À venir (Films)",
     group: "liste",
     mediaType: "movie",
+    volatile: true,
   },
   trending_day: {
     pathAndQuery: "trending/movie/day",
@@ -136,6 +167,7 @@ const STATIC_LISTS = {
     label: "Tendances du jour (Films)",
     group: "liste",
     mediaType: "movie",
+    volatile: true,
   },
   trending_week: {
     pathAndQuery: "trending/movie/week",
@@ -143,6 +175,7 @@ const STATIC_LISTS = {
     label: "Tendances de la semaine (Films)",
     group: "liste",
     mediaType: "movie",
+    volatile: true,
   },
 };
 
@@ -228,6 +261,7 @@ const TV_STATIC_LISTS = {
     label: "En cours de diffusion",
     group: "liste",
     mediaType: "tv",
+    volatile: true,
   },
   tv_airing_today: {
     pathAndQuery: "tv/airing_today",
@@ -235,6 +269,7 @@ const TV_STATIC_LISTS = {
     label: "À l'antenne aujourd'hui",
     group: "liste",
     mediaType: "tv",
+    volatile: true,
   },
   tv_trending_day: {
     pathAndQuery: "trending/tv/day",
@@ -242,6 +277,7 @@ const TV_STATIC_LISTS = {
     label: "Tendances du jour (Séries)",
     group: "liste",
     mediaType: "tv",
+    volatile: true,
   },
   tv_trending_week: {
     pathAndQuery: "trending/tv/week",
@@ -249,6 +285,7 @@ const TV_STATIC_LISTS = {
     label: "Tendances de la semaine (Séries)",
     group: "liste",
     mediaType: "tv",
+    volatile: true,
   },
 };
 
@@ -324,54 +361,35 @@ const PERSON_STATIC_LISTS = {
   },
 };
 
-// pays acteurs : TMDb n'a pas de /discover/person filtrable par nationalité,
-// seul /person/{id} donne un `place_of_birth` en texte libre ("Brenham, Texas,
-// USA", "Kingston upon Thames, London, England, UK"...). On extrait le pays
-// du dernier segment (ou du contenu d'un éventuel "[now X]" pour les entités
-// historiques, ex: "Hong Kong, British Crown Colony [now China]"), normalisé
-// vers une liste fixe pour éviter des micro-catégories à un seul acteur.
-// Un faux négatif (biographie vide/format inattendu) exclut juste l'acteur de
-// ces catégories — il reste disponible partout ailleurs.
-const PERSON_COUNTRY_TARGETS = [
-  { code: "us", label: "Acteurs (États-Unis)", aliases: ["usa", "united states"] },
-  {
-    code: "gb",
-    label: "Acteurs (Royaume-Uni)",
-    aliases: ["uk", "united kingdom", "england", "scotland", "wales", "northern ireland", "great britain"],
-  },
-  { code: "fr", label: "Acteurs (France)", aliases: ["france"] },
-  { code: "ca", label: "Acteurs (Canada)", aliases: ["canada"] },
-  { code: "au", label: "Acteurs (Australie)", aliases: ["australia"] },
-  { code: "de", label: "Acteurs (Allemagne)", aliases: ["germany"] },
-  { code: "it", label: "Acteurs (Italie)", aliases: ["italy"] },
-  { code: "es", label: "Acteurs (Espagne)", aliases: ["spain"] },
-  { code: "in", label: "Acteurs (Inde)", aliases: ["india"] },
-  { code: "cn", label: "Acteurs (Chine)", aliases: ["china", "hong kong"] },
-  { code: "kr", label: "Acteurs (Corée du Sud)", aliases: ["south korea", "korea"] },
-  { code: "jp", label: "Acteurs (Japon)", aliases: ["japan"] },
-  { code: "br", label: "Acteurs (Brésil)", aliases: ["brazil"] },
-  { code: "mx", label: "Acteurs (Mexique)", aliases: ["mexico"] },
+// pays films/acteurs : liste partagée par movie_country_* (discover/movie
+// filtré par pays d'origine, direct) et person_country_* (même discover, puis
+// casting du film — voir fetchPersonCountryCategory). Pour les acteurs,
+// classer la liste globale "populaires" (très dominée US/anglophone) par
+// lieu de naissance mélangeait nationalité et lieu de naissance (ex: Emma
+// Watson née à Paris mais britannique) et sous-représentait fortement tout
+// ce qui n'est pas déjà une star hollywoodienne — repartir des films DE
+// chaque pays donne un pool réellement pertinent, pour les films comme pour
+// les acteurs, plutôt qu'un sous-ensemble biaisé d'une liste globale.
+const COUNTRY_TARGETS = [
+  { code: "us", name: "États-Unis" },
+  { code: "gb", name: "Royaume-Uni" },
+  { code: "fr", name: "France" },
+  { code: "ca", name: "Canada" },
+  { code: "au", name: "Australie" },
+  { code: "de", name: "Allemagne" },
+  { code: "it", name: "Italie" },
+  { code: "es", name: "Espagne" },
+  { code: "in", name: "Inde" },
+  { code: "cn", name: "Chine" },
+  { code: "kr", name: "Corée du Sud" },
+  { code: "jp", name: "Japon" },
+  { code: "br", name: "Brésil" },
+  { code: "mx", name: "Mexique" },
 ];
-
-function countryFromPlaceOfBirth(place) {
-  if (!place) return null;
-  const bracket = place.match(/\[now ([^\]]+)\]/i);
-  const segments = place
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const candidates = [bracket?.[1], segments[segments.length - 1]].filter(
-    Boolean,
-  );
-  for (const candidate of candidates) {
-    const normalized = candidate.toLowerCase();
-    const target = PERSON_COUNTRY_TARGETS.find((t) =>
-      t.aliases.some((a) => normalized.includes(a)),
-    );
-    if (target) return target.code;
-  }
-  return null;
-}
+const MOVIE_COUNTRY_PAGES = 8; // ~160 films/pays (20/page), réduit en mode dev comme les autres pages
+const PERSON_COUNTRY_MOVIE_PAGES = 4; // ~80 films/pays (20/page), réduit en mode dev comme les autres pages
+const PERSON_COUNTRY_CAST_PER_MOVIE = 8; // rôles principaux seulement, pas la liste complète des crédits
+const PERSON_COUNTRY_TARGET_ACTORS = 150; // arrête d'aller chercher des crédits une fois assez d'acteurs uniques trouvés
 
 // jeux vidéo (IGDB) — structure différente de TMDb : `igdbWhere`/`igdbSort`
 // au lieu de `pathAndQuery`, paginé par offset (voir fetchGameCategory)
@@ -400,6 +418,7 @@ const GAME_STATIC_LISTS = {
     label: "Sorties récentes",
     group: "liste",
     mediaType: "game",
+    volatile: true,
   },
 };
 
@@ -468,49 +487,49 @@ const MUSIC_STATIC_LISTS = {
   music_popular_fr: {
     country: "fr",
     label: "Populaire (Musique, France)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_us: {
     country: "us",
     label: "Populaire (Musique, USA)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_gb: {
     country: "gb",
     label: "Populaire (Musique, UK)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_de: {
     country: "de",
     label: "Populaire (Musique, Allemagne)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_es: {
     country: "es",
     label: "Populaire (Musique, Espagne)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_it: {
     country: "it",
     label: "Populaire (Musique, Italie)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_jp: {
     country: "jp",
     label: "Populaire (Musique, Japon)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
   music_popular_br: {
     country: "br",
     label: "Populaire (Musique, Brésil)",
-    group: "liste",
+    group: "geography",
     mediaType: "music",
   },
 };
@@ -561,6 +580,38 @@ const MUSIC_DECADE_BOUNDS = [
     maxYear: Infinity,
   },
 ];
+
+// décennies acteurs (date de naissance) : TMDb n'a pas de /discover/person
+// filtrable par date de naissance, donc même principe que les décennies
+// musique — voir le post-traitement dans refreshReservoir(). Pas de suffixe
+// "(Acteurs)" dans le label : contrairement à "music"/"movie", la liste de
+// mots à retirer pour "person" est vide (voir MEDIA_TYPE_LABEL_WORDS, il ne
+// faut jamais retirer un nom de pays comme "(États-Unis)"), donc un suffixe
+// ici resterait affiché tel quel — l'emoji 🎭 suffit à indiquer le type.
+const PERSON_DECADE_BOUNDS = [
+  {
+    key: "person_before_1940",
+    label: "Avant 1940",
+    minYear: -Infinity,
+    maxYear: 1939,
+  },
+  { key: "person_decade_1940", label: "Années 1940", minYear: 1940, maxYear: 1949 },
+  { key: "person_decade_1950", label: "Années 1950", minYear: 1950, maxYear: 1959 },
+  { key: "person_decade_1960", label: "Années 1960", minYear: 1960, maxYear: 1969 },
+  { key: "person_decade_1970", label: "Années 1970", minYear: 1970, maxYear: 1979 },
+  { key: "person_decade_1980", label: "Années 1980", minYear: 1980, maxYear: 1989 },
+  { key: "person_decade_1990", label: "Années 1990", minYear: 1990, maxYear: 1999 },
+  {
+    key: "person_decade_2000",
+    label: "Années 2000",
+    minYear: 2000,
+    maxYear: Infinity,
+  },
+];
+// une date de naissance ne change jamais : cache bien plus long que le
+// défaut (6h) pour ne pas la re-demander à chaque rafraîchissement
+// hebdomadaire du réservoir
+const PERSON_BIRTHDAY_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 jours
 
 // pays — liste depuis mledoze/countries (mirroir libre et sans clé des
 // données historiques de REST Countries, elle-même dépréciée et payante
@@ -710,7 +761,7 @@ function paintingCategoryDefs() {
     defs[`painting_country_${c.code}`] = {
       paintingFilter: { kind: "country", qid: c.qid },
       label: `${c.label} (Peintres)`,
-      group: "liste",
+      group: "geography",
       mediaType: "painting",
     };
   }
@@ -890,6 +941,7 @@ async function paintingWarmLoop() {
         const toWarm = [...painterQids].filter(
           (qid) => !cacheGet(`painter_paintings:${qid}`),
         );
+        paintingWarmReady = toWarm.length === 0;
         console.log(
           `Peintres : cache tableaux — ${painterQids.size - toWarm.length}/${painterQids.size} déjà chauds, ${toWarm.length} à récupérer…`,
         );
@@ -902,7 +954,16 @@ async function paintingWarmLoop() {
           console.log(
             `Peintres : ${warmed}/${toWarm.length} — ${qid} (${images.length} tableaux, ${elapsed}s)`,
           );
+          // persistance incrémentale : un passage complet peut prendre de
+          // longues minutes (des centaines de peintres) — sans ça, un
+          // redémarrage avant la fin du tout premier passage ne retrouverait
+          // aucune progression sur disque
+          if (warmed % 50 === 0) {
+            persistCacheSubset(PAINTING_WARM_CACHE_PATH, "painter_paintings:");
+          }
         }
+        paintingWarmReady = true;
+        persistCacheSubset(PAINTING_WARM_CACHE_PATH, "painter_paintings:");
         console.log(
           `Peintres : passage de warm-cache terminé — ${painterQids.size} peintres en cache. Prochain passage dans 1h.`,
         );
@@ -954,6 +1015,11 @@ function commonsThumbUrl(specialFilePathUrl, width = 1280) {
 let CATEGORIES = { ...STATIC_LISTS };
 let reservoirByCategory = {};
 let reservoirReady = false;
+// bascule à true/false par chaque warm loop selon qu'il reste ou non des
+// éléments non chauffés à son passage courant — sert uniquement à la LED de
+// statut serveur exposée par /api/stats
+let paintingWarmReady = false;
+let countryWarmReady = false;
 
 // throttle global : reste sous ~38 requêtes / 10s, marge sous la limite
 // habituelle de TMDb (40-50/10s), s'applique à TOUS les appels TMDb
@@ -1204,7 +1270,7 @@ function countryCategoryDefs() {
     country_all: {
       region: null,
       label: "Tous les pays",
-      group: "liste",
+      group: "geography",
       mediaType: "country",
     },
   };
@@ -1212,7 +1278,7 @@ function countryCategoryDefs() {
     defs[`country_${c.code}`] = {
       region: c.region,
       label: `${c.label} (Pays)`,
-      group: "continent",
+      group: "geography",
       mediaType: "country",
     };
   }
@@ -1340,11 +1406,31 @@ async function buildCategoryDefs() {
       mediaType: "music",
     };
   }
-  for (const target of PERSON_COUNTRY_TARGETS) {
+  for (const target of COUNTRY_TARGETS) {
     defs[`person_country_${target.code}`] = {
+      originCountry: target.code.toUpperCase(),
+      pages: PERSON_COUNTRY_MOVIE_PAGES,
+      label: target.name,
+      group: "geography",
+      mediaType: "person",
+    };
+  }
+  if (onlyWants("movie")) {
+    for (const target of COUNTRY_TARGETS) {
+      defs[`movie_country_${target.code}`] = {
+        pathAndQuery: `discover/movie?with_origin_country=${target.code.toUpperCase()}&sort_by=popularity.desc`,
+        pages: MOVIE_COUNTRY_PAGES,
+        label: target.name,
+        group: "geography",
+        mediaType: "movie",
+      };
+    }
+  }
+  for (const bucket of PERSON_DECADE_BOUNDS) {
+    defs[bucket.key] = {
       derived: true,
-      label: target.label,
-      group: "liste",
+      label: bucket.label,
+      group: "decade",
       mediaType: "person",
     };
   }
@@ -1459,11 +1545,43 @@ async function fetchMusicCategory(def) {
   return [...entries.values()];
 }
 
+// pool d'acteurs pour un pays donné : part des films populaires DE ce pays
+// (discover/movie?with_origin_country=XX) plutôt que de filtrer une liste
+// globale par lieu de naissance — voir le commentaire sur COUNTRY_TARGETS.
+async function fetchPersonCountryCategory(def) {
+  const movieIds = [];
+  const moviePages = Array.from({ length: def.pages }, (_, i) => i + 1);
+  await mapWithConcurrency(moviePages, PAGE_FETCH_CONCURRENCY, async (page) => {
+    const data = await tmdbJSON(
+      `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}&language=fr-FR&sort_by=popularity.desc&with_origin_country=${def.originCountry}&page=${page}`,
+    );
+    for (const m of data.results || []) movieIds.push(m.id);
+  });
+
+  const seen = new Map();
+  await mapWithConcurrency(movieIds, PAGE_FETCH_CONCURRENCY, async (movieId) => {
+    if (seen.size >= PERSON_COUNTRY_TARGET_ACTORS) return;
+    try {
+      const data = await tmdbJSON(
+        `https://api.themoviedb.org/3/movie/${movieId}/credits?api_key=${TMDB_KEY}&language=fr-FR`,
+      );
+      for (const c of (data.cast || []).slice(0, PERSON_COUNTRY_CAST_PER_MOVIE)) {
+        if (!c.profile_path || seen.has(c.id)) continue;
+        seen.set(c.id, toEntry(c, "person"));
+      }
+    } catch (e) {
+      // un film sans crédits accessibles ne doit pas faire échouer toute la catégorie
+    }
+  });
+  return [...seen.values()];
+}
+
 async function fetchCategory(def) {
   if (def.mediaType === "game") return fetchGameCategory(def);
   if (def.mediaType === "music") return fetchMusicCategory(def);
   if (def.mediaType === "country") return fetchCountryCategory(def);
   if (def.mediaType === "painting") return fetchPaintingCategory(def);
+  if (def.originCountry) return fetchPersonCountryCategory(def);
   const seen = new Map();
   const pages = Array.from({ length: def.pages }, (_, i) => i + 1);
   // pages en concurrence (voir CATEGORY_FETCH_CONCURRENCY plus haut) : l'ordre
@@ -1482,7 +1600,74 @@ async function fetchCategory(def) {
   return [...seen.values()];
 }
 
-async function refreshReservoir() {
+// empreinte de ce qui a produit un cache disque donné : version de l'appli
+// + flags/config qui changent la FORME du réservoir (--only, clés API
+// activées). Si l'un de ces éléments diffère de maintenant, le cache est
+// ignoré entièrement plutôt que rechargé partiellement — un cache "--only=painting"
+// ne doit jamais se faire passer pour un réservoir complet, silencieusement.
+function reservoirCacheFingerprint() {
+  return JSON.stringify({
+    version: APP_VERSION,
+    only: ONLY_TYPES ? [...ONLY_TYPES].sort() : null,
+    igdbEnabled,
+    pexelsEnabled,
+  });
+}
+
+function loadReservoirCache() {
+  try {
+    if (!existsSync(RESERVOIR_CACHE_PATH)) {
+      console.log(
+        "Réservoir : aucun cache disque trouvé (premier démarrage sur cette machine, ou cache/ vidé).",
+      );
+      return null;
+    }
+    const raw = JSON.parse(readFileSync(RESERVOIR_CACHE_PATH, "utf8"));
+    if (raw.fingerprint !== reservoirCacheFingerprint()) {
+      console.log(
+        "Réservoir : cache disque ignoré (version ou configuration différente depuis son écriture).",
+      );
+      return null;
+    }
+    const ageMs = Date.now() - raw.writtenAt;
+    if (ageMs > RESERVOIR_CACHE_TTL_MS) {
+      console.log(
+        `Réservoir : cache disque ignoré (âgé de ${(ageMs / 86400000).toFixed(1)}j, max ${(RESERVOIR_CACHE_TTL_MS / 86400000).toFixed(0)}j).`,
+      );
+      return null;
+    }
+    return raw;
+  } catch (e) {
+    console.error("Erreur lecture cache réservoir:", e.message);
+    return null;
+  }
+}
+
+function saveReservoirCache(categories) {
+  try {
+    writeJsonAtomic(RESERVOIR_CACHE_PATH, {
+      fingerprint: reservoirCacheFingerprint(),
+      writtenAt: Date.now(),
+      categories,
+    });
+  } catch (e) {
+    console.error("Erreur écriture cache réservoir:", e.message);
+  }
+}
+
+// deux cadences indépendantes tournent en parallèle (voir les setInterval en
+// bas de fichier) : `includeVolatile` seul toutes les 6h (now_playing,
+// trending, etc.), `includeStable` seul toutes les semaines (tout le reste —
+// c'est aussi la cadence de rafraîchissement naturelle du cache disque,
+// même valeur que RESERVOIR_CACHE_TTL_MS). Chaque passage ne touche QUE les
+// catégories de son tiers, fusionnées dans le réservoir existant, pour ne
+// jamais écraser l'autre tiers avec du vide. `useDiskCache` n'est vrai qu'au
+// tout premier démarrage.
+async function refreshReservoir({
+  useDiskCache = false,
+  includeVolatile = true,
+  includeStable = true,
+} = {}) {
   const startTs = Date.now();
   CATEGORIES = await buildCategoryDefs();
   if (DEV_MODE) {
@@ -1490,20 +1675,56 @@ async function refreshReservoir() {
       if (def.pages) def.pages = Math.min(def.pages, DEV_MAX_PAGES);
     }
   }
-  const fetchable = Object.entries(CATEGORIES).filter(
-    ([, def]) => !def.derived,
-  );
-  console.log(
-    `Réservoir : démarrage du rafraîchissement (${fetchable.length} catégories à récupérer)…`,
-  );
+  const fetchable = Object.entries(CATEGORIES).filter(([, def]) => {
+    if (def.derived) return false;
+    return def.volatile ? includeVolatile : includeStable;
+  });
+
   const next = {};
+  // en mode dev, le réservoir est déjà volontairement réduit (--dev) : ne
+  // jamais lire/écrire le cache disque, sinon un futur démarrage en prod
+  // complet risquerait de reprendre un cache réduit par erreur
+  let diskCache = null;
+  if (!useDiskCache) {
+    console.log(
+      "Réservoir : cache disque non consulté (rafraîchissement périodique, toujours en direct).",
+    );
+  } else if (DEV_MODE) {
+    console.log("Réservoir : cache disque non consulté (mode dev).");
+  } else {
+    diskCache = loadReservoirCache();
+  }
+  const toFetch = [];
+  if (diskCache) {
+    for (const entry of fetchable) {
+      const [key, def] = entry;
+      if (!def.volatile && diskCache.categories[key]) {
+        next[key] = diskCache.categories[key];
+      } else {
+        toFetch.push(entry);
+      }
+    }
+    const cacheAgeH = (
+      (Date.now() - diskCache.writtenAt) /
+      3_600_000
+    ).toFixed(1);
+    console.log(
+      `Réservoir : cache disque valide (écrit il y a ${cacheAgeH}h) — ${fetchable.length - toFetch.length}/${fetchable.length} catégories reprises telles quelles, ${toFetch.length} à récupérer (volatiles ou absentes du cache).`,
+    );
+  } else {
+    toFetch.push(...fetchable);
+  }
+
+  console.log(
+    `Réservoir : démarrage du rafraîchissement (${toFetch.length} catégories à récupérer)…`,
+  );
   let done = 0;
   // catégories en concurrence (voir CATEGORY_FETCH_CONCURRENCY plus haut) —
   // chaque catégorie fetch elle-même ses pages en concurrence (voir
   // fetchCategory/fetchGameCategory), les deux niveaux se contentent de
   // garder les files tmdbGate/igdbGate pleines, elles restent la vraie
   // limite de débit quel que soit le nombre d'appelants.
-  await mapWithConcurrency(fetchable, CATEGORY_FETCH_CONCURRENCY, async ([key, def]) => {
+  await mapWithConcurrency(toFetch, CATEGORY_FETCH_CONCURRENCY, async ([key, def]) => {
     console.log(`Réservoir : → "${key}"…`);
     const catStartTs = Date.now();
     try {
@@ -1513,10 +1734,10 @@ async function refreshReservoir() {
       next[key] = reservoirByCategory[key] || [];
     }
     done++;
-    const pct = Math.round((done / fetchable.length) * 100);
+    const pct = Math.round((done / toFetch.length) * 100);
     const catElapsed = ((Date.now() - catStartTs) / 1000).toFixed(1);
     console.log(
-      `Réservoir : ${done}/${fetchable.length} (${pct}%) — "${key}" terminée en ${catElapsed}s (${next[key].length} items)`,
+      `Réservoir : ${done}/${toFetch.length} (${pct}%) — "${key}" terminée en ${catElapsed}s (${next[key].length} items)`,
     );
   });
 
@@ -1524,78 +1745,91 @@ async function refreshReservoir() {
   // classement courant) — on redispatche les titres déjà récupérés (listes +
   // genres, dédupliqués) selon leur releaseDate plutôt que d'aller en chercher
   // de nouveaux. Absentes en mode dev (buildCategoryDefs ne les crée pas).
-  const musicDecadeKeys = Object.entries(CATEGORIES)
-    .filter(([, def]) => def.derived)
-    .map(([key]) => key);
-  const musicByDecade = new Map(musicDecadeKeys.map((k) => [k, new Map()]));
-  for (const [key, def] of Object.entries(CATEGORIES)) {
-    if (def.mediaType !== "music" || def.derived) continue;
-    for (const track of next[key] || []) {
-      const year = track.releaseDate
-        ? new Date(track.releaseDate).getFullYear()
-        : NaN;
-      if (Number.isNaN(year)) continue;
-      const bucket = MUSIC_DECADE_BOUNDS.find(
-        (b) => year >= b.minYear && year <= b.maxYear,
-      );
-      if (bucket && musicByDecade.has(bucket.key)) {
-        musicByDecade.get(bucket.key).set(track.id, track);
+  // Uniquement sur un passage qui inclut le tiers stable : la musique n'a
+  // aucune catégorie volatile, donc `next` serait vide côté musique sur un
+  // passage volatile-only, et écraserait les décennies avec du vide.
+  if (includeStable) {
+    const musicDecadeKeys = Object.entries(CATEGORIES)
+      .filter(([, def]) => def.derived && def.mediaType === "music")
+      .map(([key]) => key);
+    const musicByDecade = new Map(musicDecadeKeys.map((k) => [k, new Map()]));
+    for (const [key, def] of Object.entries(CATEGORIES)) {
+      if (def.mediaType !== "music" || def.derived) continue;
+      for (const track of next[key] || []) {
+        const year = track.releaseDate
+          ? new Date(track.releaseDate).getFullYear()
+          : NaN;
+        if (Number.isNaN(year)) continue;
+        const bucket = MUSIC_DECADE_BOUNDS.find(
+          (b) => year >= b.minYear && year <= b.maxYear,
+        );
+        if (bucket && musicByDecade.has(bucket.key)) {
+          musicByDecade.get(bucket.key).set(track.id, track);
+        }
       }
     }
-  }
-  for (const [key, tracks] of musicByDecade) next[key] = [...tracks.values()];
+    for (const [key, tracks] of musicByDecade) next[key] = [...tracks.values()];
 
-  // pays acteurs : voir countryFromPlaceOfBirth plus haut — un appel
-  // /person/{id} supplémentaire par acteur (mis en cache 6h comme le reste
-  // des détails TMDb, donc pas répété à chaque rafraîchissement de 30 min).
-  // Absent en mode dev (buildCategoryDefs ne crée pas ces catégories).
-  const personCountryKeys = Object.entries(CATEGORIES)
-    .filter(([key]) => key.startsWith("person_country_"))
-    .map(([key]) => key);
-  if (personCountryKeys.length > 0) {
-    const persons = new Map();
-    for (const [key, def] of Object.entries(CATEGORIES)) {
-      if (def.mediaType !== "person" || def.derived) continue;
-      for (const p of next[key] || []) persons.set(p.id, p);
-    }
-    console.log(
-      `Réservoir : pays des acteurs — ${persons.size} acteurs à vérifier (cache 6h, donc rapide après le premier passage)…`,
+    // décennies acteurs : TMDb ne permet pas de filtrer /discover/person par
+    // date de naissance — on repart des acteurs déjà récupérés (populaires +
+    // par pays, dédupliqués) et on appelle /person/{id} pour sa date de
+    // naissance (cache ~1 mois, voir PERSON_BIRTHDAY_TTL_MS : une date de
+    // naissance ne change jamais, donc la quasi-totalité des acteurs déjà
+    // vus n'est pas re-demandée aux rafraîchissements suivants). Un acteur
+    // sans date de naissance exploitable exclut juste l'acteur de ces
+    // catégories — il reste disponible partout ailleurs.
+    const personDecadeKeys = PERSON_DECADE_BOUNDS.map((b) => b.key).filter(
+      (k) => CATEGORIES[k],
     );
-    let personDone = 0;
-    const personCountry = new Map(personCountryKeys.map((k) => [k, new Map()]));
-    await mapWithConcurrency(
-      [...persons.values()],
-      IMAGE_FETCH_CONCURRENCY,
-      async (p) => {
-        const cacheKey = `person_pob:${p.id}`;
-        let place = cacheGet(cacheKey);
-        if (place === null) {
-          try {
-            const data = await tmdbJSON(
-              `https://api.themoviedb.org/3/person/${p.id}?api_key=${TMDB_KEY}&language=fr-FR`,
-            );
-            place = data.place_of_birth || "";
-            cacheSet(cacheKey, place);
-          } catch (e) {
-            place = null;
+    if (personDecadeKeys.length > 0) {
+      const persons = new Map();
+      for (const [key, def] of Object.entries(CATEGORIES)) {
+        if (def.mediaType !== "person" || def.derived) continue;
+        for (const p of next[key] || []) persons.set(p.id, p);
+      }
+      console.log(
+        `Réservoir : décennies acteurs — ${persons.size} acteurs à vérifier (cache ~1 mois, donc rapide après le premier passage)…`,
+      );
+      const personByDecade = new Map(personDecadeKeys.map((k) => [k, new Map()]));
+      let personDone = 0;
+      await mapWithConcurrency(
+        [...persons.values()],
+        IMAGE_FETCH_CONCURRENCY,
+        async (p) => {
+          const cacheKey = `person_birthday:${p.id}`;
+          let birthday = cacheGet(cacheKey);
+          if (birthday === null) {
+            try {
+              const data = await tmdbJSON(
+                `https://api.themoviedb.org/3/person/${p.id}?api_key=${TMDB_KEY}`,
+              );
+              birthday = data.birthday || "";
+              cacheSet(cacheKey, birthday, PERSON_BIRTHDAY_TTL_MS);
+            } catch (e) {
+              birthday = null;
+            }
           }
-        }
-        personDone++;
-        if (personDone % 50 === 0 || personDone === persons.size) {
-          console.log(
-            `Réservoir : pays des acteurs ${personDone}/${persons.size}`,
+          personDone++;
+          if (personDone % 100 === 0 || personDone === persons.size) {
+            console.log(
+              `Réservoir : décennies acteurs ${personDone}/${persons.size}`,
+            );
+          }
+          if (!birthday) return;
+          const year = new Date(birthday).getFullYear();
+          if (Number.isNaN(year)) return;
+          const bucket = PERSON_DECADE_BOUNDS.find(
+            (b) => year >= b.minYear && year <= b.maxYear,
           );
-        }
-        if (!place) return;
-        const code = countryFromPlaceOfBirth(place);
-        if (code) personCountry.get(`person_country_${code}`)?.set(p.id, p);
-      },
-    );
-    for (const [key, people] of personCountry) next[key] = [...people.values()];
+          if (bucket) personByDecade.get(bucket.key).set(p.id, p);
+        },
+      );
+      for (const [key, people] of personByDecade) next[key] = [...people.values()];
+    }
   }
 
   const wasReady = reservoirReady;
-  reservoirByCategory = next;
+  reservoirByCategory = { ...reservoirByCategory, ...next };
   reservoirReady = Object.values(reservoirByCategory).some(
     (list) => list.length > 0,
   );
@@ -1612,10 +1846,22 @@ async function refreshReservoir() {
       "Serveur opérationnel — /api/quiz-batch peut désormais répondre.",
     );
   }
+  // uniquement sur un passage qui inclut le tiers stable (sinon on écrirait
+  // un cache disque qui ne reflète que les catégories volatiles) ; jamais en
+  // mode dev (voir plus haut) — un réservoir réduit ne doit jamais pouvoir
+  // être repris par un futur démarrage en prod complet.
+  if (includeStable && !DEV_MODE) saveReservoirCache(reservoirByCategory);
 }
 
-refreshReservoir();
-setInterval(refreshReservoir, REFRESH_MS).unref();
+refreshReservoir({ useDiskCache: true }); // démarrage : tout, stable depuis le cache disque si valide
+setInterval(
+  () => refreshReservoir({ includeStable: false }),
+  VOLATILE_REFRESH_MS,
+).unref();
+setInterval(
+  () => refreshReservoir({ includeVolatile: false }),
+  RESERVOIR_CACHE_TTL_MS,
+).unref();
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -1752,6 +1998,51 @@ function cacheSet(key, value, ttlMs = CACHE_TTL_MS) {
   apiCache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
+// persiste sur disque le sous-ensemble d'apiCache dont la clé commence par
+// `keyPrefix` (ex: toutes les entrées "painter_paintings:") — sert à ne pas
+// reperdre tout le travail d'un warm loop à chaque redémarrage. Une seule
+// entrée expirée n'invalide pas les autres : chacune garde son propre
+// expiresAt, vérifié à nouveau au rechargement.
+function persistCacheSubset(filePath, keyPrefix) {
+  const entries = {};
+  for (const [key, entry] of apiCache.entries()) {
+    if (key.startsWith(keyPrefix) && entry.expiresAt > Date.now()) {
+      entries[key] = entry;
+    }
+  }
+  try {
+    writeJsonAtomic(filePath, { writtenAt: Date.now(), entries });
+  } catch (e) {
+    console.error(`Erreur écriture cache ${filePath}:`, e.message);
+  }
+}
+
+function loadCacheSubset(filePath) {
+  const name = path.basename(filePath);
+  try {
+    if (!existsSync(filePath)) {
+      console.log(`Cache disque : aucun fichier ${name} trouvé, on repart de zéro.`);
+      return;
+    }
+    const raw = JSON.parse(readFileSync(filePath, "utf8"));
+    let loaded = 0;
+    let expired = 0;
+    for (const [key, entry] of Object.entries(raw.entries || {})) {
+      if (entry.expiresAt > Date.now()) {
+        apiCache.set(key, entry);
+        loaded++;
+      } else {
+        expired++;
+      }
+    }
+    console.log(
+      `Cache disque : ${loaded} entrées rechargées depuis ${name}${expired > 0 ? ` (${expired} expirées ignorées)` : ""}.`,
+    );
+  } catch (e) {
+    console.error(`Erreur lecture cache ${filePath}:`, e.message);
+  }
+}
+
 // toutes les fonctions ci-dessous renvoient un format uniforme :
 // { url, iso_639_1, vote_count, aspect_ratio } — quelle que soit la source
 // (TMDb backdrops/profiles/stills ou captures IGDB), pour que
@@ -1870,6 +2161,7 @@ async function countryPhotoWarmLoop() {
       const toWarm = candidates.filter(
         (c) => !cacheGet(`country_photos:${c.name.common}`),
       );
+      countryWarmReady = toWarm.length === 0;
       const etaMin = Math.round(
         (toWarm.length * 2 * PEXELS_MIN_INTERVAL_MS) / 60_000,
       );
@@ -1885,7 +2177,15 @@ async function countryPhotoWarmLoop() {
         console.log(
           `Pays : ${warmed}/${toWarm.length} — ${c.name.common} (${photos.length} photos, ${elapsed}s)`,
         );
+        // persistance incrémentale : un passage complet peut prendre des
+        // heures (limite Pexels) — sans ça, un redémarrage avant la fin du
+        // tout premier passage ne retrouverait aucune progression sur disque
+        if (warmed % 20 === 0) {
+          persistCacheSubset(COUNTRY_WARM_CACHE_PATH, "country_photos:");
+        }
       }
+      countryWarmReady = true;
+      persistCacheSubset(COUNTRY_WARM_CACHE_PATH, "country_photos:");
       console.log(
         `Pays : passage de warm-cache terminé — ${candidates.length} pays en cache. Prochain passage dans 1h.`,
       );
@@ -2151,10 +2451,17 @@ app.get("/api/stats", (req, res) => {
         : key,
       count,
     }));
+  // prêt = réservoir construit ET, pour les fonctionnalités actives qui
+  // dépendent d'un warm loop (peintres, photos de pays), leur cache à jour —
+  // ignoré si la fonctionnalité correspondante n'est pas active/activée
+  const paintingReady = !onlyWants("painting") || paintingWarmReady;
+  const countryReady =
+    !(pexelsEnabled && onlyWants("country")) || countryWarmReady;
   res.json({
     totalGenerated: stats.totalGenerated,
     topCategories,
     version: APP_VERSION,
+    ready: reservoirReady && paintingReady && countryReady,
   });
 });
 
@@ -2240,5 +2547,13 @@ app.listen(PORT, () => console.log(`Guess It sur http://localhost:${PORT}`));
 // apiCache/cacheGet en synchrone avant leur premier await, contrairement à
 // refreshReservoir qui await dès sa première ligne — les appeler plus haut
 // levait "Cannot access 'apiCache' before initialization".
-if (pexelsEnabled && onlyWants("country")) countryPhotoWarmLoop();
-if (onlyWants("painting")) paintingWarmLoop();
+// on recharge le cache disque de chaque warm loop AVANT de le démarrer, pour
+// qu'il retrouve directement l'état "à jour" au lieu de tout re-chauffer.
+if (pexelsEnabled && onlyWants("country")) {
+  loadCacheSubset(COUNTRY_WARM_CACHE_PATH);
+  countryPhotoWarmLoop();
+}
+if (onlyWants("painting")) {
+  loadCacheSubset(PAINTING_WARM_CACHE_PATH);
+  paintingWarmLoop();
+}

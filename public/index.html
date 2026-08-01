@@ -149,6 +149,36 @@
         white-space: nowrap;
         opacity: 0.75;
       }
+      .status-led {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-left: 8px;
+        vertical-align: middle;
+        background: var(--muted);
+        transition:
+          background 0.3s,
+          box-shadow 0.3s;
+      }
+      .status-led.led-red {
+        background: #d9694f;
+        box-shadow: 0 0 6px rgba(217, 105, 79, 0.8);
+      }
+      .status-led.led-green {
+        background: var(--green);
+        box-shadow: 0 0 6px rgba(76, 138, 92, 0.8);
+        animation: led-pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes led-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
+      }
       h1 {
         font-family: var(--game);
         text-align: center;
@@ -634,7 +664,12 @@
   <body>
     <div class="rig">
       <div class="topbar">
-        <span class="version-badge" id="appVersion"></span>
+        <span class="version-badge" id="appVersion"></span
+        ><span
+          class="status-led"
+          id="serverStatusLed"
+          title="État du serveur : réservoir et caches"
+        ></span>
       </div>
       <div class="hero">
         <div class="hero-logo-wrap">
@@ -808,14 +843,14 @@
             ></div>
           </div>
           <div class="chip-group">
-            <span class="chip-group-label" id="continentsLabel"
-              >Continents</span
+            <span class="chip-group-label" id="geographyLabel"
+              >Géographie</span
             >
             <div
-              id="chipsContinents"
+              id="chipsGeography"
               class="chips"
               role="group"
-              aria-labelledby="continentsLabel"
+              aria-labelledby="geographyLabel"
             ></div>
           </div>
 
@@ -898,7 +933,7 @@
       const chipsListes = document.getElementById("chipsListes");
       const chipsDecades = document.getElementById("chipsDecades");
       const chipsGenres = document.getElementById("chipsGenres");
-      const chipsContinents = document.getElementById("chipsContinents");
+      const chipsGeography = document.getElementById("chipsGeography");
       const chipsContentType = document.getElementById("chipsContentType");
       const categorySearch = document.getElementById("categorySearch");
       const countCapNote = document.getElementById("countCapNote");
@@ -915,6 +950,7 @@
       const answersEl = document.getElementById("answers");
       const statsLine = document.getElementById("statsLine");
       const appVersion = document.getElementById("appVersion");
+      const serverStatusLed = document.getElementById("serverStatusLed");
 
       // état de la session en cours
       let activeContentTypes = new Set(["movie"]); // sous-ensemble de {'movie','tv','person'}
@@ -973,6 +1009,11 @@
           const res = await fetch("/api/stats");
           const data = await res.json();
           if (data.version) appVersion.textContent = `v${data.version}`;
+          serverStatusLed.className =
+            "status-led " + (data.ready ? "led-green" : "led-red");
+          serverStatusLed.title = data.ready
+            ? "Serveur prêt : réservoir et caches à jour"
+            : "Serveur en préparation : réservoir ou caches encore en cours de chauffe";
           let text = `Quiz générés au total : ${data.totalGenerated}`;
           if (data.topCategories && data.topCategories.length) {
             text +=
@@ -982,8 +1023,12 @@
                 .join(", ");
           }
           statsLine.textContent = text;
+          // tant que ce n'est pas prêt, on revérifie régulièrement pour que
+          // la LED passe au vert toute seule sans que l'utilisateur recharge
+          if (!data.ready) setTimeout(refreshStats, 20000);
         } catch {
           statsLine.textContent = "Quiz générés au total : —";
+          serverStatusLed.className = "status-led led-red";
         }
       }
 
@@ -1212,7 +1257,7 @@
           liste: chipsListes,
           decade: chipsDecades,
           genre: chipsGenres,
-          continent: chipsContinents,
+          geography: chipsGeography,
         };
         for (const container of Object.values(groups)) {
           container.innerHTML = "";
@@ -1247,11 +1292,11 @@
 
         // masque entièrement une section (label compris) dès qu'elle n'a
         // aucune puce à montrer — que ce soit parce que ce groupe n'existe
-        // pas pour le(s) type(s) actif(s) (ex: "Continents" pour les films)
+        // pas pour le(s) type(s) actif(s) (ex: "Géographie" pour les films)
         // ou parce que la recherche n'y trouve rien
         for (const container of Object.values(groups)) {
-          container.closest(".chip-group").style.display = container
-            .children.length
+          container.closest(".chip-group").style.display = container.children
+            .length
             ? ""
             : "none";
         }
@@ -1427,7 +1472,9 @@
             ) {
               for (
                 let f = 0;
-                f < fadeFrames && loopEnd - f - 1 >= 0 && loopEnd + f < targetFrames;
+                f < fadeFrames &&
+                loopEnd - f - 1 >= 0 &&
+                loopEnd + f < targetFrames;
                 f++
               ) {
                 const g = f / fadeFrames;
@@ -1443,7 +1490,11 @@
       // baisse le volume de la piste "devinette" (pour ne pas couvrir la
       // réflexion) et ajoute un fondu de sortie sur les 2 dernières secondes
       // plutôt qu'une coupure nette avant la réponse
-      function applyGuessingVolumeAndFadeOut(buffer, volume = 0.2, fadeOutSec = 2) {
+      function applyGuessingVolumeAndFadeOut(
+        buffer,
+        volume = 0.2,
+        fadeOutSec = 2,
+      ) {
         if (!buffer) return null;
         const sr = buffer.sampleRate;
         const totalFrames = buffer.length;
@@ -1717,7 +1768,8 @@
         const textW = ctx.measureText(text).width;
         const w = textW + paddingX * 2;
         const h = paddingY * 2 + 22;
-        const bx = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
+        const bx =
+          align === "right" ? x - w : align === "center" ? x - w / 2 : x;
         const by = y - h / 2;
         roundedRectPath(bx, by, w, h, h / 2);
         ctx.fillStyle = bg;
@@ -1773,7 +1825,12 @@
           canvas.height - inset * 2,
           24,
         );
-        const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        const grad = ctx.createLinearGradient(
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
         grad.addColorStop(0, "rgba(79,209,232,0.4)");
         grad.addColorStop(0.5, "rgba(157,92,230,0.4)");
         grad.addColorStop(1, "rgba(232,163,61,0.4)");
@@ -1998,6 +2055,95 @@
           );
           ctx.restore();
         }
+
+        drawSplashCategoryChips(elapsedMs);
+      }
+
+      // pilules des catégories sélectionnées, façon chips de l'écran de
+      // config — apparaissent juste après le sous-titre, réparties sur une
+      // ou deux lignes centrées ; au-delà de MAX_SPLASH_CHIPS, le reste est
+      // condensé en une pilule "+N"
+      function drawSplashCategoryChips(elapsedMs) {
+        const labels = availableCategories
+          .filter((c) => selectedCategories.has(c.key))
+          .map((c) => c.label);
+        if (labels.length === 0) return;
+
+        const appearT = Math.max(0, Math.min(1, (elapsedMs - 1100) / 500));
+        if (appearT <= 0) return;
+
+        const MAX_SPLASH_CHIPS = 8;
+        const shown = labels.slice(0, MAX_SPLASH_CHIPS);
+        const extra = labels.length - shown.length;
+
+        const font = "700 20px ui-monospace, Menlo, monospace";
+        const paddingX = 16,
+          gapX = 10,
+          gapY = 10,
+          h = 36;
+        ctx.font = font;
+        const chips = shown.map((text) => ({
+          text,
+          w: ctx.measureText(text).width + paddingX * 2,
+          extra: false,
+        }));
+        if (extra > 0) {
+          const text = `+${extra}`;
+          chips.push({
+            text,
+            w: ctx.measureText(text).width + paddingX * 2,
+            extra: true,
+          });
+        }
+
+        // répartit les pilules sur des lignes qui ne dépassent pas la
+        // largeur dispo, centrées horizontalement
+        const maxRowWidth = canvas.width - 160;
+        const rows = [];
+        let row = [],
+          rowW = 0;
+        for (const chip of chips) {
+          const addW = chip.w + (row.length ? gapX : 0);
+          if (row.length && rowW + addW > maxRowWidth) {
+            rows.push(row);
+            row = [];
+            rowW = 0;
+          }
+          row.push(chip);
+          rowW += chip.w + (row.length > 1 ? gapX : 0);
+        }
+        if (row.length) rows.push(row);
+
+        const startY = canvas.height * 0.85 + (1 - appearT) * 12;
+        ctx.save();
+        ctx.globalAlpha = appearT;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        rows.forEach((r, ri) => {
+          const rowWidth = r.reduce(
+            (s, c, i) => s + c.w + (i > 0 ? gapX : 0),
+            0,
+          );
+          let x = canvas.width / 2 - rowWidth / 2;
+          const y = startY + ri * (h + gapY);
+          for (const chip of r) {
+            roundedRectPath(x, y - h / 2, chip.w, h, h / 2);
+            ctx.fillStyle = chip.extra
+              ? "rgba(157,92,230,0.2)"
+              : "rgba(79,209,232,0.14)";
+            ctx.fill();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = chip.extra
+              ? "rgba(157,92,230,0.6)"
+              : "rgba(79,209,232,0.55)";
+            ctx.stroke();
+            ctx.font = font;
+            ctx.fillStyle = "#ede8de";
+            ctx.fillText(chip.text, x + chip.w / 2, y + 1);
+            x += chip.w + gapX;
+          }
+        });
+        ctx.restore();
       }
       // dessine un poster/pochette avec coins arrondis + ombre portée
       // correcte (l'ombre est dessinée séparément, avant le clip, sinon le
@@ -2096,7 +2242,11 @@
         drawGameProgress(itemElapsed / seg.itemGuessDur, mainW);
         if (hasSideStrip) drawSideThumbnails(m, imgIdx, mainW, colW);
 
-        drawBadge(`N° ${itemIdx + 1} / ${items.length}`, 50, canvas.height - 58);
+        drawBadge(
+          `N° ${itemIdx + 1} / ${items.length}`,
+          50,
+          canvas.height - 58,
+        );
         drawFrameBorder();
       }
       function drawReveal(m, itemIdx, withinMs) {
@@ -2138,20 +2288,17 @@
         ctx.fillText(m.title, canvas.width / 2, canvas.height - 55);
         ctx.restore();
 
-        drawBadge(`N° ${itemIdx + 1} / ${items.length}`, 50, canvas.height - 58);
+        drawBadge(
+          `N° ${itemIdx + 1} / ${items.length}`,
+          50,
+          canvas.height - 58,
+        );
         drawFrameBorder();
       }
       function drawMusicGuess(seg, withinMs) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawGameBackdrop();
         drawGameParticles(withinMs);
-
-        ctx.save();
-        ctx.font = "700 40px ui-monospace, Menlo, monospace";
-        ctx.fillStyle = "#ede8de";
-        ctx.textAlign = "center";
-        ctx.fillText("♪ EN ÉCOUTE…", canvas.width / 2, canvas.height / 2 - 130);
-        ctx.restore();
 
         drawEqualizer(canvas.width / 2, canvas.height / 2 + 20, withinMs);
 
@@ -2206,7 +2353,11 @@
         ctx.fillText(m.track, canvas.width / 2, canvas.height - 55);
         ctx.restore();
 
-        drawBadge(`N° ${itemIdx + 1} / ${items.length}`, 50, canvas.height - 58);
+        drawBadge(
+          `N° ${itemIdx + 1} / ${items.length}`,
+          50,
+          canvas.height - 58,
+        );
         drawFrameBorder();
       }
 
@@ -2333,11 +2484,17 @@
             drawSegment(seg, elapsedMs - seg.start);
           }
 
-          await videoSource.add(i * encodeFrameDurationSec, encodeFrameDurationSec);
+          await videoSource.add(
+            i * encodeFrameDurationSec,
+            encodeFrameDurationSec,
+          );
 
           if (i % 90 === 0) {
             setProgress((i / totalEncodeFrames) * 100);
-            setStatus(`Rendu en cours : image ${i}/${totalEncodeFrames}…`, "rec");
+            setStatus(
+              `Rendu en cours : image ${i}/${totalEncodeFrames}…`,
+              "rec",
+            );
             await new Promise((r) => setTimeout(r, 0)); // laisse respirer l'UI/event loop
           }
         }
