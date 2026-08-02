@@ -949,6 +949,7 @@ async function fetchMovieEntities() {
     title: m.title,
     posterPath: m.poster_path,
     overview: m.overview,
+    releaseDate: m.release_date,
   }));
   db.upsertMovies(rows);
   db.replaceTypeItems(
@@ -975,6 +976,7 @@ async function refreshMovieLists() {
     title: m.title,
     posterPath: m.poster_path,
     overview: m.overview,
+    releaseDate: m.release_date,
   }));
   db.upsertMovies(rows);
   storeFilterGroup("movie", "liste", STATIC_LISTS, items, filterTagsByItemId);
@@ -1080,11 +1082,21 @@ async function fetchIgdbListPool(sources, fields, toRow) {
   return { items: [...seen.values()], filterTagsByItemId };
 }
 
+// IGDB renvoie first_release_date en timestamp unix (secondes) — converti
+// ici en "YYYY-MM-DD" pour rester dans le même format que movie.release_date
+// et music_track.release_date (voir getGamesByReleaseMonthDay, quiz du jour).
+function igdbDateToISO(unixSeconds) {
+  if (!unixSeconds) return null;
+  return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
+}
+
 function gameRow(g) {
   return {
     id: g.id,
     title: g.name,
     coverImageId: g.cover.image_id,
+    summary: g.summary || null,
+    releaseDate: igdbDateToISO(g.first_release_date),
     genreIds: (g.genres || []).map((x) => x.id),
   };
 }
@@ -1098,7 +1110,7 @@ async function fetchGameEntities() {
   ];
   const { items: rows, filterTagsByItemId } = await fetchIgdbListPool(
     sources,
-    "name,cover.image_id,screenshots.image_id,genres.id",
+    "name,cover.image_id,screenshots.image_id,genres.id,summary,first_release_date",
     gameRow,
   );
   db.upsertGames(rows);
@@ -1132,7 +1144,7 @@ async function fetchGameEntities() {
 async function refreshGameLists() {
   const { items: rows, filterTagsByItemId } = await fetchIgdbListPool(
     withFilterCodes(GAME_STATIC_LISTS, "liste"),
-    "name,cover.image_id,screenshots.image_id",
+    "name,cover.image_id,screenshots.image_id,summary,first_release_date",
     gameRow,
   );
   db.upsertGames(rows);
@@ -1667,6 +1679,40 @@ const TYPES = {
               "role",
               personIds.map((id) => ({ entityId: id, codes: ["director"] })),
             );
+            // pool dédié au quiz "réalisateur" (deviner le nom à partir des
+            // affiches de ses films, voir server.js/materializeDirectorRow)
+            // — même personnes que ci-dessus mais sous un type distinct
+            // (type_item "director"), sinon un même id TMDb entrerait en
+            // collision entre les deux quiz s'ils étaient sélectionnés
+            // ensemble (voir server.js/DIRECTOR_ID_OFFSET).
+            db.addTypeItems("director", personIds);
+            // filtres "réalisateur" = tags déjà connus DE CE FILM (genre,
+            // décennie, geographie — pas "liste", propre au film et sans
+            // sens pour son réalisateur), recopiés tels quels sur son/ses
+            // réalisateur(s) : additif, un réalisateur accumule ainsi au
+            // fil de ses films tous les genres/décennies/pays où il a
+            // travaillé (voir getEntityFilterEntries).
+            const propagatedGroups = ["genre", "decennie", "geographie"];
+            const movieTags = db
+              .getEntityFilterEntries("movie", movie.id)
+              .filter((t) => propagatedGroups.includes(t.filterGroup));
+            const tagsByGroup = {};
+            for (const t of movieTags) (tagsByGroup[t.filterGroup] ??= []).push(t);
+            for (const [group, tags] of Object.entries(tagsByGroup)) {
+              db.upsertFilters(
+                "director",
+                group,
+                tags.map((t) => ({ code: t.code, name: t.name })),
+              );
+              db.addEntityFilters(
+                "director",
+                group,
+                personIds.map((id) => ({
+                  entityId: id,
+                  codes: tags.map((t) => t.code),
+                })),
+              );
+            }
           }
         },
       },
@@ -1709,6 +1755,49 @@ const TYPES = {
             db.TTL_MS.mediaImage,
           ),
         fetchAndStore: fetchAndStorePersonImages,
+      },
+      {
+        // birthday/place_of_birth (quiz du jour "anniversaire", voir
+        // server.js/dailyPersonAnniversaryBucket) — même garde source=tmdb
+        // que "Acteurs (images)" ci-dessus : un peintre (source wikidata) n'a
+        // pas d'external_id TMDb interrogeable ici.
+        name: "Acteurs (anniversaire)",
+        collectTargets: () => db.getPersonPool(),
+        needsRefresh: (person) =>
+          person.source === "tmdb" && db.personNeedsBirthday(person),
+        fetchAndStore: async (person) => {
+          const data = await tmdbJSON(
+            `https://api.themoviedb.org/3/person/${person.external_id}?api_key=${TMDB_KEY}&language=fr-FR`,
+          );
+          db.setPersonBirthday(person.id, data.birthday, data.place_of_birth);
+        },
+      },
+      {
+        // le pool "movie" est une sélection curated (popularité/genre/
+        // décennie/pays), pas la filmographie complète d'un réalisateur —
+        // sans ce warmLoop, la plupart des réalisateurs n'auraient qu'1
+        // seul film (celui qui a atterri dans le pool curated) pour le
+        // quiz "deviner le réalisateur à partir de sa filmographie" (voir
+        // server.js/getDirectorMoviePosters). On complète ici via les
+        // crédits DE LA PERSONNE (TMDb person/movie_credits), à l'inverse
+        // de "Films (réalisateurs)" ci-dessus qui part des crédits DU FILM.
+        name: "Réalisateurs (filmographie complète)",
+        collectTargets: () => db.getDirectorPool(),
+        needsRefresh: (person) => db.personNeedsFilmography(person),
+        fetchAndStore: async (person) => {
+          const data = await tmdbJSON(
+            `https://api.themoviedb.org/3/person/${person.external_id}/movie_credits?api_key=${TMDB_KEY}&language=fr-FR`,
+          );
+          const directed = (data.crew || [])
+            .filter((c) => c.job === "Director" && c.poster_path)
+            .map((m) => ({
+              id: m.id,
+              title: m.title,
+              posterPath: m.poster_path,
+              overview: m.overview,
+            }));
+          db.addDirectorFilmography(person.id, directed);
+        },
       },
     ],
   },
@@ -1936,6 +2025,8 @@ async function refreshAllLists({ isStartup = false } = {}) {
   });
 }
 
+db.syncDirectorPoolFromMovieDirector();
+db.syncDirectorFiltersFromMovies();
 refreshTypes();
 refreshAllLists({ isStartup: true });
 // recheck bien plus fréquent que TTL_MS.typePool (~1 mois, hors de portée

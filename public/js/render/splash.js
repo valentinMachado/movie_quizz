@@ -14,6 +14,7 @@ function contentTypeLabel() {
       game: "JEUX",
       country: "PAYS",
       painter: "PEINTRES",
+      director: "RÉALISATEURS",
       flag: "DRAPEAUX",
     };
     return labels[[...types][0]] || "TITRES";
@@ -213,8 +214,19 @@ function drawChipRow(
 // libellés que la rangée "Type" de l'écran de config (voir
 // renderContentTypeChips) — rappelle sur le splash ce qui a été
 // choisi pour générer ce quiz
+// dérivé de state.items (le quiz réellement généré), pas de
+// state.activeQuestionTypes (les cases cochées côté UI manuelle) : pour le
+// quiz du jour, ces cases n'ont jamais été touchées et gardent leur dernière
+// valeur (voire leur défaut) sans rapport avec le contenu réel du quiz —
+// afficher state.items évite cet écart, y compris pour le quiz manuel si un
+// filtre vide fait retomber sur un autre bucket que celui coché.
 function splashTypeLabels() {
-  return [...state.activeQuestionTypes].map((combo) => {
+  const combos = new Set(
+    state.items.map(
+      (m) => `${m.type}:${m.questionType || (m.type === "music" ? "audio" : "image")}`,
+    ),
+  );
+  return [...combos].map((combo) => {
     const [type, qt] = combo.split(":");
     const baseLabel = TYPE_BASE_LABELS[type] || type;
     const info = questionTypeInfo(type, qt);

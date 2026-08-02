@@ -50,10 +50,7 @@ export function buildTimeline(
       t += revealMs;
       return;
     }
-    if (
-      (m.type === "movie" || m.type === "tv") &&
-      m.questionType === "synopsis"
-    ) {
+    if (m.questionType === "synopsis") {
       tl.push({
         type: "synopsis-guess",
         itemIdx: i,

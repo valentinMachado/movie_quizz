@@ -31,6 +31,28 @@ function questionTypeLabel(m) {
   return `${baseLabel} ${info.icon || ""} ${info.label || qt}`.trim();
 }
 
+// gâteau au-dessus du badge "reason" (voir drawReveal/drawMusicReveal/
+// drawFlagReveal), uniquement pour les items anniversaire du quiz du jour
+// (m.isAnniversary, voir server.js) — pas pour un item "tendance". Aligné à
+// droite sur `rightX` (même repère que le badge, voir drawBadge align:
+// "right") et posé juste au-dessus, `badgeCenterY` étant le centre vertical
+// du badge (même hauteur ~44*RS que drawBadge par défaut, voir chrome.js).
+function drawAnniversaryCake(rightX, badgeCenterY) {
+  if (!state.cakeImg) return;
+  const h = 120 * RS;
+  const ir = state.cakeImg.width / state.cakeImg.height;
+  const w = h * ir;
+  const gap = 14 * RS;
+  const badgeHalfH = 22 * RS;
+  const y = badgeCenterY - badgeHalfH - gap - h;
+  const x = rightX - w;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = 10 * RS;
+  ctx.drawImage(state.cakeImg, x, y, w, h);
+  ctx.restore();
+}
+
 function drawGuess(m, seg, withinMs) {
   const itemIdx = seg.itemIdx,
     imgIdx = seg.imgIdx;
@@ -66,6 +88,48 @@ function drawGuess(m, seg, withinMs) {
   g.addColorStop(1, "rgba(10,10,16,0.88)");
   ctx.fillStyle = g;
   ctx.fillRect(imgX, imgY + imgH * 0.62, imgW, imgH * 0.38);
+
+  // titre du film affiché en surimpression (quiz "réalisateur" uniquement,
+  // voir server.js/selectItemsWithBackdrops) : un poster n'écrit pas
+  // toujours son titre de façon lisible, contrairement aux autres types où
+  // aucune légende par image n'est nécessaire.
+  const imageTitle = m.imageTitles && m.imageTitles[imgIdx];
+  if (imageTitle) {
+    ctx.save();
+    ctx.font = gameFont(700, 26);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const lineHeight = 34 * RS;
+    // la plupart des affiches de film sont en portrait (voir drawContain :
+    // dw < imgW dans ce cas, poster centré) — ça laisse une bande vide en
+    // haut à gauche, sous la barre de progression (drawGameProgress,
+    // y≈46*RS), plutôt que de chevaucher les badges du bas.
+    const lines = wrapText(imageTitle, imgW * 0.32).slice(0, 3);
+
+    const padX = 20 * RS;
+    const padY = 12 * RS;
+    const boxX = imgX + 24 * RS;
+    const boxY = imgY + 80 * RS;
+    const maxLineW = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const boxW = maxLineW + padX * 2;
+    const boxH = lines.length * lineHeight + padY * 2;
+
+    // fond plein systématique derrière le titre : la bande blurrée de
+    // drawContain ne suffit pas toujours à garantir la lisibilité (zones
+    // claires ou texturées) — un bandeau opaque reste lisible quelle que
+    // soit l'image dessous.
+    roundedRectPath(boxX, boxY, boxW, boxH, 14 * RS);
+    ctx.fillStyle = "rgba(10,8,16,0.78)";
+    ctx.fill();
+
+    ctx.fillStyle = "#ede8de";
+    const textX = boxX + padX;
+    const firstCenterY = boxY + padY + lineHeight / 2;
+    lines.forEach((line, i) => {
+      ctx.fillText(line, textX, firstCenterY + i * lineHeight);
+    });
+    ctx.restore();
+  }
   ctx.restore();
 
   ctx.save();
@@ -148,6 +212,17 @@ function drawReveal(m, itemIdx, withinMs) {
     50 * RS,
     canvas.height - 58 * RS,
   );
+  // "reason" (quiz du jour uniquement, voir server.js) : pourquoi cette
+  // entité est dans le quiz — même coin que questionTypeLabel côté
+  // devinette (drawGuess), libre ici puisque l'écran réponse ne l'affiche
+  // pas.
+  if (m.reason) {
+    drawBadge(m.reason, canvas.width - 50 * RS, canvas.height - 58 * RS, {
+      align: "right",
+    });
+    if (m.isAnniversary)
+      drawAnniversaryCake(canvas.width - 50 * RS, canvas.height - 58 * RS);
+  }
   drawFrameBorder();
 }
 
@@ -220,6 +295,13 @@ function drawMusicReveal(m, itemIdx, withinMs) {
     50 * RS,
     canvas.height - 58 * RS,
   );
+  if (m.reason) {
+    drawBadge(m.reason, canvas.width - 50 * RS, canvas.height - 58 * RS, {
+      align: "right",
+    });
+    if (m.isAnniversary)
+      drawAnniversaryCake(canvas.width - 50 * RS, canvas.height - 58 * RS);
+  }
   drawFrameBorder();
 }
 
@@ -298,10 +380,17 @@ function drawFlagReveal(m, itemIdx, withinMs) {
     50 * RS,
     canvas.height - 58 * RS,
   );
+  if (m.reason) {
+    drawBadge(m.reason, canvas.width - 50 * RS, canvas.height - 58 * RS, {
+      align: "right",
+    });
+    if (m.isAnniversary)
+      drawAnniversaryCake(canvas.width - 50 * RS, canvas.height - 58 * RS);
+  }
   drawFrameBorder();
 }
 
-// écran de devinette du mode "synopsis" (movie/tv) : le texte du
+// écran de devinette du mode "synopsis" (movie/tv/game) : le texte du
 // résumé remplace l'image, seul l'écran réponse (générique, voir
 // buildTimeline) affiche poster + titre comme le mode "image"
 function drawSynopsisGuess(m, seg, withinMs) {

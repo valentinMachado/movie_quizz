@@ -3,6 +3,7 @@ import { state } from "./state.js";
 import {
   answersEl,
   btnGenerate,
+  btnGenerateDaily,
   btnToggleAnswers,
   filterSearch,
   countNumber,
@@ -54,8 +55,24 @@ import {
   supportsFastEncode,
 } from "./video/encode.js";
 
-async function generateQuiz() {
+// quiz du jour : paramètres de rythme figés, volontairement indépendants
+// des sliders de réglage manuel — sinon la vidéo générée dépendrait de
+// réglages qu'un visiteur a pu laisser dans n'importe quel état, et
+// changerait de rythme sans rapport avec le contenu du jour. Mêmes valeurs
+// que les défauts HTML du mode manuel (voir index.html) pour un rendu
+// cohérent avec un mode manuel qu'on n'aurait pas retouché.
+const DAILY_QUIZ_PARAMS = {
+  imagesPerItem: 2,
+  imageSec: 4,
+  revealSec: 4,
+  musicClipSec: 10,
+  flagSec: 4,
+  synopsisSec: 20,
+};
+
+async function generateQuiz(daily = false) {
   btnGenerate.disabled = true;
+  btnGenerateDaily.disabled = true;
   resultRow.classList.remove("show");
   answersEl.classList.remove("show");
   state.answersRevealed = false;
@@ -70,25 +87,50 @@ async function generateQuiz() {
         console.warn("Logo indisponible pour le splash :", e.message);
         return null;
       });
+  const cakeImgPromise = state.cakeImg
+    ? Promise.resolve(state.cakeImg)
+    : loadImage("/cake.png").catch((e) => {
+        console.warn("Gâteau indisponible pour le quiz du jour :", e.message);
+        return null;
+      });
 
   try {
-    const count = Math.min(50, Math.max(1, currentCount()));
-    const imagesPerItem = Math.min(
-      5,
-      Math.max(1, currentImagesPerItem()),
-    );
-    const selections = buildSelections();
-    const exclude = getSeenIds();
+    const imagesPerItem = daily
+      ? DAILY_QUIZ_PARAMS.imagesPerItem
+      : Math.min(5, Math.max(1, currentImagesPerItem()));
+    const imageSec = daily ? DAILY_QUIZ_PARAMS.imageSec : currentImageSec();
+    const revealSec = daily ? DAILY_QUIZ_PARAMS.revealSec : currentRevealSec();
+    const musicClipSec = daily
+      ? DAILY_QUIZ_PARAMS.musicClipSec
+      : currentMusicClipSec();
+    const flagSec = daily ? DAILY_QUIZ_PARAMS.flagSec : currentFlagSec();
+    const synopsisSec = daily
+      ? DAILY_QUIZ_PARAMS.synopsisSec
+      : currentSynopsisSec();
 
-    setStatus(
-      `Récupération d’un lot de ${count} titres (${imagesPerItem} images chacun)…`,
-    );
-    setStagePlaceholder("Récupération de la liste des titres…");
-    const res = await fetch("/api/quiz-batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ selections, count, imagesPerItem, exclude }),
-    });
+    let res;
+    if (daily) {
+      setStatus(`Récupération du quiz du jour (${imagesPerItem} images chacun)…`);
+      setStagePlaceholder("Récupération de la liste des titres…");
+      res = await fetch("/api/quiz-daily", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagesPerItem }),
+      });
+    } else {
+      const count = Math.min(50, Math.max(1, currentCount()));
+      const selections = buildSelections();
+      const exclude = getSeenIds();
+      setStatus(
+        `Récupération d’un lot de ${count} titres (${imagesPerItem} images chacun)…`,
+      );
+      setStagePlaceholder("Récupération de la liste des titres…");
+      res = await fetch("/api/quiz-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selections, count, imagesPerItem, exclude }),
+      });
+    }
     if (!res.ok)
       throw new Error((await res.json()).error || res.statusText);
     const data = await res.json();
@@ -106,8 +148,8 @@ async function generateQuiz() {
     }
 
     setStagePlaceholder("Préchargement des images et extraits audio…");
-    state.items = await preloadAll(data.items);
-    addSeenIds(data.items.map((m) => m.id));
+    state.items = await preloadAll(data.items, { musicClipSec, revealSec });
+    if (!daily) addSeenIds(data.items.map((m) => m.id));
     const failedCount = data.items.length - state.items.length;
     if (failedCount > 0) {
       setStatus(
@@ -137,11 +179,10 @@ async function generateQuiz() {
         if (m.type === "music") continue;
         const guessDurSec =
           m.type === "country" && m.questionType === "flag"
-            ? currentFlagSec()
-            : (m.type === "movie" || m.type === "tv") &&
-                m.questionType === "synopsis"
-              ? currentSynopsisSec()
-              : m.backdropImgs.length * currentImageSec();
+            ? flagSec
+            : m.questionType === "synopsis"
+              ? synopsisSec
+              : m.backdropImgs.length * imageSec;
         m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
           loopBufferToDuration(guessingSrc, guessDurSec),
         );
@@ -151,14 +192,15 @@ async function generateQuiz() {
     }
 
     state.logoImg = await logoImgPromise;
+    state.cakeImg = await cakeImgPromise;
 
     const built = buildTimeline(
-      currentImageSec() * 1000,
-      currentRevealSec() * 1000,
+      imageSec * 1000,
+      revealSec * 1000,
       CFG.splashMs,
-      currentMusicClipSec() * 1000,
-      currentFlagSec() * 1000,
-      currentSynopsisSec() * 1000,
+      musicClipSec * 1000,
+      flagSec * 1000,
+      synopsisSec * 1000,
     );
     state.timeline = built.timeline;
     state.totalDurationMs = built.total;
@@ -212,6 +254,7 @@ async function generateQuiz() {
     setStagePlaceholder("Erreur pendant la génération.");
   } finally {
     btnGenerate.disabled = false;
+    btnGenerateDaily.disabled = false;
   }
 }
 
@@ -296,7 +339,8 @@ filterSearch.addEventListener("input", () => {
   renderChips();
 });
 
-btnGenerate.addEventListener("click", generateQuiz);
+btnGenerate.addEventListener("click", () => generateQuiz(false));
+btnGenerateDaily.addEventListener("click", () => generateQuiz(true));
 btnToggleAnswers.addEventListener("click", () => {
   state.answersRevealed = !state.answersRevealed;
   if (state.answersRevealed) {

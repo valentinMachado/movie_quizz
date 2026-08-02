@@ -44,6 +44,7 @@ export const state = {
   answersRevealed: false,
   splashAudioBuffer: null,
   logoImg: null, // logo préchargé une fois, dessiné de façon synchrone par drawSplash
+  cakeImg: null, // idem pour le gâteau (quiz du jour, item anniversaire — voir drawReveal)
   renderFps: 12,
 };
 

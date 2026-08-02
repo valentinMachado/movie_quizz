@@ -86,7 +86,7 @@ export function makeChip(innerHTML, active, onActivate, extraClass) {
 }
 
 // affiche/masque les réglages qui ne s'appliquent pas aux combinaisons
-// actives. "music:audio", "country:flag" et "movie|tv:synopsis" ont
+// actives. "music:audio", "country:flag" et tout "*:synopsis" ont
 // chacun leur propre durée dédiée (pas images/titre ni temps/image) —
 // nommés explicitement ici : cette durée dédiée est une spécificité de
 // ces modes, pas quelque chose de générique à tout questionType (voir
@@ -94,15 +94,11 @@ export function makeChip(innerHTML, active, onActivate, extraClass) {
 export function updateSettingsVisibility() {
   const hasMusic = state.activeQuestionTypes.has("music:audio");
   const hasFlag = state.activeQuestionTypes.has("country:flag");
-  const hasSynopsis =
-    state.activeQuestionTypes.has("movie:synopsis") ||
-    state.activeQuestionTypes.has("tv:synopsis");
+  const hasSynopsis = [...state.activeQuestionTypes].some((k) =>
+    k.endsWith(":synopsis"),
+  );
   const hasStandard = [...state.activeQuestionTypes].some(
-    (k) =>
-      k !== "music:audio" &&
-      k !== "country:flag" &&
-      k !== "movie:synopsis" &&
-      k !== "tv:synopsis",
+    (k) => k !== "music:audio" && k !== "country:flag" && !k.endsWith(":synopsis"),
   );
   groupAudioParams.style.display = hasMusic ? "" : "none";
   groupFlagParams.style.display = hasFlag ? "" : "none";

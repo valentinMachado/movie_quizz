@@ -16,14 +16,29 @@ export function getAudioCtx() {
 // durée réglée par l'utilisateur)
 // découpe un passage aléatoire : `clipSec` d'écoute + `fadeSec` de fondu
 // supplémentaire qui continuera de jouer (en s'atténuant) pendant l'écran
-// réponse, plutôt qu'une coupure nette
-export function trimAudioBufferWithFade(ctx, buffer, clipSec, fadeSec) {
+// réponse, plutôt qu'une coupure nette. `fadeSec` fixe la durée TOTALE du
+// buffer (clipSec + fadeSec) — encode.js s'appuie sur cette durée exacte
+// pour couvrir à la fois le segment "music-guess" et "music-reveal" sans
+// ajouter de piste séparée pour ce dernier (voir son commentaire "couvre
+// déjà écoute + fondu") : la raccourcir désynchroniserait tout le reste de
+// la piste audio après ce point. `rampSec` (<= fadeSec, défaut = fadeSec)
+// ne fait que déplacer où le volume atteint réellement 0 À L'INTÉRIEUR de
+// ce fadeSec — le reste jusqu'à la fin du buffer reste du silence, sans
+// changer la durée totale.
+export function trimAudioBufferWithFade(
+  ctx,
+  buffer,
+  clipSec,
+  fadeSec,
+  rampSec = fadeSec,
+) {
   const sr = buffer.sampleRate;
   const totalFrames = buffer.length;
   const targetFrames = Math.round((clipSec + fadeSec) * sr);
   const clipFrames = Math.min(totalFrames, targetFrames);
   const fadeFrames = Math.min(clipFrames, Math.round(fadeSec * sr));
   const fadeStart = clipFrames - fadeFrames;
+  const rampFrames = Math.min(fadeFrames, Math.round(rampSec * sr));
   const maxStart = Math.max(0, totalFrames - clipFrames);
   const startFrame = Math.floor(Math.random() * (maxStart + 1));
 
@@ -42,19 +57,19 @@ export function trimAudioBufferWithFade(ctx, buffer, clipSec, fadeSec) {
     const dst = trimmed.getChannelData(ch);
     dst.set(srcData);
     for (let f = 0; f < fadeFrames; f++) {
-      dst[fadeStart + f] *= 1 - f / fadeFrames;
+      dst[fadeStart + f] *= f < rampFrames ? 1 - f / rampFrames : 0;
     }
   }
   return trimmed;
 }
 
-export async function loadAndTrimAudio(url, clipSec, fadeSec) {
+export async function loadAndTrimAudio(url, clipSec, fadeSec, rampSec) {
   const ctx = getAudioCtx();
   const res = await fetch(url);
   if (!res.ok) throw new Error("Extrait audio illisible: " + url);
   const arrayBuffer = await res.arrayBuffer();
   const decoded = await ctx.decodeAudioData(arrayBuffer);
-  return trimAudioBufferWithFade(ctx, decoded, clipSec, fadeSec);
+  return trimAudioBufferWithFade(ctx, decoded, clipSec, fadeSec, rampSec);
 }
 
 // silence de la durée voulue, même format que les extraits musicaux —

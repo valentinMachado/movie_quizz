@@ -21,10 +21,11 @@ Tout ce dont le client a besoin pour construire son UI de sélection : par type,
   },
   "tv": { "questionTypes": ["image", "synopsis"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
   "person": { "questionTypes": ["image"], "filters": { "role": [{ "code": "actor", "name": "Acteur" }, { "code": "director", "name": "Réalisateur" }, { "code": "painter", "name": "Peintre" }] } },
-  "game": { "questionTypes": ["image"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
+  "game": { "questionTypes": ["image", "synopsis"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
   "music": { "questionTypes": ["audio"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
   "country": { "questionTypes": ["image", "flag"], "filters": {} },
-  "painter": { "questionTypes": ["image"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } }
+  "painter": { "questionTypes": ["image"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } },
+  "director": { "questionTypes": ["image"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } }
 }
 ```
 
@@ -49,7 +50,7 @@ Taille du pool pour une sélection donnée — sert à afficher "N éléments di
 ## `GET /api/stats`
 
 ```json
-{ "totalGenerated": 1234, "version": "1.1.3", "ready": true }
+{ "totalGenerated": 1234, "version": "1.2.1", "ready": true }
 ```
 `ready` = la base a au moins un pool non vide ET les warmLoops "bloquants" (tableaux de peintre, photos pays si Pexels configuré) sont à jour pour tout ce qui est actuellement dans le pool. `false` typiquement juste après une repopulation, tant que le chauffage progressif tourne encore.
 
@@ -99,11 +100,14 @@ Champs communs à toutes les formes : `id`, `title`, `type`, `questionType`, `po
 | `type:questionType` | champs additionnels |
 |---|---|
 | `movie:image`, `tv:image` | `imageUrls: string[]` ; `director?: string` (movie uniquement, si connu) |
-| `movie:synopsis`, `tv:synopsis` | `overview: string` |
+| `movie:synopsis`, `tv:synopsis`, `game:synopsis` | `overview: string` |
 | `person:image`, `game:image`, `painter:image` | `imageUrls: string[]` |
+| `director:image` | `imageUrls: string[]` (affiches des films réalisés — pas une photo du réalisateur, révélée uniquement à l'écran réponse) ; `imageTitles: (string\|null)[]` (titre du film affiché en incrustation sur chaque image de devinette, même index qu'`imageUrls`) |
 | `country:image` | `imageUrls: string[]` (photos du pays — **pas** le drapeau) |
 | `country:flag` | pas d'`imageUrls` — `posterUrl` **est** l'image à deviner (le drapeau) ; `capital: string` |
 | `music:audio` | pas d'`imageUrls` — `previewUrl: string` (extrait audio) |
+
+Uniquement via `POST /api/quiz-daily` (jamais en `/api/quiz-batch`) : `reason?: string` (pourquoi cette entité est dans le quiz du jour, ex. `"Tendances du jour (Films)"` ou `"Sorti il y a 7 ans"`) et `isAnniversary?: true` (présent seulement si `reason` reflète un anniversaire de sortie/naissance plutôt qu'une liste "actualité" — le client affiche alors une icône dédiée sur l'écran réponse).
 
 ### Ids "à offset"
 
@@ -114,15 +118,46 @@ Champs communs à toutes les formes : `id`, `title`, `type`, `questionType`, `po
 - `movie:synopsis` : `+ 4_000_000_000_000`
 - `tv:synopsis` : `+ 5_000_000_000_000`
 - `person:image` pour une entrée source Wikidata (peintre avec `role:"painter"`, id naturel = QID) : `+ 6_000_000_000_000`
+- `director:image` : `+ 7_000_000_000_000`
+- `game:synopsis` : `+ 8_000_000_000_000`
 - Toutes les autres formes : id naturel tel quel.
 
 Le client n'a jamais besoin de connaître ce détail au-delà de "les ids sont opaques et stables, à traiter comme des clés".
+
+## `POST /api/quiz-daily`
+
+Génère le "quiz du jour" : contrairement à `/api/quiz-batch`, pas de `selections` — le pool candidat est entièrement construit côté serveur, mélangé avec un seed dérivé de la date (mêmes items pour tout le monde jusqu'à minuit), et sa taille n'est **pas** configurable.
+
+```json
+// requête
+{ "imagesPerItem": 3 }
+```
+- `imagesPerItem` : clampé serveur entre 1 et 5 (même borne que `/api/quiz-batch`). Pas de `count` ni de `selections` : ignorés s'ils sont envoyés.
+- 503 si la base n'a encore aucun pool peuplé, ou si aucun contenu n'est disponible pour le jour même (`{"error": "..."}`, message affichable tel quel).
+
+```json
+// réponse
+{
+  "items": [ /* mêmes formes que /api/quiz-batch, plus reason/isAnniversary — voir table ci-dessus */ ],
+  "date": "2026-08-02",
+  "requested": 8,
+  "delivered": 8,
+  "excludedCount": 0,
+  "imagesPerItem": 3,
+  "totalGenerated": 1235
+}
+```
+Composition du pool, en deux parts combinées puis mélangées (seed = `date`) :
+- **Anniversaires** : pour movie/game (`release_date`), music (`release_date`), person (`birthday`), un item par `type:questionType` disponible pour la date du jour (mois/jour, toutes années confondues) — ex. `movie:image` ET `movie:synopsis` séparément s'ils existent tous les deux. `reason` = `"Sorti il y a N ans"` / `"Né(e) il y a N ans"`, `isAnniversary: true`.
+- **Listes du jour** : un item par liste "actualité" à cadence de rafraîchissement courte (`trending_day`/`now_playing` pour movie, `tv_trending_day`/`tv_airing_today` pour tv, `game_recent`, `music_popular_fr`/`music_popular_us`), `questionType` tiré au hasard parmi ceux du type. `reason` = le libellé de la liste (ex. `"Tendances du jour (Films)"`), pas d'`isAnniversary`.
+
+Un jour avec moins de contenu (ex. aucun anniversaire personne) donne simplement un quiz plus court — jamais de repli sur d'autres buckets pour compenser.
 
 ## Groupe de filtre `role` sur `person`
 
 Seul groupe qui n'est pas dérivé d'une source externe (genre TMDb, décennie, etc.) — inventé pour ce projet. Codes actuels : `actor`, `director`, `painter`. **Multi-valué** : une même personne peut avoir plusieurs codes (ex. un acteur qui est aussi réalisateur) — les filtres suivent la règle OR intra-groupe habituelle (`role: ["actor","director"]` = acteur OU réalisateur, pas les deux à la fois).
 
-Un peintre peut apparaître dans le quiz de deux façons indépendantes : `type:"painter"` (deviner à partir d'un tableau) et `type:"person", filters:{role:["painter"]}` (deviner à partir de son portrait, comme un acteur) — même personne, deux ids différents (voir offsets ci-dessus), pool d'images différent.
+Un peintre peut apparaître dans le quiz de deux façons indépendantes : `type:"painter"` (deviner à partir d'un tableau) et `type:"person", filters:{role:["painter"]}` (deviner à partir de son portrait, comme un acteur) — même personne, deux ids différents (voir offsets ci-dessus), pool d'images différent. Un réalisateur, pareil : `type:"person", filters:{role:["director"]}` (deviner à partir de sa photo) et `type:"director"` (deviner à partir des affiches des films qu'il a réalisés, voir table des formes ci-dessus) — même personne, deux ids différents.
 
 ## Pas encore fait
 

@@ -69,7 +69,7 @@ export function totalDurationSec() {
       ? "music"
       : comboKey === "country:flag"
         ? "flag"
-        : comboKey === "movie:synopsis" || comboKey === "tv:synopsis"
+        : comboKey.endsWith(":synopsis")
           ? "synopsis"
           : "standard";
   const activeBuckets = [

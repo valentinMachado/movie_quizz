@@ -40,6 +40,7 @@ export const groupSynopsisParams = document.getElementById(
 );
 export const durationHint = document.getElementById("durationHint");
 export const btnGenerate = document.getElementById("btnGenerate");
+export const btnGenerateDaily = document.getElementById("btnGenerateDaily");
 export const btnToggleAnswers = document.getElementById("btnToggleAnswers");
 export const statusEl = document.getElementById("status");
 export const progressBar = document.getElementById("progressBar");

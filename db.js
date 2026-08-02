@@ -22,6 +22,7 @@ export const TTL_MS = {
   countryPhoto: ONE_MONTH_MS,
   personBirthday: ONE_MONTH_MS, // couvre aussi place_of_birth (même appel TMDb)
   movieDirector: ONE_MONTH_MS,
+  directorFilmography: ONE_MONTH_MS,
 };
 
 let db;
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS person (
   place_of_birth TEXT,
   birthday_checked_at INTEGER,
   paintings_checked_at INTEGER,
+  filmography_checked_at INTEGER,
   updated_at INTEGER NOT NULL,
   UNIQUE(source, external_id)
 );
@@ -47,6 +49,7 @@ CREATE TABLE IF NOT EXISTS movie (
   title TEXT NOT NULL,
   poster_path TEXT,
   overview TEXT,
+  release_date TEXT,
   updated_at INTEGER NOT NULL,
   directors_checked_at INTEGER
 );
@@ -63,6 +66,8 @@ CREATE TABLE IF NOT EXISTS game (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL,
   cover_image_id TEXT,
+  summary TEXT,
+  release_date TEXT,
   updated_at INTEGER NOT NULL
 );
 
@@ -221,6 +226,51 @@ CREATE TABLE IF NOT EXISTS stat_total (
 INSERT OR IGNORE INTO stat_total (id, total_generated) VALUES (1, 0);
 `;
 
+// CREATE TABLE IF NOT EXISTS (voir SCHEMA) ne touche pas aux tables déjà
+// existantes — une colonne ajoutée après coup à une table du schéma (ex.
+// person.filmography_checked_at) a donc besoin d'un ALTER TABLE explicite ici
+// pour rejoindre les bases déjà en place, sans jamais y toucher si elle y est
+// déjà (PRAGMA table_info, pas de "ADD COLUMN IF NOT EXISTS" en SQLite).
+function migrate() {
+  const personCols = db.prepare("PRAGMA table_info(person)").all().map((c) => c.name);
+  if (!personCols.includes("filmography_checked_at")) {
+    try {
+      db.exec("ALTER TABLE person ADD COLUMN filmography_checked_at INTEGER");
+    } catch (e) {
+      // server.js et refresh.js ouvrent chacun leur propre connexion au
+      // même fichier et appellent migrate() à leur démarrage : si les deux
+      // démarrent en même temps sur une base pas encore migrée, l'un des
+      // deux peut arriver après que l'autre a déjà ajouté la colonne — pas
+      // une vraie erreur, juste une course gagnée par l'autre process.
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
+  const gameCols = db.prepare("PRAGMA table_info(game)").all().map((c) => c.name);
+  if (!gameCols.includes("summary")) {
+    try {
+      db.exec("ALTER TABLE game ADD COLUMN summary TEXT");
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
+  const movieCols = db.prepare("PRAGMA table_info(movie)").all().map((c) => c.name);
+  if (!movieCols.includes("release_date")) {
+    try {
+      db.exec("ALTER TABLE movie ADD COLUMN release_date TEXT");
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
+  const gameCols2 = db.prepare("PRAGMA table_info(game)").all().map((c) => c.name);
+  if (!gameCols2.includes("release_date")) {
+    try {
+      db.exec("ALTER TABLE game ADD COLUMN release_date TEXT");
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
+}
+
 export function init(filePath) {
   if (filePath !== ":memory:") {
     const dir = path.dirname(filePath);
@@ -229,6 +279,7 @@ export function init(filePath) {
   db = new Database(filePath);
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA);
+  migrate();
 }
 
 export function isFresh(checkedAt, ttlMs) {
@@ -342,15 +393,16 @@ export function getPainterArtworks(painterId) {
 export function upsertMovies(rows) {
   const now = Date.now();
   const insert = db.prepare(
-    `INSERT INTO movie (id, title, poster_path, overview, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO movie (id, title, poster_path, overview, release_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title, poster_path = excluded.poster_path,
-       overview = excluded.overview, updated_at = excluded.updated_at`,
+       overview = excluded.overview, release_date = excluded.release_date,
+       updated_at = excluded.updated_at`,
   );
   const tx = db.transaction((items) => {
     for (const m of items)
-      insert.run(m.id, m.title, m.posterPath, m.overview || "", now);
+      insert.run(m.id, m.title, m.posterPath, m.overview || "", m.releaseDate || null, now);
   });
   tx(rows);
 }
@@ -410,6 +462,58 @@ export function getMovieDirectorNames(movieId) {
   return rows.map((r) => r.name).join(", ");
 }
 
+export function personNeedsBirthday(person) {
+  return !isFresh(person.birthday_checked_at, TTL_MS.personBirthday);
+}
+
+// birthday/place_of_birth (API détail TMDb "/person/{id}") — beaucoup de
+// personnes n'ont simplement pas cette date connue de TMDb (birthday peut
+// rester null indéfiniment) ; birthday_checked_at avance quand même pour ne
+// pas retenter cette personne avant le TTL.
+export function setPersonBirthday(personId, birthday, placeOfBirth) {
+  db.prepare(
+    `UPDATE person SET birthday = ?, place_of_birth = ?, birthday_checked_at = ?
+     WHERE id = ?`,
+  ).run(birthday || null, placeOfBirth || null, Date.now(), personId);
+}
+
+export function personNeedsFilmography(person) {
+  return !isFresh(person.filmography_checked_at, TTL_MS.directorFilmography);
+}
+
+// complète la filmographie d'un réalisateur au-delà des films déjà présents
+// dans le pool "movie" (curated par popularité/genre/décennie/pays, pas
+// exhaustif — voir refresh.js/warmLoop "Réalisateurs (filmographie
+// complète)") : movies vient de l'API "crédits d'une personne" (TMDb), qui
+// ne connaît QUE ce réalisateur pour chaque film (pas d'éventuels
+// co-réalisateurs, contrairement à setMovieDirectors qui part des crédits du
+// FILM) — lien additif (INSERT OR IGNORE, jamais de DELETE) pour ne jamais
+// écraser un movie_director déjà posé plus précisément par setMovieDirectors.
+export function addDirectorFilmography(personId, movies) {
+  const now = Date.now();
+  const upsertMovie = db.prepare(
+    `INSERT INTO movie (id, title, poster_path, overview, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       title = excluded.title, poster_path = excluded.poster_path,
+       overview = excluded.overview, updated_at = excluded.updated_at`,
+  );
+  const link = db.prepare(
+    "INSERT OR IGNORE INTO movie_director (movie_id, person_id) VALUES (?, ?)",
+  );
+  const tx = db.transaction((items) => {
+    for (const m of items) {
+      upsertMovie.run(m.id, m.title, m.posterPath, m.overview || "", now);
+      link.run(m.id, personId);
+    }
+    db.prepare("UPDATE person SET filmography_checked_at = ? WHERE id = ?").run(
+      now,
+      personId,
+    );
+  });
+  tx(movies);
+}
+
 // ---------- tv_show ----------
 
 export function upsertTvShows(rows) {
@@ -437,14 +541,16 @@ export function getTvShow(id) {
 export function upsertGames(rows) {
   const now = Date.now();
   const insert = db.prepare(
-    `INSERT INTO game (id, title, cover_image_id, updated_at)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO game (id, title, cover_image_id, summary, release_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title, cover_image_id = excluded.cover_image_id,
+       summary = excluded.summary, release_date = excluded.release_date,
        updated_at = excluded.updated_at`,
   );
   const tx = db.transaction((items) => {
-    for (const g of items) insert.run(g.id, g.title, g.coverImageId, now);
+    for (const g of items)
+      insert.run(g.id, g.title, g.coverImageId, g.summary || null, g.releaseDate || null, now);
   });
   tx(rows);
 }
@@ -795,6 +901,144 @@ export const getPersonPool = (selections) =>
   getTypePool("person", "id", "person", selections);
 export const getPainterPool = (selections) =>
   getTypePool("person", "id", "painter", selections);
+export const getDirectorPool = (selections) =>
+  getTypePool("person", "id", "director", selections);
+
+// ---------- quiz du jour : anniversaires (mois/jour, toutes années confondues) ----------
+//
+// release_date (movie/music_track) et birthday (person) sont tous stockés au
+// format ISO "YYYY-MM-DD..." (voir musicDecadeCode dans refresh.js, qui
+// s'appuie déjà sur ce même format par simple découpage de chaîne plutôt que
+// via une fonction date SQLite) — substr(...,6,2)/substr(...,9,2) donne donc
+// mois/jour de façon uniforme sur les trois tables, sans dépendre du fuseau
+// ni d'un parsing de date. Restreint à type_item (pool actif), comme
+// getTypePool, pour ne jamais faire remonter une entité désactivée entre-temps.
+export function getMoviesByReleaseMonthDay(month, day) {
+  return db
+    .prepare(
+      `SELECT t.* FROM movie t
+       JOIN type_item ti ON ti.entity_id = t.id AND ti.type = 'movie'
+       WHERE t.release_date IS NOT NULL
+         AND substr(t.release_date, 6, 2) = ?
+         AND substr(t.release_date, 9, 2) = ?`,
+    )
+    .all(month, day);
+}
+
+export function getGamesByReleaseMonthDay(month, day) {
+  return db
+    .prepare(
+      `SELECT t.* FROM game t
+       JOIN type_item ti ON ti.entity_id = t.id AND ti.type = 'game'
+       WHERE t.release_date IS NOT NULL
+         AND substr(t.release_date, 6, 2) = ?
+         AND substr(t.release_date, 9, 2) = ?`,
+    )
+    .all(month, day);
+}
+
+export function getMusicTracksByReleaseMonthDay(month, day) {
+  return db
+    .prepare(
+      `SELECT t.* FROM music_track t
+       JOIN type_item ti ON ti.entity_id = t.id AND ti.type = 'music'
+       WHERE t.release_date IS NOT NULL
+         AND substr(t.release_date, 6, 2) = ?
+         AND substr(t.release_date, 9, 2) = ?`,
+    )
+    .all(month, day);
+}
+
+// une même personne peut être à la fois dans le pool "person" (acteur/
+// peintre) et "director" (réalisateur) — le type d'appel (voir server.js)
+// choisit lequel interroger, comme getPersonPool/getDirectorPool le font déjà.
+export function getPersonsByBirthMonthDay(type, month, day) {
+  return db
+    .prepare(
+      `SELECT t.* FROM person t
+       JOIN type_item ti ON ti.entity_id = t.id AND ti.type = ?
+       WHERE t.birthday IS NOT NULL
+         AND substr(t.birthday, 6, 2) = ?
+         AND substr(t.birthday, 9, 2) = ?`,
+    )
+    .all(type, month, day);
+}
+
+// synchronise type_item "director" avec le contenu actuel de movie_director
+// — backfill pur SQL (aucun appel réseau), à lancer au démarrage de
+// refresh.js. Sans ça, les réalisateurs déjà connus d'AVANT l'introduction
+// du quiz "réalisateur" (movie_director déjà peuplé, movie.directors_checked_at
+// déjà frais donc le warmLoop concerné ne repasse pas dessus avant son
+// prochain TTL, ~1 mois) resteraient invisibles du pool "director" jusqu'à
+// cette échéance — voir addTypeItems("director", ...) dans le warmLoop, qui
+// ne couvre que la découverte incrémentale à partir de maintenant.
+export function syncDirectorPoolFromMovieDirector() {
+  const ids = db
+    .prepare("SELECT DISTINCT person_id FROM movie_director")
+    .all()
+    .map((r) => r.person_id);
+  addTypeItems("director", ids);
+}
+
+// même principe que syncDirectorPoolFromMovieDirector, pour les filtres :
+// recopie sur "director" les tags genre/décennie/geographie déjà connus des
+// films de movie_director (backfill pur SQL, aucun appel réseau) — sans ça,
+// les réalisateurs déjà backfillés par syncDirectorPoolFromMovieDirector
+// resteraient sans aucun filtre jusqu'à ce que movie.directors_checked_at
+// expire (~1 mois) et fasse repasser le warmLoop incrémental (voir
+// refresh.js) sur leurs films.
+export function syncDirectorFiltersFromMovies() {
+  const rows = db
+    .prepare(
+      `SELECT md.person_id AS personId, ef.filter_group AS filterGroup, ef.code, f.name
+       FROM movie_director md
+       JOIN entity_filter ef ON ef.type = 'movie' AND ef.entity_id = md.movie_id
+       JOIN filter f ON f.type = 'movie' AND f.filter_group = ef.filter_group AND f.code = ef.code
+       WHERE ef.filter_group IN ('genre', 'decennie', 'geographie')`,
+    )
+    .all();
+
+  const defsByGroup = {};
+  const codesByGroupPerson = {};
+  for (const r of rows) {
+    (defsByGroup[r.filterGroup] ??= new Map()).set(r.code, r.name);
+    const perPerson = (codesByGroupPerson[r.filterGroup] ??= new Map());
+    if (!perPerson.has(r.personId)) perPerson.set(r.personId, new Set());
+    perPerson.get(r.personId).add(r.code);
+  }
+
+  for (const [group, defs] of Object.entries(defsByGroup)) {
+    upsertFilters(
+      "director",
+      group,
+      [...defs].map(([code, name]) => ({ code, name })),
+    );
+    addEntityFilters(
+      "director",
+      group,
+      [...codesByGroupPerson[group]].map(([entityId, codes]) => ({
+        entityId,
+        codes: [...codes],
+      })),
+    );
+  }
+}
+
+// affiches des films réalisés par cette personne (+ titre, affiché en
+// surimpression côté client — un poster n'écrit pas toujours son titre de
+// façon lisible) — sert d'images de devinette au quiz "réalisateur" (deviner
+// le nom à partir d'une liste de films, pas de sa propre photo). Lecture
+// cache-only, alimentée par le warmLoop réalisateurs de refresh.js
+// (movie_director + movie.poster_path).
+export function getDirectorMoviePosters(personId) {
+  return db
+    .prepare(
+      `SELECT m.title AS title, m.poster_path AS posterPath FROM movie_director md
+       JOIN movie m ON m.id = md.movie_id
+       WHERE md.person_id = ? AND m.poster_path IS NOT NULL`,
+    )
+    .all(personId);
+}
 
 // dev/test uniquement (--max-type-count) : réduit le pool global d'un
 // type à N entités distinctes au total — pour que les warm loops
@@ -896,6 +1140,21 @@ export function addEntityFilters(type, filterGroup, entries) {
   tx(entries);
 }
 
+// comme getEntityFilters, mais garde le code (pas seulement le nom affiché)
+// — sert à recopier tel quel un tag connu d'une entité vers une autre (ex.
+// propager le genre/décennie/geographie d'un film vers son/ses réalisateur(s),
+// voir refresh.js/warmLoop "Films (réalisateurs)"), où le code est
+// nécessaire pour appeler addEntityFilters sur le type cible.
+export function getEntityFilterEntries(type, entityId) {
+  return db
+    .prepare(
+      `SELECT ef.filter_group AS filterGroup, ef.code, f.name FROM entity_filter ef
+       JOIN filter f ON f.type = ef.type AND f.filter_group = ef.filter_group AND f.code = ef.code
+       WHERE ef.type = ? AND ef.entity_id = ?`,
+    )
+    .all(type, entityId);
+}
+
 // lecture cache-only, jamais d'appel réseau — regroupé par filter_group,
 // utile pour un futur affichage détaillé d'une entité.
 export function getEntityFilters(type, entityId) {
@@ -914,6 +1173,18 @@ export function getEntityFilters(type, entityId) {
 // filtres disponibles pour un type, groupés — data-driven depuis la table
 // `filter` (pas de liste de groupes codée en dur ici) ; sert à annoncer au
 // client quels filtres proposer pour un type donné.
+// libellé affiché d'un seul code (ex. quiz du jour : quel intitulé de liste
+// a fait entrer une entité dans le quiz — voir server.js) — mêmes lignes que
+// getFiltersForType, juste un accès direct par code plutôt que tout le groupe.
+export function getFilterLabel(type, filterGroup, code) {
+  const row = db
+    .prepare(
+      "SELECT name FROM filter WHERE type = ? AND filter_group = ? AND code = ?",
+    )
+    .get(type, filterGroup, code);
+  return row?.name || null;
+}
+
 export function getFiltersForType(type) {
   const rows = db
     .prepare(

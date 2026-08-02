@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1 — 2026-08-02
+
+- Nouveau "quiz du jour" (`POST /api/quiz-daily`) : sélection automatique sans filtre côté client, mélangeant anniversaires de sortie/naissance du jour (films, jeux vidéo, musique, acteurs/réalisateurs/peintres) et listes tendance/charts du jour (movie/tv/game/music), le tout mélangé une seule fois par un seed dérivé de la date pour que le quiz reste identique toute la journée. Chaque item porte une `reason` affichée à l'écran réponse (ex. "Tendances du jour (Films)", "Sorti il y a 7 ans"), avec une icône dédiée pour les anniversaires.
+- Nouveau type de quiz "réalisateur" (`type: "director"`) : deviner le réalisateur à partir des affiches des films qu'il a réalisés (filmographie complétée en tâche de fond au-delà du pool `movie` curated).
+- Les jeux vidéo peuvent aussi être devinés par synopsis (`questionType: "synopsis"`), comme les films/séries.
+- `movie`/`game` gagnent une date de sortie persistée (`release_date`), et un nouveau warmLoop récupère les dates de naissance des acteurs/réalisateurs/peintres (`person.birthday`) — toutes deux utilisées par les anniversaires du quiz du jour.
+- Fix : le fondu audio de fin de piste musicale (écran réponse) pouvait désynchroniser le son du reste de la vidéo sur les reveals longs ; il respecte maintenant la durée exacte du segment tout en finissant le fondu ~2s avant la fin quand la durée le permet.
+
 ## 1.2.0 — 2026-08-02
 
 - Migration du cache disque (`cache/reservoir.json` + `cache/warm-*.json`) vers une base SQLite unique (`cache/data.sqlite`), partagée entre `refresh.js` (écriture, tâche de fond) et `server.js` (lecture seule, ne fait plus aucun appel réseau).

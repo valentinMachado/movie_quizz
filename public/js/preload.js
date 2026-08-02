@@ -1,7 +1,18 @@
 import { CFG } from "./config.js";
 import { loadAndTrimAudio } from "./audio.js";
-import { currentMusicClipSec, currentRevealSec } from "./settings.js";
 import { setProgress, setStatus } from "./status.js";
+
+// durée du fondu AUDIBLE (rampSec, voir trimAudioBufferWithFade) — distincte
+// de la durée totale du buffer (toujours clipSec+revealSec exactement, pour
+// rester synchro avec le timeline vidéo, voir encode.js). Si le reveal est
+// assez long, le fondu se termine 2s avant sa fin pour laisser un peu de
+// silence avant que la question suivante ne démarre son propre son ; sinon
+// (reveal trop court pour un fondu de 2s + 2s de silence) il occupe tout le
+// reveal disponible plutôt que d'être coupé plus court encore.
+const MIN_MUSIC_FADE_SEC = 2;
+function musicFadeSec(revealSec) {
+  return Math.max(MIN_MUSIC_FADE_SEC, revealSec - MIN_MUSIC_FADE_SEC);
+}
 
 export function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -13,15 +24,14 @@ export function loadImage(src) {
   });
 }
 
-export async function preloadAll(picked) {
+export async function preloadAll(picked, { musicClipSec, revealSec }) {
   const totalTasks = picked.reduce(
     (sum, m) =>
       sum +
       (m.type === "music"
         ? 2
         : (m.type === "country" && m.questionType === "flag") ||
-            ((m.type === "movie" || m.type === "tv") &&
-              m.questionType === "synopsis")
+            m.questionType === "synopsis"
           ? 1
           : m.imageUrls.length + 1),
     0,
@@ -45,8 +55,9 @@ export async function preloadAll(picked) {
           const [audioBuffer, posterImg] = await Promise.all([
             loadAndTrimAudio(
               m.previewUrl,
-              currentMusicClipSec(),
-              currentRevealSec(),
+              musicClipSec,
+              revealSec,
+              musicFadeSec(revealSec),
             ).then((buf) => {
               bump();
               return buf;
@@ -63,6 +74,8 @@ export async function preloadAll(picked) {
             track: m.track,
             audioBuffer,
             posterImg,
+            reason: m.reason,
+            isAnniversary: m.isAnniversary,
           };
           continue;
         }
@@ -77,13 +90,12 @@ export async function preloadAll(picked) {
             questionType: "flag",
             capital: m.capital,
             posterImg,
+            reason: m.reason,
+            isAnniversary: m.isAnniversary,
           };
           continue;
         }
-        if (
-          (m.type === "movie" || m.type === "tv") &&
-          m.questionType === "synopsis"
-        ) {
+        if (m.questionType === "synopsis") {
           const posterImg = await loadImage(m.posterUrl).then((img) => {
             bump();
             return img;
@@ -94,6 +106,8 @@ export async function preloadAll(picked) {
             questionType: "synopsis",
             overview: m.overview,
             posterImg,
+            reason: m.reason,
+            isAnniversary: m.isAnniversary,
           };
           continue;
         }
@@ -117,6 +131,9 @@ export async function preloadAll(picked) {
           backdropImgs,
           posterImg,
           director: m.director,
+          imageTitles: m.imageTitles,
+          reason: m.reason,
+          isAnniversary: m.isAnniversary,
         };
       } catch (e) {
         // une image qui ne charge pas (ex: pare-feu Cloudflare sur les

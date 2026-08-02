@@ -35,6 +35,7 @@ export const TYPE_BASE_LABELS = {
   music: "🎵 Musique",
   country: "🌍 Pays",
   painter: "🎨 Peintres",
+  director: "🎥 Réalisateurs",
 };
 
 // même emoji que TYPE_BASE_LABELS, isolé du libellé texte — sert à
@@ -65,9 +66,12 @@ export const QUESTION_TYPE_DETAILS = {
 // générique ci-dessus ne décrit pas le contenu réel : l'image de
 // devinette d'un peintre est un de ses tableaux (getPainterArtworks
 // côté server.js), pas une photo du peintre lui-même (réservée à
-// l'écran de réponse, voir posterUrl/portrait)
+// l'écran de réponse, voir posterUrl/portrait) — même logique pour un
+// réalisateur, dont l'image de devinette est une affiche de film
+// (getDirectorMoviePosters)
 const QUESTION_TYPE_LABEL_OVERRIDES = {
   painter: { image: "Tableau" },
+  director: { image: "Filmographie" },
 };
 
 export function questionTypeInfo(type, questionType) {
