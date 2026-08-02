@@ -1,0 +1,147 @@
+{
+  "concurrency": {
+    "categoryFetch": 6,
+    "pageFetch": 4,
+    "imageFetch": 8
+  },
+  "movie": {
+    "genrePages": 6,
+    "countryPages": 8,
+    "staticLists": {
+      "popular": { "pathAndQuery": "movie/popular", "pages": 15, "label": "Populaires (Films)" },
+      "top_rated": { "pathAndQuery": "movie/top_rated", "pages": 15, "label": "Mieux notés (Films)" },
+      "now_playing": { "pathAndQuery": "movie/now_playing", "pages": 6, "label": "Au cinéma (Films)" },
+      "upcoming": { "pathAndQuery": "movie/upcoming", "pages": 6, "label": "À venir (Films)" },
+      "trending_day": { "pathAndQuery": "trending/movie/day", "pages": 5, "label": "Tendances du jour (Films)" },
+      "trending_week": { "pathAndQuery": "trending/movie/week", "pages": 6, "label": "Tendances de la semaine (Films)" }
+    },
+    "decadeLists": {
+      "before_1970": { "pathAndQuery": "discover/movie?primary_release_date.lte=1969-12-31&sort_by=popularity.desc", "pages": 5, "label": "Avant 1970 (Films)" },
+      "decade_1970": { "pathAndQuery": "discover/movie?primary_release_date.gte=1970-01-01&primary_release_date.lte=1979-12-31&sort_by=popularity.desc", "pages": 5, "label": "Années 1970 (Films)" },
+      "decade_1980": { "pathAndQuery": "discover/movie?primary_release_date.gte=1980-01-01&primary_release_date.lte=1989-12-31&sort_by=popularity.desc", "pages": 6, "label": "Années 1980 (Films)" },
+      "decade_1990": { "pathAndQuery": "discover/movie?primary_release_date.gte=1990-01-01&primary_release_date.lte=1999-12-31&sort_by=popularity.desc", "pages": 6, "label": "Années 1990 (Films)" },
+      "decade_2000": { "pathAndQuery": "discover/movie?primary_release_date.gte=2000-01-01&primary_release_date.lte=2009-12-31&sort_by=popularity.desc", "pages": 6, "label": "Années 2000 (Films)" },
+      "decade_2010": { "pathAndQuery": "discover/movie?primary_release_date.gte=2010-01-01&primary_release_date.lte=2019-12-31&sort_by=popularity.desc", "pages": 6, "label": "Années 2010 (Films)" },
+      "decade_2020": { "pathAndQuery": "discover/movie?primary_release_date.gte=2020-01-01&sort_by=popularity.desc", "pages": 6, "label": "Années 2020 (Films)" }
+    }
+  },
+  "tv": {
+    "genrePages": 5,
+    "targetEpisodesPerShow": 5,
+    "staticLists": {
+      "tv_popular": { "pathAndQuery": "tv/popular", "pages": 10, "label": "Populaires (Séries)" },
+      "tv_top_rated": { "pathAndQuery": "tv/top_rated", "pages": 10, "label": "Mieux notées (Séries)" },
+      "tv_on_the_air": { "pathAndQuery": "tv/on_the_air", "pages": 4, "label": "En cours de diffusion" },
+      "tv_airing_today": { "pathAndQuery": "tv/airing_today", "pages": 4, "label": "À l'antenne aujourd'hui" },
+      "tv_trending_day": { "pathAndQuery": "trending/tv/day", "pages": 4, "label": "Tendances du jour (Séries)" },
+      "tv_trending_week": { "pathAndQuery": "trending/tv/week", "pages": 5, "label": "Tendances de la semaine (Séries)" }
+    },
+    "decadeLists": {
+      "tv_before_1970": { "pathAndQuery": "discover/tv?first_air_date.lte=1969-12-31&sort_by=popularity.desc", "pages": 4, "label": "Avant 1970 (Séries)" },
+      "tv_decade_1970": { "pathAndQuery": "discover/tv?first_air_date.gte=1970-01-01&first_air_date.lte=1979-12-31&sort_by=popularity.desc", "pages": 4, "label": "Années 1970 (Séries)" },
+      "tv_decade_1980": { "pathAndQuery": "discover/tv?first_air_date.gte=1980-01-01&first_air_date.lte=1989-12-31&sort_by=popularity.desc", "pages": 5, "label": "Années 1980 (Séries)" },
+      "tv_decade_1990": { "pathAndQuery": "discover/tv?first_air_date.gte=1990-01-01&first_air_date.lte=1999-12-31&sort_by=popularity.desc", "pages": 5, "label": "Années 1990 (Séries)" },
+      "tv_decade_2000": { "pathAndQuery": "discover/tv?first_air_date.gte=2000-01-01&first_air_date.lte=2009-12-31&sort_by=popularity.desc", "pages": 5, "label": "Années 2000 (Séries)" },
+      "tv_decade_2010": { "pathAndQuery": "discover/tv?first_air_date.gte=2010-01-01&first_air_date.lte=2019-12-31&sort_by=popularity.desc", "pages": 5, "label": "Années 2010 (Séries)" },
+      "tv_decade_2020": { "pathAndQuery": "discover/tv?first_air_date.gte=2020-01-01&sort_by=popularity.desc", "pages": 5, "label": "Années 2020 (Séries)" }
+    }
+  },
+  "person": {
+    "staticLists": {
+      "person_popular": { "pathAndQuery": "person/popular", "pages": 40, "label": "Acteurs populaires" }
+    },
+    "country": {
+      "moviePages": 4,
+      "castPerMovie": 8,
+      "targetActors": 150
+    }
+  },
+  "countryTargets": [
+    { "code": "us", "name": "États-Unis" },
+    { "code": "gb", "name": "Royaume-Uni" },
+    { "code": "fr", "name": "France" },
+    { "code": "ca", "name": "Canada" },
+    { "code": "au", "name": "Australie" },
+    { "code": "de", "name": "Allemagne" },
+    { "code": "it", "name": "Italie" },
+    { "code": "es", "name": "Espagne" },
+    { "code": "in", "name": "Inde" },
+    { "code": "cn", "name": "Chine" },
+    { "code": "kr", "name": "Corée du Sud" },
+    { "code": "jp", "name": "Japon" },
+    { "code": "br", "name": "Brésil" },
+    { "code": "mx", "name": "Mexique" }
+  ],
+  "game": {
+    "genrePages": 4,
+    "staticLists": {
+      "game_popular": { "igdbWhere": "cover != null & screenshots != null", "igdbSort": "total_rating_count desc", "pages": 8, "label": "Jeux populaires" },
+      "game_top_rated": { "igdbWhere": "cover != null & screenshots != null & total_rating_count > 50", "igdbSort": "total_rating desc", "pages": 8, "label": "Jeux les mieux notés" },
+      "game_recent": { "igdbWhere": "cover != null & screenshots != null & first_release_date != null", "igdbSort": "first_release_date desc", "pages": 6, "label": "Sorties récentes" }
+    },
+    "decadeLists": [
+      { "code": "game_before_1980", "label": "Avant 1980 (Jeux)", "ltYear": 1980, "pages": 3 },
+      { "code": "game_decade_1980", "label": "Années 1980 (Jeux)", "gteYear": 1980, "ltYear": 1990, "pages": 4 },
+      { "code": "game_decade_1990", "label": "Années 1990 (Jeux)", "gteYear": 1990, "ltYear": 2000, "pages": 5 },
+      { "code": "game_decade_2000", "label": "Années 2000 (Jeux)", "gteYear": 2000, "ltYear": 2010, "pages": 5 },
+      { "code": "game_decade_2010", "label": "Années 2010 (Jeux)", "gteYear": 2010, "ltYear": 2020, "pages": 5 },
+      { "code": "game_decade_2020", "label": "Années 2020 (Jeux)", "gteYear": 2020, "pages": 5 }
+    ]
+  },
+  "music": {
+    "genreStore": "us",
+    "staticLists": {
+      "music_popular_fr": { "country": "fr", "label": "Populaire (Musique, France)" },
+      "music_popular_us": { "country": "us", "label": "Populaire (Musique, USA)" },
+      "music_popular_gb": { "country": "gb", "label": "Populaire (Musique, UK)" },
+      "music_popular_de": { "country": "de", "label": "Populaire (Musique, Allemagne)" },
+      "music_popular_es": { "country": "es", "label": "Populaire (Musique, Espagne)" },
+      "music_popular_it": { "country": "it", "label": "Populaire (Musique, Italie)" },
+      "music_popular_jp": { "country": "jp", "label": "Populaire (Musique, Japon)" },
+      "music_popular_br": { "country": "br", "label": "Populaire (Musique, Brésil)" }
+    }
+  },
+  "painting": {
+    "queryLimit": 200,
+    "genres": [
+      { "code": "impressionism", "label": "Impressionnisme", "qid": "Q40415" },
+      { "code": "romanticism", "label": "Romantisme", "qid": "Q37068" },
+      { "code": "mannerism", "label": "Maniérisme", "qid": "Q131808" },
+      { "code": "baroque", "label": "Baroque", "qid": "Q37853" },
+      { "code": "art_nouveau", "label": "Art nouveau", "qid": "Q34636" },
+      { "code": "rococo", "label": "Rococo", "qid": "Q122960" },
+      { "code": "neoclassicism", "label": "Néo-classicisme", "qid": "Q14378" },
+      { "code": "realism", "label": "Réalisme", "qid": "Q10857409" },
+      { "code": "post_impressionism", "label": "Post-impressionnisme", "qid": "Q166713" },
+      { "code": "symbolism", "label": "Symbolisme", "qid": "Q164800" },
+      { "code": "expressionism", "label": "Expressionnisme", "qid": "Q80113" },
+      { "code": "renaissance", "label": "Renaissance", "qid": "Q4692" },
+      { "code": "cubism", "label": "Cubisme", "qid": "Q42934" },
+      { "code": "fauvism", "label": "Fauvisme", "qid": "Q166593" },
+      { "code": "pointillism", "label": "Pointillisme", "qid": "Q200034" },
+      { "code": "naturalism", "label": "Naturalisme", "qid": "Q55995" }
+    ],
+    "countries": [
+      { "code": "fr", "label": "France", "qid": "Q142" },
+      { "code": "it", "label": "Italie", "qid": "Q38" },
+      { "code": "nl", "label": "Pays-Bas", "qid": "Q55" },
+      { "code": "es", "label": "Espagne", "qid": "Q29" },
+      { "code": "de", "label": "Allemagne", "qid": "Q183" },
+      { "code": "gb", "label": "Royaume-Uni", "qid": "Q145" },
+      { "code": "us", "label": "États-Unis", "qid": "Q30" },
+      { "code": "jp", "label": "Japon", "qid": "Q17" },
+      { "code": "cn", "label": "Chine", "qid": "Q148" },
+      { "code": "ru", "label": "Russie", "qid": "Q159" },
+      { "code": "be", "label": "Belgique", "qid": "Q31" },
+      { "code": "at", "label": "Autriche", "qid": "Q40" }
+    ],
+    "eras": [
+      { "code": "before_1500", "label": "Avant 1500", "gte": 0, "lte": 1499 },
+      { "code": "1500_1699", "label": "1500-1699", "gte": 1500, "lte": 1699 },
+      { "code": "1700_1799", "label": "1700-1799", "gte": 1700, "lte": 1799 },
+      { "code": "1800_1849", "label": "1800-1849", "gte": 1800, "lte": 1849 },
+      { "code": "1850_1899", "label": "1850-1899", "gte": 1850, "lte": 1899 },
+      { "code": "1900_plus", "label": "Après 1900", "gte": 1900, "lte": 2100 }
+    ]
+  }
+}
