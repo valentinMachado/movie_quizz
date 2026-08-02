@@ -104,10 +104,14 @@ export async function preloadAll(picked, { musicClipSec, revealSec }) {
             title: m.title,
             type: m.type,
             questionType: "synopsis",
-            overview: m.overview,
             posterImg,
             reason: m.reason,
             isAnniversary: m.isAnniversary,
+            // director : plusieurs synopsis (voir timeline.js/seg.frameIdx),
+            // pas un seul m.overview comme movie/tv/game.
+            ...(m.type === "director"
+              ? { overviews: m.overviews, movieTitles: m.movieTitles }
+              : { overview: m.overview }),
           };
           continue;
         }

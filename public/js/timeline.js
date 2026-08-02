@@ -50,6 +50,29 @@ export function buildTimeline(
       t += revealMs;
       return;
     }
+    if (m.questionType === "synopsis" && m.type === "director") {
+      // plusieurs synopsis (films différents) cyclés comme des frames,
+      // même principe que la boucle m.backdropImgs du mode "image"
+      // ci-dessous (itemGuessStart/itemGuessDur pour une barre de
+      // progression continue sur tout l'item, pas remise à zéro par frame).
+      const itemGuessStart = t;
+      const itemGuessDur = m.overviews.length * synopsisMs;
+      m.overviews.forEach((_, frameIdx) => {
+        tl.push({
+          type: "synopsis-guess",
+          itemIdx: i,
+          frameIdx,
+          start: t,
+          dur: synopsisMs,
+          itemGuessStart,
+          itemGuessDur,
+        });
+        t += synopsisMs;
+      });
+      tl.push({ type: "reveal", itemIdx: i, start: t, dur: revealMs });
+      t += revealMs;
+      return;
+    }
     if (m.questionType === "synopsis") {
       tl.push({
         type: "synopsis-guess",

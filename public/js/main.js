@@ -23,6 +23,8 @@ import {
   stage,
   synopsisSecNumber,
   synopsisSecRange,
+  synopsisPerItemNumber,
+  synopsisPerItemRange,
 } from "./dom.js";
 import {
   addSeenIds,
@@ -34,6 +36,7 @@ import {
   currentMusicClipSec,
   currentRevealSec,
   currentSynopsisSec,
+  currentSynopsisPerItem,
   getSeenIds,
   saveSettings,
   updateDurationHint,
@@ -68,6 +71,7 @@ const DAILY_QUIZ_PARAMS = {
   musicClipSec: 10,
   flagSec: 4,
   synopsisSec: 20,
+  synopsisPerItem: 2,
 };
 
 async function generateQuiz(daily = false) {
@@ -107,6 +111,9 @@ async function generateQuiz(daily = false) {
     const synopsisSec = daily
       ? DAILY_QUIZ_PARAMS.synopsisSec
       : currentSynopsisSec();
+    const synopsisPerItem = daily
+      ? DAILY_QUIZ_PARAMS.synopsisPerItem
+      : Math.min(5, Math.max(1, currentSynopsisPerItem()));
 
     let res;
     if (daily) {
@@ -115,7 +122,7 @@ async function generateQuiz(daily = false) {
       res = await fetch("/api/quiz-daily", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagesPerItem }),
+        body: JSON.stringify({ imagesPerItem, synopsisPerItem }),
       });
     } else {
       const count = Math.min(50, Math.max(1, currentCount()));
@@ -128,7 +135,13 @@ async function generateQuiz(daily = false) {
       res = await fetch("/api/quiz-batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selections, count, imagesPerItem, exclude }),
+        body: JSON.stringify({
+          selections,
+          count,
+          imagesPerItem,
+          synopsisPerItem,
+          exclude,
+        }),
       });
     }
     if (!res.ok)
@@ -181,7 +194,9 @@ async function generateQuiz(daily = false) {
           m.type === "country" && m.questionType === "flag"
             ? flagSec
             : m.questionType === "synopsis"
-              ? synopsisSec
+              ? m.type === "director"
+                ? m.overviews.length * synopsisSec
+                : synopsisSec
               : m.backdropImgs.length * imageSec;
         m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
           loopBufferToDuration(guessingSrc, guessDurSec),
@@ -331,6 +346,16 @@ synopsisSecRange.addEventListener("input", () => {
 });
 synopsisSecNumber.addEventListener("input", () => {
   synopsisSecRange.value = synopsisSecNumber.value;
+  updateDurationHint();
+  saveSettings();
+});
+synopsisPerItemRange.addEventListener("input", () => {
+  synopsisPerItemNumber.value = synopsisPerItemRange.value;
+  updateDurationHint();
+  saveSettings();
+});
+synopsisPerItemNumber.addEventListener("input", () => {
+  synopsisPerItemRange.value = synopsisPerItemNumber.value;
   updateDurationHint();
   saveSettings();
 });

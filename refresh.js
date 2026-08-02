@@ -142,6 +142,14 @@ const PERSON_STATIC_LISTS = CONFIG.person.staticLists;
 // discover, puis casting du film).
 const COUNTRY_TARGETS = CONFIG.countryTargets;
 const MOVIE_COUNTRY_PAGES = CONFIG.movie.countryPages; // ~160 films/pays (20/page), réduit en mode dev comme les autres pages
+const TV_COUNTRY_PAGES = CONFIG.tv.countryPages;
+
+// codes+noms du groupe "geographie", partagé movie/tv (même COUNTRY_TARGETS,
+// storeFilterGroup reçoit le type séparément), attend un objet
+// { [code]: {label} } comme les *StaticLists de config.json.
+const COUNTRY_FILTERS = Object.fromEntries(
+  COUNTRY_TARGETS.map((t) => [t.code, { label: t.name }]),
+);
 const PERSON_COUNTRY_MOVIE_PAGES = CONFIG.person.country.moviePages; // ~80 films/pays (20/page), réduit en mode dev comme les autres pages
 const PERSON_COUNTRY_CAST_PER_MOVIE = CONFIG.person.country.castPerMovie; // rôles principaux seulement, pas la liste complète des crédits
 const PERSON_COUNTRY_TARGET_ACTORS = CONFIG.person.country.targetActors; // arrête d'aller chercher des crédits une fois assez d'acteurs uniques trouvés
@@ -178,6 +186,25 @@ const GAME_DECADE_LISTS = Object.fromEntries(
 // fetchMusicEntities).
 const MUSIC_GENRE_STORE = CONFIG.music.genreStore; // un seul store pour les genres (le plus fourni), sinon ça multiplie les requêtes par pays
 const MUSIC_STATIC_LISTS = CONFIG.music.staticLists;
+
+// les 8 charts pays de MUSIC_STATIC_LISTS ne sont plus des filtres "liste"
+// distincts (voir fetchMusicEntities) : le pays de chaque chart devient un
+// filtre "geographie", avec les mêmes noms que movie/tv (COUNTRY_TARGETS).
+const MUSIC_COUNTRY_FILTERS = Object.fromEntries(
+  Object.values(MUSIC_STATIC_LISTS).map((src) => [
+    src.country,
+    { label: COUNTRY_TARGETS.find((t) => t.code === src.country)?.name ?? src.country },
+  ]),
+);
+
+// classiques "blind test" (Queen - Bohemian Rhapsody, ABBA - Dancing
+// Queen, etc.) : une liste de titres EXACTS { artist, track }, pas d'id
+// iTunes pré-résolu — reproductible d'un déploiement à l'autre (voir
+// fetchExactSongByTitle) sans état à maintenir à la main. Titres précis
+// plutôt qu'une simple liste d'artistes : évite de piocher un morceau
+// obscur d'un artiste connu (une recherche par nom seul n'est pas classée
+// par notoriété DU MORCEAU).
+const MUSIC_BLINDTEST_SONGS = CONFIG.music.blindtestSongs;
 
 // pays — liste depuis mledoze/countries (mirroir libre et sans clé des
 // données historiques de REST Countries). Un même pays alimente deux
@@ -433,6 +460,7 @@ async function fetchPainterEntities() {
   }
 
   const labels = await resolveWikidataLabels([...byCreator.keys()]);
+  const sitelinks = await fetchCreatorSitelinks([...byCreator.keys()]);
   const surrogateIds = [];
   const items = []; // { id, creatorQid, portraitThumbUrl } — forme attendue par storeFilterGroup
   for (const [creatorQid, info] of byCreator) {
@@ -448,6 +476,7 @@ async function fetchPainterEntities() {
       // plus) ; repli sur un tableau si aucun portrait n'est connu — URL déjà
       // convertie en thumbnail final, prête à servir telle quelle.
       portraitImageUrl: portraitThumbUrl,
+      popularity: sitelinks.get(creatorQid) ?? null,
     });
     surrogateIds.push(personId);
     items.push({ id: personId, creatorQid, portraitThumbUrl });
@@ -520,6 +549,81 @@ async function fetchPainterEntities() {
     Object.fromEntries(PAINTING_ERAS.map((e) => [e.code, { label: e.label }])),
     items,
     filterTagsByPersonId,
+  );
+  storePainterPopularityTiers(
+    items.map((i) => ({
+      entityId: i.id,
+      value: sitelinks.get(i.creatorQid) ?? null,
+    })),
+  );
+}
+
+// notoriété d'un peintre = nombre de Wikipédias qui ont un article sur lui
+// (wikibase:sitelinks) — contrairement au nombre de tableaux connus (essayé
+// d'abord, abandonné : plafonné par le LIMIT 30 de
+// fetchPainterArtworksFromWikidata, incapable de distinguer Van Gogh d'un
+// peintre juste "bien documenté"), sitelinks n'a pas de plafond artificiel
+// et distingue finement (vérifié manuellement : Van Gogh 263, un peintre
+// mineur mais réel ~10-40, une simple attribution d'école ~0-2). Disponible
+// dès la découverte du peintre (fetchPainterEntities), pas besoin d'un
+// warmLoop séparé.
+function paintingCreatorSitelinksSparql(creatorQids) {
+  const values = creatorQids.map((qid) => `wd:${qid}`).join(" ");
+  return (
+    "SELECT ?creator ?sitelinks WHERE { " +
+    `VALUES ?creator { ${values} } ` +
+    "?creator wikibase:sitelinks ?sitelinks. " +
+    "}"
+  );
+}
+
+// batché par lots de 300 (limite pratique avant timeout SPARQL sur une
+// clause VALUES) — via wikidataQuery, déjà sérialisé/retry (voir plus haut).
+async function fetchCreatorSitelinks(creatorQids) {
+  const sitelinks = new Map();
+  for (let i = 0; i < creatorQids.length; i += 300) {
+    const batch = creatorQids.slice(i, i + 300);
+    try {
+      const data = await wikidataQuery(
+        `https://query.wikidata.org/sparql?query=${encodeURIComponent(paintingCreatorSitelinksSparql(batch))}`,
+      );
+      for (const b of data.results.bindings) {
+        sitelinks.set(
+          b.creator.value.split("/").pop(),
+          parseInt(b.sitelinks.value, 10),
+        );
+      }
+    } catch (e) {
+      logWarn("Erreur sitelinks peintres:", e.message);
+    }
+  }
+  return sitelinks;
+}
+
+// 3 tertiles directs sur la valeur (pas de source "Populaire" séparée à
+// exclure comme movie/tv/game/person, voir storePopularityTiers) —
+// recalculés à chaque crawl complet des peintres.
+function storePainterPopularityTiers(entries) {
+  const known = entries
+    .filter((e) => e.value != null)
+    .map((e) => e.value)
+    .sort((a, b) => a - b);
+  if (known.length === 0) return;
+  const q1 = known[Math.floor(known.length / 3)];
+  const q2 = known[Math.floor((known.length * 2) / 3)];
+  const tierFor = (v) => (v <= q1 ? "obscur" : v <= q2 ? "niche" : "populaire");
+  db.upsertFilters("painter", "liste", [
+    { code: "obscur", name: "Obscur" },
+    { code: "niche", name: "Niche" },
+    { code: "populaire", name: "Populaire" },
+  ]);
+  db.replaceEntityFilters(
+    "painter",
+    "liste",
+    entries.map((e) => ({
+      entityId: e.entityId,
+      codes: e.value == null ? [] : [tierFor(e.value)],
+    })),
   );
 }
 
@@ -865,6 +969,56 @@ function storeFilterGroup(type, filterGroup, sourcesConfig, items, filterTagsByI
   );
 }
 
+// 2 paliers de popularité (popularity TMDb, total_rating_count IGDB...),
+// ajoutés au groupe "liste" existant plutôt que dans un groupe séparé —
+// seulement pour ce qui n'est PAS déjà dans la liste "Populaire" (`popularIds`,
+// voir popularIdsFrom) : ce sous-ensemble est déjà "bien connu", pas besoin
+// d'un palier en plus. Coupure à la médiane du reste (pas de seuil absolu,
+// s'auto-ajuste à chaque crawl complet). Une entité sans valeur connue OU
+// déjà "Populaire" n'a aucun de ces 2 codes. Noms volontairement distincts
+// du vocabulaire "Populaire" pour ne pas prêter à confusion (progression
+// Obscur → Niche → Populaire). `POPULARITY_TIER_CODES` est passé à
+// replaceEntityFilterSubset pour ne remplacer QUE ces 2 codes-là dans
+// "liste" — la liste éditoriale (Populaire/Tendances/...), posée par
+// storeFilterGroup dans le même appel de fetchXEntities, n'est pas
+// touchée. Appelée uniquement depuis les crawls complets (fetchXEntities),
+// jamais depuis les refresh lists légers (même règle que genre/décennie).
+const POPULARITY_TIER_CODES = ["obscur", "niche"];
+
+function storePopularityTiers(type, entries, popularIds = new Set()) {
+  const known = entries
+    .filter((e) => e.value != null && !popularIds.has(e.entityId))
+    .map((e) => e.value)
+    .sort((a, b) => a - b);
+  if (known.length === 0) return;
+  const mid = known[Math.floor(known.length / 2)];
+  const tierFor = (v) => (v <= mid ? "obscur" : "niche");
+  db.upsertFilters(type, "liste", [
+    { code: "obscur", name: "Obscur" },
+    { code: "niche", name: "Niche" },
+  ]);
+  db.replaceEntityFilterSubset(
+    type,
+    "liste",
+    POPULARITY_TIER_CODES,
+    entries.map((e) => ({
+      entityId: e.entityId,
+      codes:
+        e.value == null || popularIds.has(e.entityId) ? [] : [tierFor(e.value)],
+    })),
+  );
+}
+
+// entités taguées par la source "Populaire" d'un type (voir tagFilter) —
+// sert à exclure ces entités du split Connu/Confidentiel (storePopularityTiers).
+function popularIdsFrom(items, filterTagsByItemId, popularCode) {
+  return new Set(
+    items
+      .filter((item) => filterTagsByItemId.get(item.id)?.get("liste")?.has(popularCode))
+      .map((item) => item.id),
+  );
+}
+
 // TMDb (film/série) inclut déjà `genre_ids` sur chaque item des endpoints
 // liste/discover — un seul appel à /genre/{kind}/list donne les noms, pas
 // besoin d'appel réseau supplémentaire par film/série pour les genres.
@@ -927,14 +1081,6 @@ function movieCountrySources() {
   }));
 }
 
-// codes+noms du groupe "geographie" pour movie — dérivé de COUNTRY_TARGETS
-// (même liste que movieCountrySources), attend un objet { [code]: {label} }
-// comme les *StaticLists de config.json pour rester compatible avec
-// storeFilterGroup.
-const MOVIE_COUNTRY_FILTERS = Object.fromEntries(
-  COUNTRY_TARGETS.map((t) => [t.code, { label: t.name }]),
-);
-
 async function fetchMovieEntities() {
   const genres = await fetchTmdbGenres("movie");
   const sources = [
@@ -950,6 +1096,7 @@ async function fetchMovieEntities() {
     posterPath: m.poster_path,
     overview: m.overview,
     releaseDate: m.release_date,
+    popularity: m.popularity ?? null,
   }));
   db.upsertMovies(rows);
   db.replaceTypeItems(
@@ -959,7 +1106,12 @@ async function fetchMovieEntities() {
   storeTmdbGenres("movie", genres, items);
   storeFilterGroup("movie", "liste", STATIC_LISTS, items, filterTagsByItemId);
   storeFilterGroup("movie", "decennie", DECADE_LISTS, items, filterTagsByItemId);
-  storeFilterGroup("movie", "geographie", MOVIE_COUNTRY_FILTERS, items, filterTagsByItemId);
+  storeFilterGroup("movie", "geographie", COUNTRY_FILTERS, items, filterTagsByItemId);
+  storePopularityTiers(
+    "movie",
+    items.map((m) => ({ entityId: m.id, value: m.popularity ?? null })),
+    popularIdsFrom(items, filterTagsByItemId, "popular"),
+  );
 }
 
 // pendant léger de fetchMovieEntities : ne retouche que les listes (Populaire/
@@ -989,12 +1141,25 @@ function tvGenreSources(genres) {
   }));
 }
 
+// tague chaque source pays avec { filterGroup: "geographie", filterCode },
+// même mécanique que movieCountrySources (voir ce commentaire) mais sur
+// discover/tv?with_origin_country=XX.
+function tvCountrySources() {
+  return COUNTRY_TARGETS.map((target) => ({
+    pathAndQuery: `discover/tv?with_origin_country=${target.code.toUpperCase()}&sort_by=popularity.desc`,
+    pages: TV_COUNTRY_PAGES,
+    filterGroup: "geographie",
+    filterCode: target.code,
+  }));
+}
+
 async function fetchTvEntities() {
   const genres = await fetchTmdbGenres("tv");
   const sources = [
     ...withFilterCodes(TV_STATIC_LISTS, "liste"),
     ...withFilterCodes(TV_DECADE_LISTS, "decennie"),
     ...tvGenreSources(genres),
+    ...tvCountrySources(),
   ];
   const { items, filterTagsByItemId } = await fetchTmdbListPool(sources, "tv");
   const rows = items.map((t) => ({
@@ -1002,6 +1167,7 @@ async function fetchTvEntities() {
     title: t.name,
     posterPath: t.poster_path,
     overview: t.overview,
+    popularity: t.popularity ?? null,
   }));
   db.upsertTvShows(rows);
   db.replaceTypeItems(
@@ -1011,6 +1177,12 @@ async function fetchTvEntities() {
   storeTmdbGenres("tv", genres, items);
   storeFilterGroup("tv", "liste", TV_STATIC_LISTS, items, filterTagsByItemId);
   storeFilterGroup("tv", "decennie", TV_DECADE_LISTS, items, filterTagsByItemId);
+  storeFilterGroup("tv", "geographie", COUNTRY_FILTERS, items, filterTagsByItemId);
+  storePopularityTiers(
+    "tv",
+    items.map((t) => ({ entityId: t.id, value: t.popularity ?? null })),
+    popularIdsFrom(items, filterTagsByItemId, "tv_popular"),
+  );
 }
 
 // pendant léger de fetchTvEntities (voir refreshMovieLists ci-dessus).
@@ -1098,6 +1270,10 @@ function gameRow(g) {
     summary: g.summary || null,
     releaseDate: igdbDateToISO(g.first_release_date),
     genreIds: (g.genres || []).map((x) => x.id),
+    // pas de champ "popularity" direct côté IGDB — total_rating_count
+    // (nombre d'avis connus) sert de proxy de notoriété, voir
+    // storePopularityTiers.
+    popularity: g.total_rating_count ?? null,
   };
 }
 
@@ -1110,7 +1286,7 @@ async function fetchGameEntities() {
   ];
   const { items: rows, filterTagsByItemId } = await fetchIgdbListPool(
     sources,
-    "name,cover.image_id,screenshots.image_id,genres.id,summary,first_release_date",
+    "name,cover.image_id,screenshots.image_id,genres.id,summary,first_release_date,total_rating_count",
     gameRow,
   );
   db.upsertGames(rows);
@@ -1135,6 +1311,11 @@ async function fetchGameEntities() {
   }
   storeFilterGroup("game", "liste", GAME_STATIC_LISTS, rows, filterTagsByItemId);
   storeFilterGroup("game", "decennie", GAME_DECADE_LISTS, rows, filterTagsByItemId);
+  storePopularityTiers(
+    "game",
+    rows.map((r) => ({ entityId: r.id, value: r.popularity ?? null })),
+    popularIdsFrom(rows, filterTagsByItemId, "game_popular"),
+  );
 }
 
 // pendant léger de fetchGameEntities : ne retouche que les listes (Populaire/
@@ -1182,6 +1363,28 @@ async function fetchMusicGenreTracks(src) {
   return result;
 }
 
+// forme commune "morceau" attendue partout dans le pool music (voir
+// fetchMusicEntities) à partir d'un résultat brut iTunes (Lookup ou Search,
+// même forme de champs) — partagé par fetchMusicChartTracks et
+// fetchExactSongByTitle. Pas d'id de genre fiable dans ces API, juste le
+// nom — utilisé aussi comme code (voir fetchMusicEntities/storeMusicGenres).
+function mapItunesSongResult(t) {
+  if (!t.previewUrl || !t.trackName || !t.artistName || !t.artworkUrl100)
+    return null;
+  return {
+    id: t.trackId,
+    title: `${t.artistName} — ${t.trackName}`,
+    artist: t.artistName,
+    track: t.trackName,
+    previewUrl: t.previewUrl,
+    posterUrl: t.artworkUrl100.replace("100x100", "600x600"),
+    releaseDate: t.releaseDate,
+    genre: t.primaryGenreName
+      ? { code: t.primaryGenreName, name: t.primaryGenreName }
+      : null,
+  };
+}
+
 // musique : le flux RSS Apple donne le classement mais pas l'extrait audio —
 // on complète via l'API Lookup iTunes (par lots d'IDs) pour récupérer previewUrl
 async function fetchMusicChartTracks(src) {
@@ -1203,31 +1406,58 @@ async function fetchMusicChartTracks(src) {
     if (!lookupRes.ok) continue;
     const lookupData = await lookupRes.json();
     for (const t of lookupData.results || []) {
-      if (
-        !t.previewUrl ||
-        !t.trackName ||
-        !t.artistName ||
-        !t.artworkUrl100 ||
-        entries.has(t.trackId)
-      )
-        continue;
-      entries.set(t.trackId, {
-        id: t.trackId,
-        title: `${t.artistName} — ${t.trackName}`,
-        artist: t.artistName,
-        track: t.trackName,
-        previewUrl: t.previewUrl,
-        posterUrl: t.artworkUrl100.replace("100x100", "600x600"),
-        releaseDate: t.releaseDate,
-        // pas d'id de genre fiable dans l'API Lookup, juste le nom — utilisé
-        // aussi comme code (voir fetchMusicEntities/storeMusicGenres).
-        genre: t.primaryGenreName
-          ? { code: t.primaryGenreName, name: t.primaryGenreName }
-          : null,
-      });
+      if (entries.has(t.trackId)) continue;
+      const row = mapItunesSongResult(t);
+      if (!row) continue;
+      entries.set(t.trackId, row);
     }
   }
   return [...entries.values()];
+}
+
+// recherche un morceau EXACT (artiste + titre, pas un id pré-résolu, pour
+// rester reproductible sans état à maintenir à la main — voir
+// music.blindtestSongs) : la recherche iTunes est floue et le 1er résultat
+// n'est pas toujours le morceau demandé (ex. une reprise, un live, un
+// autre artiste au nom proche) — on préfère donc le résultat dont
+// l'artiste ET le titre correspondent le plus fidèlement à la demande,
+// repli sur le 1er résultat sinon.
+function normalizeForMatch(s) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+// l'API Search iTunes échoue par intermittence (403/429) sur environ 15-20%
+// des appels, sans rapport avec la requête précise ni la cadence observée
+// (vérifié manuellement : une requête qui échoue repasse souvent au retry
+// suivant) — quelques tentatives avec backoff suffisent, pas la peine de
+// sérialiser toute la boucle comme wikidataQuery.
+async function fetchWithRetry(url, attempt = 1) {
+  const res = await fetch(url);
+  if ((res.status === 403 || res.status === 429) && attempt < 4) {
+    await new Promise((r) => setTimeout(r, attempt * 1500));
+    return fetchWithRetry(url, attempt + 1);
+  }
+  return res;
+}
+
+async function fetchExactSongByTitle(artist, track) {
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${track}`)}&entity=song&limit=5`;
+  const res = await fetchWithRetry(url);
+  if (!res.ok) throw new Error(`iTunes search ${res.status} sur ${url}`);
+  const data = await res.json();
+  const results = data.results || [];
+  const wantedArtist = normalizeForMatch(artist);
+  const wantedTrack = normalizeForMatch(track);
+  const match =
+    results.find(
+      (r) =>
+        normalizeForMatch(r.artistName).includes(wantedArtist) &&
+        normalizeForMatch(r.trackName).includes(wantedTrack),
+    ) || results[0];
+  return match ? mapItunesSongResult(match) : null;
 }
 
 async function musicGenreSources() {
@@ -1310,7 +1540,7 @@ function storeMusicDecades(rows) {
 
 async function fetchMusicEntities() {
   const sources = [
-    ...withFilterCodes(MUSIC_STATIC_LISTS, "liste"),
+    ...Object.values(MUSIC_STATIC_LISTS),
     ...(await musicGenreSources()),
   ];
   const tracks = new Map();
@@ -1336,7 +1566,12 @@ async function fetchMusicEntities() {
         } else {
           tracks.set(t.id, { ...t, genre });
         }
-        tagFilter(filterTagsByItemId, t.id, src.filterGroup, src.filterCode);
+        // sources genre (musicGenreSources) : pas de tag liste/geographie,
+        // leur genre est géré séparément ci-dessus via `t.genre`.
+        if (!src.genreId) {
+          tagFilter(filterTagsByItemId, t.id, "liste", "popular");
+          tagFilter(filterTagsByItemId, t.id, "geographie", src.country);
+        }
       }
     } catch (e) {
       logWarn(
@@ -1345,6 +1580,35 @@ async function fetchMusicEntities() {
       );
     }
   });
+
+  // classiques "blind test" (config.json: music.blindtestSongs) —
+  // recherchés par titre EXACT à chaque crawl (pas d'id pré-résolu à
+  // maintenir), pour garantir leur présence même quand ils ne sont plus
+  // dans le chart courant d'aucun pays. Tag "liste"/"blindtest" dédié, pas
+  // de geographie (pas issus d'un chart pays).
+  await mapWithConcurrency(
+    MUSIC_BLINDTEST_SONGS,
+    CATEGORY_FETCH_CONCURRENCY,
+    async (song) => {
+      try {
+        const t = await fetchExactSongByTitle(song.artist, song.track);
+        if (!t) return;
+        const existing = tracks.get(t.id);
+        if (existing) {
+          if (!existing.genre && t.genre) existing.genre = t.genre;
+        } else {
+          tracks.set(t.id, t);
+        }
+        tagFilter(filterTagsByItemId, t.id, "liste", "blindtest");
+      } catch (e) {
+        logWarn(
+          `Erreur blind-test morceau "${song.artist} - ${song.track}":`,
+          e.message,
+        );
+      }
+    },
+  );
+
   const rows = [...tracks.values()];
   db.upsertMusicTracks(rows);
   storeMusicGenres(rows);
@@ -1353,17 +1617,24 @@ async function fetchMusicEntities() {
     "music",
     rows.map((r) => r.id),
   );
-  storeFilterGroup("music", "liste", MUSIC_STATIC_LISTS, rows, filterTagsByItemId);
+  storeFilterGroup(
+    "music",
+    "liste",
+    { popular: { label: "Populaire" }, blindtest: { label: "Classiques" } },
+    rows,
+    filterTagsByItemId,
+  );
+  storeFilterGroup("music", "geographie", MUSIC_COUNTRY_FILTERS, rows, filterTagsByItemId);
 }
 
 // pendant léger de fetchMusicEntities : ne retouche que les listes (Populaire
-// par pays), sans redemander les genres ni la décennie — cadence bien plus
-// courte (voir TTL_MS.listPool ; voir aussi refreshMovieLists pour le même
-// principe). MUSIC_STATIC_LISTS n'a jamais de genreId (réservé à
-// musicGenreSources), donc toujours la voie chart pays ici, jamais
-// fetchMusicGenreTracks.
+// par pays) et la géographie qui en dérive, sans redemander les genres ni la
+// décennie — cadence bien plus courte (voir TTL_MS.listPool ; voir aussi
+// refreshMovieLists pour le même principe). MUSIC_STATIC_LISTS n'a jamais de
+// genreId (réservé à musicGenreSources), donc toujours la voie chart pays
+// ici, jamais fetchMusicGenreTracks.
 async function refreshMusicLists() {
-  const sources = withFilterCodes(MUSIC_STATIC_LISTS, "liste");
+  const sources = Object.values(MUSIC_STATIC_LISTS);
   const tracks = new Map();
   const filterTagsByItemId = new Map();
   await mapWithConcurrency(sources, CATEGORY_FETCH_CONCURRENCY, async (src) => {
@@ -1371,7 +1642,8 @@ async function refreshMusicLists() {
       const list = await fetchMusicChartTracks(src);
       for (const t of list) {
         if (!tracks.has(t.id)) tracks.set(t.id, t);
-        tagFilter(filterTagsByItemId, t.id, src.filterGroup, src.filterCode);
+        tagFilter(filterTagsByItemId, t.id, "liste", "popular");
+        tagFilter(filterTagsByItemId, t.id, "geographie", src.country);
       }
     } catch (e) {
       logWarn(`Erreur listes musique (${src.country}):`, e.message);
@@ -1379,7 +1651,8 @@ async function refreshMusicLists() {
   });
   const rows = [...tracks.values()];
   db.upsertMusicTracks(rows);
-  storeFilterGroup("music", "liste", MUSIC_STATIC_LISTS, rows, filterTagsByItemId);
+  storeFilterGroup("music", "liste", { popular: { label: "Populaire" } }, rows, filterTagsByItemId);
+  storeFilterGroup("music", "geographie", MUSIC_COUNTRY_FILTERS, rows, filterTagsByItemId);
 }
 
 // pool d'acteurs pour un pays donné : part des films populaires DE ce pays
@@ -1422,6 +1695,7 @@ async function fetchPersonCountryActors(originCountry) {
             externalId: String(c.id),
             name: c.name,
             profileImageUrl: `https://image.tmdb.org/t/p/w500${c.profile_path}`,
+            popularity: c.popularity ?? null,
           });
           surrogateIds.add(personId);
         }
@@ -1438,16 +1712,18 @@ async function fetchPersonEntities() {
     Object.values(PERSON_STATIC_LISTS),
     "person",
   );
-  const surrogateIds = new Set(
+  const popularIds = new Set(
     popular.map((p) =>
       db.upsertPerson({
         source: "tmdb",
         externalId: String(p.id),
         name: p.name,
         profileImageUrl: `https://image.tmdb.org/t/p/w500${p.profile_path}`,
+        popularity: p.popularity ?? null,
       }),
     ),
   );
+  const surrogateIds = new Set(popularIds);
   await mapWithConcurrency(
     COUNTRY_TARGETS,
     CATEGORY_FETCH_CONCURRENCY,
@@ -1469,6 +1745,25 @@ async function fetchPersonEntities() {
     "person",
     "role",
     ids.map((id) => ({ entityId: id, codes: ["actor"] })),
+  );
+  // "Populaire" (source person_popular, comme movie/tv/game) : replaceEntityFilters
+  // (pas addEntityFilters) sur TOUT `ids` pour bien retirer le tag d'un
+  // acteur qui ne serait plus dans person_popular à un crawl suivant.
+  db.upsertFilters("person", "liste", [
+    { code: "person_popular", name: "Populaire" },
+  ]);
+  db.replaceEntityFilters(
+    "person",
+    "liste",
+    ids.map((id) => ({
+      entityId: id,
+      codes: popularIds.has(id) ? ["person_popular"] : [],
+    })),
+  );
+  storePopularityTiers(
+    "person",
+    db.getPersonPopularity(ids).map((p) => ({ entityId: p.id, value: p.popularity })),
+    popularIds,
   );
 }
 

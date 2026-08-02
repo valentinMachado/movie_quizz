@@ -23,6 +23,15 @@ export const synopsisSecRange = document.getElementById("synopsisSecRange");
 export const synopsisSecNumber = document.getElementById(
   "synopsisSecNumber",
 );
+export const synopsisPerItemRange = document.getElementById(
+  "synopsisPerItemRange",
+);
+export const synopsisPerItemNumber = document.getElementById(
+  "synopsisPerItemNumber",
+);
+export const groupSynopsisPerItemParams = document.getElementById(
+  "groupSynopsisPerItemParams",
+);
 export const chipsListes = document.getElementById("chipsListes");
 export const chipsDecades = document.getElementById("chipsDecades");
 export const chipsGenres = document.getElementById("chipsGenres");

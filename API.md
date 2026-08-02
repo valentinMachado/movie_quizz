@@ -19,13 +19,13 @@ Tout ce dont le client a besoin pour construire son UI de sélection : par type,
       "geographie": [{ "code": "fr", "name": "France" }]
     }
   },
-  "tv": { "questionTypes": ["image", "synopsis"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
-  "person": { "questionTypes": ["image"], "filters": { "role": [{ "code": "actor", "name": "Acteur" }, { "code": "director", "name": "Réalisateur" }, { "code": "painter", "name": "Peintre" }] } },
+  "tv": { "questionTypes": ["image", "synopsis"], "filters": { "genre": [...], "liste": [...], "decennie": [...], "geographie": [...] } },
+  "person": { "questionTypes": ["image"], "filters": { "role": [{ "code": "actor", "name": "Acteur" }, { "code": "director", "name": "Réalisateur" }, { "code": "painter", "name": "Peintre" }], "liste": [...] } },
   "game": { "questionTypes": ["image", "synopsis"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
-  "music": { "questionTypes": ["audio"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
+  "music": { "questionTypes": ["audio"], "filters": { "genre": [...], "liste": [...], "decennie": [...], "geographie": [...] } },
   "country": { "questionTypes": ["image", "flag"], "filters": {} },
   "painter": { "questionTypes": ["image"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } },
-  "director": { "questionTypes": ["image"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } }
+  "director": { "questionTypes": ["image", "synopsis"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } }
 }
 ```
 
@@ -50,7 +50,7 @@ Taille du pool pour une sélection donnée — sert à afficher "N éléments di
 ## `GET /api/stats`
 
 ```json
-{ "totalGenerated": 1234, "version": "1.2.1", "ready": true }
+{ "totalGenerated": 1234, "version": "1.2.2", "ready": true }
 ```
 `ready` = la base a au moins un pool non vide ET les warmLoops "bloquants" (tableaux de peintre, photos pays si Pexels configuré) sont à jour pour tout ce qui est actuellement dans le pool. `false` typiquement juste après une repopulation, tant que le chauffage progressif tourne encore.
 
@@ -63,6 +63,7 @@ Génère un batch de questions.
 {
   "count": 20,
   "imagesPerItem": 3,
+  "synopsisPerItem": 2,
   "exclude": [123, 456],
   "selections": [
     { "type": "movie", "questionType": "image", "filters": { "liste": ["popular"] } },
@@ -72,7 +73,8 @@ Génère un batch de questions.
 }
 ```
 - `count` : clampé serveur entre 5 et 50.
-- `imagesPerItem` : clampé serveur entre 1 et 5.
+- `imagesPerItem` : clampé serveur entre 1 et 5 — **borne haute**, pas une garantie : un item avec moins d'images disponibles que ça reçoit simplement moins de frames plutôt qu'une répétition (voir table des formes ci-dessous).
+- `synopsisPerItem` : clampé serveur entre 1 et 5, même principe que `imagesPerItem` mais pour `director:synopsis` uniquement (seul type/questionType qui cycle plusieurs synopsis) — sans effet sur les autres formes.
 - `exclude` : ids à éviter (voir "ids à offset" plus bas) — si pas assez d'items restent disponibles, le serveur ignore `exclude` entièrement pour ce batch et le signale via `recycled: true` plutôt que de renvoyer moins que `count`.
 - `selections` : **requis, au moins une entrée**. Chaque entrée est un bucket indépendant `{type, questionType, filters?}` — c'est ce qui permet des filtres différents pour `movie:image` et `movie:synopsis` dans la même requête. Deux entrées avec la même paire `type:questionType` (filtres différents) sont fusionnées dans un seul bucket de stratification (leurs pools s'additionnent).
 - 503 si la base n'a encore aucun pool peuplé du tout (`{"error": "..."}`, message affichable tel quel).
@@ -87,6 +89,7 @@ Génère un batch de questions.
   "delivered": 18,
   "excludedCount": 2,
   "imagesPerItem": 3,
+  "synopsisPerItem": 2,
   "poolSize": 57,
   "totalGenerated": 1235
 }
@@ -103,6 +106,7 @@ Champs communs à toutes les formes : `id`, `title`, `type`, `questionType`, `po
 | `movie:synopsis`, `tv:synopsis`, `game:synopsis` | `overview: string` |
 | `person:image`, `game:image`, `painter:image` | `imageUrls: string[]` |
 | `director:image` | `imageUrls: string[]` (affiches des films réalisés — pas une photo du réalisateur, révélée uniquement à l'écran réponse) ; `imageTitles: (string\|null)[]` (titre du film affiché en incrustation sur chaque image de devinette, même index qu'`imageUrls`) |
+| `director:synopsis` | `overviews: string[]` (synopsis rédigés de plusieurs films réalisés, cyclés comme des frames côté client, un par élément — nom du réalisateur masqué dans le texte, pas le titre du film) ; `movieTitles: (string\|null)[]` (titre du film source de chaque synopsis, même index qu'`overviews`) |
 | `country:image` | `imageUrls: string[]` (photos du pays — **pas** le drapeau) |
 | `country:flag` | pas d'`imageUrls` — `posterUrl` **est** l'image à deviner (le drapeau) ; `capital: string` |
 | `music:audio` | pas d'`imageUrls` — `previewUrl: string` (extrait audio) |
@@ -120,6 +124,7 @@ Uniquement via `POST /api/quiz-daily` (jamais en `/api/quiz-batch`) : `reason?: 
 - `person:image` pour une entrée source Wikidata (peintre avec `role:"painter"`, id naturel = QID) : `+ 6_000_000_000_000`
 - `director:image` : `+ 7_000_000_000_000`
 - `game:synopsis` : `+ 8_000_000_000_000`
+- `director:synopsis` : `+ 9_000_000_000_000`
 - Toutes les autres formes : id naturel tel quel.
 
 Le client n'a jamais besoin de connaître ce détail au-delà de "les ids sont opaques et stables, à traiter comme des clés".
@@ -130,9 +135,9 @@ Génère le "quiz du jour" : contrairement à `/api/quiz-batch`, pas de `selecti
 
 ```json
 // requête
-{ "imagesPerItem": 3 }
+{ "imagesPerItem": 3, "synopsisPerItem": 2 }
 ```
-- `imagesPerItem` : clampé serveur entre 1 et 5 (même borne que `/api/quiz-batch`). Pas de `count` ni de `selections` : ignorés s'ils sont envoyés.
+- `imagesPerItem`/`synopsisPerItem` : mêmes bornes et sémantique que `/api/quiz-batch`. Pas de `count` ni de `selections` : ignorés s'ils sont envoyés. En pratique le pool "quiz du jour" ne produit aujourd'hui aucun item `director` (les anniversaires n'en construisent pas), donc `synopsisPerItem` n'y a pour l'instant aucun effet observable — accepté quand même pour rester symétrique avec `/api/quiz-batch`.
 - 503 si la base n'a encore aucun pool peuplé, ou si aucun contenu n'est disponible pour le jour même (`{"error": "..."}`, message affichable tel quel).
 
 ```json
@@ -144,6 +149,7 @@ Génère le "quiz du jour" : contrairement à `/api/quiz-batch`, pas de `selecti
   "delivered": 8,
   "excludedCount": 0,
   "imagesPerItem": 3,
+  "synopsisPerItem": 2,
   "totalGenerated": 1235
 }
 ```

@@ -16,6 +16,7 @@ import {
   groupAudioParams,
   groupFlagParams,
   groupSynopsisParams,
+  groupSynopsisPerItemParams,
   groupImageParams,
   countRange,
   countNumber,
@@ -97,12 +98,18 @@ export function updateSettingsVisibility() {
   const hasSynopsis = [...state.activeQuestionTypes].some((k) =>
     k.endsWith(":synopsis"),
   );
+  // "director:synopsis" cycle PLUSIEURS synopsis (voir timeline.js) : le
+  // réglage "nombre de synopsis" n'a de sens que pour cette combinaison
+  // précise, pas pour movie/tv/game:synopsis (toujours 1 synopsis, bloc
+  // statique) — d'où un contrôle de visibilité dédié, distinct de hasSynopsis.
+  const hasDirectorSynopsis = state.activeQuestionTypes.has("director:synopsis");
   const hasStandard = [...state.activeQuestionTypes].some(
     (k) => k !== "music:audio" && k !== "country:flag" && !k.endsWith(":synopsis"),
   );
   groupAudioParams.style.display = hasMusic ? "" : "none";
   groupFlagParams.style.display = hasFlag ? "" : "none";
   groupSynopsisParams.style.display = hasSynopsis ? "" : "none";
+  groupSynopsisPerItemParams.style.display = hasDirectorSynopsis ? "" : "none";
   groupImageParams.style.display = hasStandard ? "" : "none";
 }
 

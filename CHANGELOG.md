@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2 — 2026-08-03
+
+- Le type "réalisateur" gagne un mode synopsis (`type: "director"`, `questionType: "synopsis"`) : deviner le réalisateur à partir des résumés (rédigés) de plusieurs de ses films, cyclés comme des frames (nouveau réglage `synopsisPerItem`), avec le titre du film source affiché en légende.
+- Fix : un item avec moins d'images/synopsis disponibles que demandé (`imagesPerItem`/`synopsisPerItem`) affichait la même image/le même synopsis en double pour compléter ; il obtient maintenant simplement moins de frames plutôt qu'une répétition — pour tous les types.
+- Fix : le son de fond de la phase de devinette d'un item à synopsis multiples (réalisateur) se coupait et refondait à chaque changement de synopsis au lieu de courir sur toute la devinette.
+- Les séries gagnent un filtre géographique par pays (`geographie`), comme les films/acteurs/musique/peintres.
+- Nouveaux paliers de popularité ("Obscur"/"Niche", en plus de "Populaire" existant) pour films/séries/jeux/acteurs-réalisateurs-peintres, recalculés à chaque refresh complet à partir de la popularité/nombre d'avis propre à chaque source (peintres : palier "Populaire" inclus aussi, faute de liste "Populaire" séparée à exclure).
+- La musique gagne une liste "Classiques" (blind-test) de morceaux connus recherchés par titre exact à chaque refresh, ainsi qu'un filtre géographique par pays de chart.
+
 ## 1.2.1 — 2026-08-02
 
 - Nouveau "quiz du jour" (`POST /api/quiz-daily`) : sélection automatique sans filtre côté client, mélangeant anniversaires de sortie/naissance du jour (films, jeux vidéo, musique, acteurs/réalisateurs/peintres) et listes tendance/charts du jour (movie/tv/game/music), le tout mélangé une seule fois par un seed dérivé de la date pour que le quiz reste identique toute la journée. Chaque item porte une `reason` affichée à l'écran réponse (ex. "Tendances du jour (Films)", "Sorti il y a 7 ans"), avec une icône dédiée pour les anniversaires.

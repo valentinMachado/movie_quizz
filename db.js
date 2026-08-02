@@ -269,6 +269,20 @@ function migrate() {
       if (!/duplicate column name/i.test(e.message)) throw e;
     }
   }
+  for (const [table, cols] of [
+    ["movie", movieCols],
+    ["tv_show", db.prepare("PRAGMA table_info(tv_show)").all().map((c) => c.name)],
+    ["game", db.prepare("PRAGMA table_info(game)").all().map((c) => c.name)],
+    ["person", personCols],
+  ]) {
+    if (!cols.includes("popularity")) {
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN popularity REAL`);
+      } catch (e) {
+        if (!/duplicate column name/i.test(e.message)) throw e;
+      }
+    }
+  }
 }
 
 export function init(filePath) {
@@ -313,20 +327,35 @@ export function upsertPerson({
   name,
   profileImageUrl = null,
   portraitImageUrl = null,
+  popularity = null,
 }) {
   const now = Date.now();
   db.prepare(
-    `INSERT INTO person (source, external_id, name, profile_image_url, portrait_image_url, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO person (source, external_id, name, profile_image_url, portrait_image_url, popularity, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source, external_id) DO UPDATE SET
        name = excluded.name,
        profile_image_url = COALESCE(excluded.profile_image_url, person.profile_image_url),
        portrait_image_url = COALESCE(excluded.portrait_image_url, person.portrait_image_url),
+       popularity = COALESCE(excluded.popularity, person.popularity),
        updated_at = excluded.updated_at`,
-  ).run(source, externalId, name, profileImageUrl, portraitImageUrl, now);
+  ).run(source, externalId, name, profileImageUrl, portraitImageUrl, popularity, now);
   return db
     .prepare("SELECT id FROM person WHERE source = ? AND external_id = ?")
     .get(source, externalId).id;
+}
+
+// popularité déjà persistée pour un lot de person.id — utilisé par
+// storePopularityTiers("person", ...) : les acteurs sont upsertés par deux
+// sources indépendantes (voir fetchPersonEntities), pas de tableau en
+// mémoire prêt à l'emploi à la fin du crawl.
+export function getPersonPopularity(ids) {
+  if (ids.length === 0) return [];
+  return db
+    .prepare(
+      `SELECT id, popularity FROM person WHERE id IN (${ids.map(() => "?").join(",")})`,
+    )
+    .all(...ids);
 }
 
 export function getPersonById(id) {
@@ -393,16 +422,16 @@ export function getPainterArtworks(painterId) {
 export function upsertMovies(rows) {
   const now = Date.now();
   const insert = db.prepare(
-    `INSERT INTO movie (id, title, poster_path, overview, release_date, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO movie (id, title, poster_path, overview, release_date, popularity, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title, poster_path = excluded.poster_path,
        overview = excluded.overview, release_date = excluded.release_date,
-       updated_at = excluded.updated_at`,
+       popularity = excluded.popularity, updated_at = excluded.updated_at`,
   );
   const tx = db.transaction((items) => {
     for (const m of items)
-      insert.run(m.id, m.title, m.posterPath, m.overview || "", m.releaseDate || null, now);
+      insert.run(m.id, m.title, m.posterPath, m.overview || "", m.releaseDate || null, m.popularity ?? null, now);
   });
   tx(rows);
 }
@@ -519,15 +548,16 @@ export function addDirectorFilmography(personId, movies) {
 export function upsertTvShows(rows) {
   const now = Date.now();
   const insert = db.prepare(
-    `INSERT INTO tv_show (id, title, poster_path, overview, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO tv_show (id, title, poster_path, overview, popularity, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title, poster_path = excluded.poster_path,
-       overview = excluded.overview, updated_at = excluded.updated_at`,
+       overview = excluded.overview, popularity = excluded.popularity,
+       updated_at = excluded.updated_at`,
   );
   const tx = db.transaction((items) => {
     for (const t of items)
-      insert.run(t.id, t.title, t.posterPath, t.overview || "", now);
+      insert.run(t.id, t.title, t.posterPath, t.overview || "", t.popularity ?? null, now);
   });
   tx(rows);
 }
@@ -541,16 +571,16 @@ export function getTvShow(id) {
 export function upsertGames(rows) {
   const now = Date.now();
   const insert = db.prepare(
-    `INSERT INTO game (id, title, cover_image_id, summary, release_date, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO game (id, title, cover_image_id, summary, release_date, popularity, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title, cover_image_id = excluded.cover_image_id,
        summary = excluded.summary, release_date = excluded.release_date,
-       updated_at = excluded.updated_at`,
+       popularity = excluded.popularity, updated_at = excluded.updated_at`,
   );
   const tx = db.transaction((items) => {
     for (const g of items)
-      insert.run(g.id, g.title, g.coverImageId, g.summary || null, g.releaseDate || null, now);
+      insert.run(g.id, g.title, g.coverImageId, g.summary || null, g.releaseDate || null, g.popularity ?? null, now);
   });
   tx(rows);
 }
@@ -1040,6 +1070,20 @@ export function getDirectorMoviePosters(personId) {
     .all(personId);
 }
 
+// même principe que getDirectorMoviePosters ci-dessus mais pour le mode
+// "deviner le réalisateur via le synopsis" (questionType "synopsis") :
+// overview déjà présent sur movie, y compris pour les films ajoutés
+// uniquement via la filmographie complétée (voir addDirectorFilmography).
+export function getDirectorMovieSynopses(personId) {
+  return db
+    .prepare(
+      `SELECT m.title AS title, m.overview AS overview FROM movie_director md
+       JOIN movie m ON m.id = md.movie_id
+       WHERE md.person_id = ? AND m.overview IS NOT NULL AND m.overview != ''`,
+    )
+    .all(personId);
+}
+
 // dev/test uniquement (--max-type-count) : réduit le pool global d'un
 // type à N entités distinctes au total — pour que les warm loops
 // (tableaux/réalisateurs/photos pays) n'aient qu'une poignée de cibles à
@@ -1116,6 +1160,30 @@ export function replaceEntityFilters(type, filterGroup, entries) {
   const tx = db.transaction((items) => {
     for (const { entityId, codes } of items) {
       del.run(type, filterGroup, entityId);
+      for (const code of codes) insert.run(type, entityId, filterGroup, code);
+    }
+  });
+  tx(entries);
+}
+
+// entries: [{ entityId, codes }] — comme replaceEntityFilters, mais ne
+// remplace qu'un SOUS-ENSEMBLE connu de codes (`codes` du groupe), sans
+// toucher aux autres codes déjà posés par un autre appelant dans le même
+// groupe. Sert quand deux appelants distincts alimentent le même groupe
+// avec des univers de codes disjoints (ex. "liste" : appartenance à une
+// liste éditoriale ET palier de popularité, voir storePopularityTiers dans
+// refresh.js) — un replaceEntityFilters classique écraserait l'un avec
+// l'autre selon l'ordre d'appel.
+export function replaceEntityFilterSubset(type, filterGroup, codesUniverse, entries) {
+  const del = db.prepare(
+    `DELETE FROM entity_filter WHERE type = ? AND filter_group = ? AND entity_id = ? AND code IN (${codesUniverse.map(() => "?").join(",")})`,
+  );
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO entity_filter (type, entity_id, filter_group, code) VALUES (?, ?, ?, ?)",
+  );
+  const tx = db.transaction((items) => {
+    for (const { entityId, codes } of items) {
+      del.run(type, filterGroup, entityId, ...codesUniverse);
       for (const code of codes) insert.run(type, entityId, filterGroup, code);
     }
   });

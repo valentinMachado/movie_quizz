@@ -231,6 +231,23 @@ export async function renderFast() {
       ) {
         i++; // déjà couvert par le buffer de devinette ajouté ci-dessus
       }
+    } else if (seg.type === "synopsis-guess" && seg.frameIdx === 0) {
+      // director : plusieurs synopsis cyclés comme des frames (voir
+      // timeline.js), même traitement que "guess" ci-dessus — un seul
+      // buffer ambiant couvrant tout itemGuessDur, pas un par frame
+      // (sinon le fondu de fin se répète et recommence à chaque synopsis
+      // au lieu de courir sur toute la devinette).
+      const m = state.items[seg.itemIdx];
+      await audioSource.add(
+        m.guessAudioBuffer || silentBuffer(seg.itemGuessDur),
+      );
+      while (
+        state.timeline[i + 1] &&
+        state.timeline[i + 1].type === "synopsis-guess" &&
+        state.timeline[i + 1].itemIdx === seg.itemIdx
+      ) {
+        i++; // déjà couvert par le buffer ajouté ci-dessus
+      }
     } else if (
       seg.type === "flag-guess" ||
       seg.type === "synopsis-guess"

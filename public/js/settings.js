@@ -16,6 +16,8 @@ import {
   flagSecNumber,
   synopsisSecRange,
   synopsisSecNumber,
+  synopsisPerItemRange,
+  synopsisPerItemNumber,
   durationHint,
 } from "./dom.js";
 
@@ -43,6 +45,9 @@ export function currentFlagSec() {
 export function currentSynopsisSec() {
   return parseInt(synopsisSecNumber.value, 10) || 20;
 }
+export function currentSynopsisPerItem() {
+  return parseInt(synopsisPerItemNumber.value, 10) || 1;
+}
 
 export function formatDuration(totalSec) {
   const m = Math.floor(totalSec / 60),
@@ -57,10 +62,17 @@ export function totalDurationSec() {
   // réelle du pool, on moyenne donc simplement les buckets des combos
   // "type:questionType" actuellement actifs (approximation suffisante
   // pour un simple indicateur de durée)
+  // "director:synopsis" cycle plusieurs synopsis (voir timeline.js), les
+  // autres *:synopsis un seul bloc statique — même logique que "standard"
+  // ci-dessous qui multiplie déjà par imagesPerItem.
+  const hasDirectorSynopsis = state.activeQuestionTypes.has("director:synopsis");
   const itemSecByBucket = {
     music: currentMusicClipSec() + currentRevealSec(),
     flag: currentFlagSec() + currentRevealSec(),
-    synopsis: currentSynopsisSec() + currentRevealSec(),
+    synopsis:
+      (hasDirectorSynopsis ? currentSynopsisPerItem() : 1) *
+        currentSynopsisSec() +
+      currentRevealSec(),
     standard:
       currentImagesPerItem() * currentImageSec() + currentRevealSec(),
   };
@@ -113,6 +125,7 @@ export function saveSettings() {
     musicClipSec: currentMusicClipSec(),
     flagSec: currentFlagSec(),
     synopsisSec: currentSynopsisSec(),
+    synopsisPerItem: currentSynopsisPerItem(),
     renderFps: state.renderFps,
     questionTypes: [...state.activeQuestionTypes],
     filters: [...state.selectedFilters],
@@ -158,6 +171,10 @@ export function applySavedSettings() {
   if (s.synopsisSec) {
     synopsisSecNumber.value = s.synopsisSec;
     synopsisSecRange.value = s.synopsisSec;
+  }
+  if (s.synopsisPerItem) {
+    synopsisPerItemNumber.value = s.synopsisPerItem;
+    synopsisPerItemRange.value = s.synopsisPerItem;
   }
   if (RENDER_QUALITIES.some((q) => q.fps === s.renderFps)) {
     state.renderFps = s.renderFps;

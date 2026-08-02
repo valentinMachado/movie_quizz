@@ -78,12 +78,7 @@ function drawGuess(m, seg, withinMs) {
   ctx.clip();
   drawContain(m.backdropImgs[imgIdx], imgX, imgY, imgW, imgH);
 
-  const g = ctx.createLinearGradient(
-    0,
-    imgY + imgH * 0.62,
-    0,
-    imgY + imgH,
-  );
+  const g = ctx.createLinearGradient(0, imgY + imgH * 0.62, 0, imgY + imgH);
   g.addColorStop(0, "rgba(10,10,16,0)");
   g.addColorStop(1, "rgba(10,10,16,0.88)");
   ctx.fillStyle = g;
@@ -372,7 +367,11 @@ function drawFlagReveal(m, itemIdx, withinMs) {
 
   ctx.font = gameFont(600, 24);
   ctx.fillStyle = "#e8a33d";
-  ctx.fillText(`Capitale : ${m.capital}`, canvas.width / 2, canvas.height - 55 * RS);
+  ctx.fillText(
+    `Capitale : ${m.capital}`,
+    canvas.width / 2,
+    canvas.height - 55 * RS,
+  );
   ctx.restore();
 
   drawBadge(
@@ -390,10 +389,16 @@ function drawFlagReveal(m, itemIdx, withinMs) {
   drawFrameBorder();
 }
 
-// écran de devinette du mode "synopsis" (movie/tv/game) : le texte du
-// résumé remplace l'image, seul l'écran réponse (générique, voir
-// buildTimeline) affiche poster + titre comme le mode "image"
+// écran de devinette du mode "synopsis" (movie/tv/game : un seul bloc
+// statique ; director : plusieurs synopsis cyclés comme des frames, voir
+// timeline.js/seg.frameIdx) : le texte du résumé remplace l'image, seul
+// l'écran réponse (générique, voir buildTimeline) affiche poster + titre
+// comme le mode "image"
 function drawSynopsisGuess(m, seg, withinMs) {
+  const overview = Array.isArray(m.overviews)
+    ? m.overviews[seg.frameIdx]
+    : m.overview;
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGameBackdrop();
   drawGameParticles(withinMs);
@@ -407,7 +412,7 @@ function drawSynopsisGuess(m, seg, withinMs) {
   ctx.shadowColor = "rgba(0,0,0,0.6)";
   ctx.shadowBlur = 10 * RS;
   const lineHeight = 44 * RS;
-  const lines = wrapText(m.overview, boxW);
+  const lines = wrapText(overview, boxW);
   const textH = lines.length * lineHeight;
   // zone verticale sûre, sous la barre de progression et au-dessus des
   // badges (voir drawGameProgress/drawBadge plus bas) : le texte y est
@@ -437,7 +442,14 @@ function drawSynopsisGuess(m, seg, withinMs) {
   });
   ctx.restore();
 
-  drawGameProgress(withinMs / seg.dur, canvas.width);
+  // barre de progression continue sur tout l'item quand plusieurs synopsis
+  // sont cyclés (director), comme pour les frames du mode image (voir
+  // drawGuess) — sinon (movie/tv/game, bloc unique) progression du seul
+  // segment, comportement inchangé.
+  const progress = seg.itemGuessDur
+    ? (seg.start - seg.itemGuessStart + withinMs) / seg.itemGuessDur
+    : withinMs / seg.dur;
+  drawGameProgress(progress, canvas.width);
 
   drawBadge(
     `N° ${seg.itemIdx + 1} / ${state.items.length}`,
@@ -468,9 +480,7 @@ export function drawSegment(seg, withinMs) {
   else if (seg.type === "music-reveal")
     drawMusicReveal(m, seg.itemIdx, withinMs);
   else if (seg.type === "flag-guess") drawFlagGuess(m, seg, withinMs);
-  else if (seg.type === "flag-reveal")
-    drawFlagReveal(m, seg.itemIdx, withinMs);
-  else if (seg.type === "synopsis-guess")
-    drawSynopsisGuess(m, seg, withinMs);
+  else if (seg.type === "flag-reveal") drawFlagReveal(m, seg.itemIdx, withinMs);
+  else if (seg.type === "synopsis-guess") drawSynopsisGuess(m, seg, withinMs);
   else drawReveal(m, seg.itemIdx, withinMs);
 }

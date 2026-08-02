@@ -71,7 +71,7 @@ export const QUESTION_TYPE_DETAILS = {
 // (getDirectorMoviePosters)
 const QUESTION_TYPE_LABEL_OVERRIDES = {
   painter: { image: "Tableau" },
-  director: { image: "Filmographie" },
+  director: { image: "Filmographie", synopsis: "Filmographie" },
 };
 
 export function questionTypeInfo(type, questionType) {

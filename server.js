@@ -18,6 +18,10 @@ const MIN_COUNT = 5;
 const MAX_COUNT = 50;
 const MIN_IMAGES_PER_ITEM = 1;
 const MAX_IMAGES_PER_ITEM = 5;
+// nombre de synopsis cyclés pour director:synopsis (voir selectItemsWithBackdrops)
+// — réglage indépendant de imagesPerItem, qui n'a pas de sens pour ce mode.
+const MIN_SYNOPSIS_PER_ITEM = 1;
+const MAX_SYNOPSIS_PER_ITEM = 5;
 const IMAGE_FETCH_CONCURRENCY = 8;
 
 // lecture de config uniquement (pas d'appel réseau) — sert seulement à ne
@@ -62,6 +66,11 @@ const PERSON_WIKIDATA_ID_OFFSET = 6_000_000_000_000;
 // qui s'écraseraient l'un l'autre dans itemsFromSelections si les deux sont
 // sélectionnés ensemble.
 const DIRECTOR_ID_OFFSET = 7_000_000_000_000;
+// même réalisateur, même id TMDb, mais un mode "synopsis" distinct du mode
+// "image" ci-dessus (DIRECTOR_ID_OFFSET) : sans cet offset propre, les deux
+// s'écraseraient l'un l'autre si director:image et director:synopsis sont
+// sélectionnés ensemble (même piège que DIRECTOR_ID_OFFSET vs person).
+const DIRECTOR_SYNOPSIS_ID_OFFSET = 9_000_000_000_000;
 // en dessous, un synopsis est jugé trop court pour être une devinette
 // exploitable (ex: "Documentaire.")
 const MIN_SYNOPSIS_LEN = 30;
@@ -71,6 +80,8 @@ function toPoolId(type, questionType, naturalId) {
     return COUNTRY_ID_OFFSET_IMAGE + naturalId;
   if (type === "country" && questionType === "flag")
     return COUNTRY_ID_OFFSET_FLAG + naturalId;
+  if (type === "director" && questionType === "synopsis")
+    return DIRECTOR_SYNOPSIS_ID_OFFSET + naturalId;
   if (type === "painter") return PAINTER_ID_OFFSET + naturalId;
   if (type === "director") return DIRECTOR_ID_OFFSET + naturalId;
   if (questionType === "synopsis") return SYNOPSIS_ID_OFFSET[type] + naturalId;
@@ -279,18 +290,18 @@ function materializePainterRow(p) {
   };
 }
 
-function materializeDirectorRow(p) {
+function materializeDirectorRow(p, questionType) {
   // source toujours "tmdb" (crédits de réalisation, voir refresh.js) :
   // external_id est déjà l'id TMDb numérique, pas de préfixe à retirer
   // (contrairement aux peintres, source wikidata).
   return {
-    id: toPoolId("director", "image", Number(p.external_id)),
+    id: toPoolId("director", questionType, Number(p.external_id)),
     title: p.name,
     type: "director",
-    questionType: "image",
-    // photo du réalisateur, révélée à l'écran de réponse — les images de
-    // devinette sont les affiches de ses films (voir getBackdropsForItem),
-    // pas cette photo.
+    questionType,
+    // photo du réalisateur, révélée à l'écran de réponse — les images/
+    // synopsis de devinette viennent de ses films (voir
+    // selectItemsWithBackdrops), pas cette photo.
     posterUrl: p.profile_image_url,
     personId: p.id,
   };
@@ -343,9 +354,10 @@ const TYPES = {
     materialize: (rows) => rows.map(materializePainterRow),
   },
   director: {
-    questionTypes: ["image"],
+    questionTypes: ["image", "synopsis"],
     getPool: db.getDirectorPool,
-    materialize: (rows) => rows.map(materializeDirectorRow),
+    materialize: (rows, questionType) =>
+      rows.map((p) => materializeDirectorRow(p, questionType)),
   },
 };
 
@@ -582,14 +594,18 @@ function getBackdropsForItem(item, need) {
     voted.length >= Math.min(need, ratioPool.length) ? voted : ratioPool;
 
   // objets bruts (pas juste l'url) : "director" y accroche aussi `title`,
-  // voir l'appelant (selectItemsWithBackdrops).
-  return pickFromPool(finalPool, need);
+  // voir l'appelant (selectItemsWithBackdrops). Pas de répétition quand le
+  // pool est plus petit que `need` (même principe que director:synopsis
+  // ci-dessous) : le nombre de frames s'adapte à ce qui existe vraiment
+  // pour cet item plutôt que de remontrer une image déjà vue.
+  return pickFromPool(finalPool, Math.min(need, finalPool.length));
 }
 
 async function selectItemsWithBackdrops(
   candidatesShuffled,
   count,
   imagesPerItem,
+  synopsisPerItem,
 ) {
   const result = [];
   let excludedCount = 0;
@@ -598,15 +614,50 @@ async function selectItemsWithBackdrops(
   while (result.length < count && idx < candidatesShuffled.length) {
     const batch = candidatesShuffled.slice(idx, idx + batchSize);
     idx += batchSize;
-    // seul questionType "image" a besoin de backdrops — pour les autres
-    // (synopsis/flag/audio), `m` EST déjà la forme finale attendue par le
-    // client : elle vient telle quelle de materializeMovieLikeRows/
-    // materializeCountryRows/materializeMusicTrackRow (voir TYPES), pas
-    // besoin de la reconstruire ici.
+    // seul questionType "image" a besoin de backdrops (et director:synopsis
+    // de synopsis de films, cas à part ci-dessous) — pour les autres
+    // (movie/tv/game:synopsis, flag, audio), `m` EST déjà la forme finale
+    // attendue par le client : elle vient telle quelle de
+    // materializeMovieLikeRows/materializeCountryRows/materializeMusicTrackRow
+    // (voir TYPES), pas besoin de la reconstruire ici.
     const withImages = await mapWithConcurrency(
       batch,
       IMAGE_FETCH_CONCURRENCY,
       async (m) => {
+        if (m.type === "director" && m.questionType === "synopsis") {
+          // synopsis de plusieurs films réalisés, cyclés comme frames côté
+          // client (comme les affiches du mode "image") — on masque le nom
+          // du RÉALISATEUR (pas un titre de film, contrairement à
+          // materializeMovieLikeRows/materializeGameRows) puisque c'est lui
+          // la réponse à deviner ici.
+          const synopses = db
+            .getDirectorMovieSynopses(m.personId)
+            .map((s) => ({
+              title: s.title,
+              overview: redactTitle((s.overview || "").trim(), m.title),
+            }))
+            .filter((s) => s.overview.length >= MIN_SYNOPSIS_LEN);
+          if (synopses.length === 0) return null;
+          // pas de répétition ici (contrairement aux affiches, voir
+          // getBackdropsForItem) : revoir deux fois le MÊME paragraphe est
+          // bien plus visible/gênant qu'une affiche répétée — on plafonne
+          // plutôt le nombre de frames à ce que ce réalisateur a vraiment.
+          const picked = pickFromPool(
+            synopses,
+            Math.min(synopsisPerItem, synopses.length),
+          );
+          return {
+            id: m.id,
+            title: m.title,
+            posterUrl: m.posterUrl,
+            type: m.type,
+            questionType: m.questionType,
+            overviews: picked.map((s) => s.overview),
+            movieTitles: picked.map((s) => s.title),
+            ...(m.reason ? { reason: m.reason } : {}),
+            ...(m.isAnniversary ? { isAnniversary: true } : {}),
+          };
+        }
         if (m.questionType !== "image") return m;
         const backdrops = getBackdropsForItem(m, imagesPerItem);
         if (backdrops.length === 0) return null;
@@ -888,12 +939,17 @@ app.post("/api/quiz-daily", async (req, res) => {
     MAX_IMAGES_PER_ITEM,
     Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
   );
+  const synopsisPerItem = Math.min(
+    MAX_SYNOPSIS_PER_ITEM,
+    Math.max(MIN_SYNOPSIS_PER_ITEM, parseInt(body.synopsisPerItem, 10) || 1),
+  );
   const count = picked.length;
 
   const { items: withImages, excludedCount } = await selectItemsWithBackdrops(
     seededShuffle(picked, rng),
     count,
     imagesPerItem,
+    synopsisPerItem,
   );
 
   res.json({
@@ -903,6 +959,7 @@ app.post("/api/quiz-daily", async (req, res) => {
     delivered: withImages.length,
     excludedCount,
     imagesPerItem,
+    synopsisPerItem,
     totalGenerated: db.recordQuizGenerated(),
   });
 });
@@ -941,6 +998,10 @@ app.post("/api/quiz-batch", async (req, res) => {
     MAX_IMAGES_PER_ITEM,
     Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
   );
+  const synopsisPerItem = Math.min(
+    MAX_SYNOPSIS_PER_ITEM,
+    Math.max(MIN_SYNOPSIS_PER_ITEM, parseInt(body.synopsisPerItem, 10) || 1),
+  );
 
   const count = Math.min(
     MAX_COUNT,
@@ -978,6 +1039,7 @@ app.post("/api/quiz-batch", async (req, res) => {
     picked,
     count,
     imagesPerItem,
+    synopsisPerItem,
   );
 
   res.json({
@@ -987,6 +1049,7 @@ app.post("/api/quiz-batch", async (req, res) => {
     delivered: withImages.length,
     excludedCount,
     imagesPerItem,
+    synopsisPerItem,
     poolSize: all.length,
     totalGenerated: db.recordQuizGenerated(),
   });
