@@ -38,18 +38,17 @@ function questionTypeLabel(m) {
 // "right") et posé juste au-dessus, `badgeCenterY` étant le centre vertical
 // du badge (même hauteur ~44*RS que drawBadge par défaut, voir chrome.js).
 function drawAnniversaryCake(rightX, badgeCenterY) {
-  if (!state.cakeImg) return;
   const h = 120 * RS;
-  const ir = state.cakeImg.width / state.cakeImg.height;
-  const w = h * ir;
   const gap = 14 * RS;
   const badgeHalfH = 22 * RS;
-  const y = badgeCenterY - badgeHalfH - gap - h;
-  const x = rightX - w;
+  const y = badgeCenterY - badgeHalfH - gap - h / 2;
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.5)";
   ctx.shadowBlur = 10 * RS;
-  ctx.drawImage(state.cakeImg, x, y, w, h);
+  ctx.font = `${h}px sans-serif`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🎂", rightX, y);
   ctx.restore();
 }
 
@@ -275,14 +274,23 @@ function drawMusicReveal(m, itemIdx, withinMs) {
   drawRevealBanner(canvas.width / 2, 62 * RS);
 
   ctx.save();
+  // artist/track (musique) : deux lignes ; tout autre type audio (ex. cri
+  // Pokémon, pas d'artiste/morceau) : simple titre, centré comme la ligne
+  // artiste ci-dessus.
   ctx.font = gameFont(700, 32);
   ctx.fillStyle = "#ede8de";
   ctx.textAlign = "center";
-  ctx.fillText(m.artist, canvas.width / 2, canvas.height - 86 * RS);
+  ctx.fillText(
+    m.artist || m.title,
+    canvas.width / 2,
+    canvas.height - (m.artist ? 86 : 55) * RS,
+  );
 
-  ctx.font = gameFont(600, 24);
-  ctx.fillStyle = "#e8a33d";
-  ctx.fillText(m.track, canvas.width / 2, canvas.height - 55 * RS);
+  if (m.artist) {
+    ctx.font = gameFont(600, 24);
+    ctx.fillStyle = "#e8a33d";
+    ctx.fillText(m.track, canvas.width / 2, canvas.height - 55 * RS);
+  }
   ctx.restore();
 
   drawBadge(
@@ -389,12 +397,17 @@ function drawFlagReveal(m, itemIdx, withinMs) {
   drawFrameBorder();
 }
 
-// écran de devinette du mode "synopsis" (movie/tv/game : un seul bloc
-// statique ; director : plusieurs synopsis cyclés comme des frames, voir
+// délai avant que le défilement téléprompteur (voir drawSummaryGuess)
+// démarre — laisse le temps de lire la 1ère phrase avant qu'elle ne
+// commence à glisser hors champ.
+const SCROLL_HOLD_MS = 1200;
+
+// écran de devinette du mode "summary" (movie/tv/game : un seul bloc
+// statique ; director : plusieurs summary cyclés comme des frames, voir
 // timeline.js/seg.frameIdx) : le texte du résumé remplace l'image, seul
 // l'écran réponse (générique, voir buildTimeline) affiche poster + titre
 // comme le mode "image"
-function drawSynopsisGuess(m, seg, withinMs) {
+function drawSummaryGuess(m, seg, withinMs) {
   const overview = Array.isArray(m.overviews)
     ? m.overviews[seg.frameIdx]
     : m.overview;
@@ -424,15 +437,31 @@ function drawSynopsisGuess(m, seg, withinMs) {
   let startY;
   if (textH <= zoneH) {
     // tient dans la zone visible : centré sur tout le canvas, comme
-    // pour un synopsis court
+    // pour un summary court
     startY = (canvas.height - textH) / 2;
   } else {
     // trop long pour tenir : défilement façon téléprompteur sur toute
     // la durée de la devinette (voir seg.dur), plutôt qu'un texte
-    // tronqué ou débordant
+    // tronqué ou débordant. Pause initiale (SCROLL_HOLD_MS) avant que le
+    // défilement démarre : sans elle, la 1ère phrase se met à glisser
+    // avant même que l'œil ait pu commencer à la lire — le défilement
+    // rattrape ensuite sur le temps restant pour finir pile à seg.dur.
     const scrollRange = textH - zoneH;
-    const p = Math.min(1, Math.max(0, withinMs / seg.dur));
-    startY = topMargin - scrollRange * p;
+    const scrollDur = Math.max(1, seg.dur - SCROLL_HOLD_MS);
+    const p = Math.min(1, Math.max(0, (withinMs - SCROLL_HOLD_MS) / scrollDur));
+    // fillText positionne la BASELINE, pas le haut du glyphe : sans cette
+    // marge, la 1ère ligne place sa baseline pile sur le bord du clip
+    // (topMargin) et se fait rogner par le haut (majuscules/accents
+    // invisibles) — donnant l'impression que le summary démarre au
+    // milieu d'une phrase. Mesuré via actualBoundingBoxAscent (précis,
+    // dépend de la police/du texte, ex. les majuscules accentuées "É"
+    // dépassent plus haut qu'une fraction fixe de lineHeight ne le
+    // couvrait) + petite marge pour le flou de l'ombre portée
+    // (shadowBlur). Décalage constant, sans incidence sur la dernière
+    // ligne (qui reste dans la zone visible à p=1, voir zoneH).
+    const ascentPad =
+      (ctx.measureText(lines[0]).actualBoundingBoxAscent || lineHeight * 0.8) + 6 * RS;
+    startY = topMargin + ascentPad - scrollRange * p;
     ctx.beginPath();
     ctx.rect(0, topMargin, canvas.width, zoneH);
     ctx.clip();
@@ -442,7 +471,7 @@ function drawSynopsisGuess(m, seg, withinMs) {
   });
   ctx.restore();
 
-  // barre de progression continue sur tout l'item quand plusieurs synopsis
+  // barre de progression continue sur tout l'item quand plusieurs summary
   // sont cyclés (director), comme pour les frames du mode image (voir
   // drawGuess) — sinon (movie/tv/game, bloc unique) progression du seul
   // segment, comportement inchangé.
@@ -481,6 +510,6 @@ export function drawSegment(seg, withinMs) {
     drawMusicReveal(m, seg.itemIdx, withinMs);
   else if (seg.type === "flag-guess") drawFlagGuess(m, seg, withinMs);
   else if (seg.type === "flag-reveal") drawFlagReveal(m, seg.itemIdx, withinMs);
-  else if (seg.type === "synopsis-guess") drawSynopsisGuess(m, seg, withinMs);
+  else if (seg.type === "summary-guess") drawSummaryGuess(m, seg, withinMs);
   else drawReveal(m, seg.itemIdx, withinMs);
 }

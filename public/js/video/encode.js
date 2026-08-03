@@ -196,8 +196,12 @@ export async function renderFast() {
   await output.start();
 
   // piste audio : le buffer musical couvre déjà écoute + fondu sur la
-  // réponse (voir trimAudioBufferWithFade), donc on l'ajoute une seule
-  // fois et on saute le segment "music-reveal" suivant qu'il couvre déjà.
+  // réponse (voir trimAudioBufferWithFade), donc on l'ajoute une seule fois
+  // et on saute le segment "music-reveal" suivant qu'il couvre déjà — UNIQUEMENT
+  // pour la musique : un cri (voir loadAndLoopAudio) s'arrête net à la fin de
+  // la devinette, son segment "music-reveal" n'est donc PAS sauté et retombe
+  // sur le silence du dernier "else" ci-dessous, comme n'importe quel autre
+  // écran de réponse.
   // Idem pour la piste "devinette" : un seul buffer couvrant toute la
   // phase de devinette d'un item, on saute donc les segments "guess"
   // suivants du même item qu'il couvre déjà. Splash a sa propre piste
@@ -210,9 +214,11 @@ export async function renderFast() {
     if (seg.type === "splash") {
       await audioSource.add(state.splashAudioBuffer || silentBuffer(seg.dur));
     } else if (seg.type === "music-guess") {
-      await audioSource.add(state.items[seg.itemIdx].audioBuffer);
+      const m = state.items[seg.itemIdx];
+      await audioSource.add(m.audioBuffer);
       const next = state.timeline[i + 1];
       if (
+        m.type === "music" &&
         next &&
         next.type === "music-reveal" &&
         next.itemIdx === seg.itemIdx
@@ -231,11 +237,11 @@ export async function renderFast() {
       ) {
         i++; // déjà couvert par le buffer de devinette ajouté ci-dessus
       }
-    } else if (seg.type === "synopsis-guess" && seg.frameIdx === 0) {
-      // director : plusieurs synopsis cyclés comme des frames (voir
+    } else if (seg.type === "summary-guess" && seg.frameIdx === 0) {
+      // director : plusieurs summary cyclés comme des frames (voir
       // timeline.js), même traitement que "guess" ci-dessus — un seul
       // buffer ambiant couvrant tout itemGuessDur, pas un par frame
-      // (sinon le fondu de fin se répète et recommence à chaque synopsis
+      // (sinon le fondu de fin se répète et recommence à chaque summary
       // au lieu de courir sur toute la devinette).
       const m = state.items[seg.itemIdx];
       await audioSource.add(
@@ -243,14 +249,14 @@ export async function renderFast() {
       );
       while (
         state.timeline[i + 1] &&
-        state.timeline[i + 1].type === "synopsis-guess" &&
+        state.timeline[i + 1].type === "summary-guess" &&
         state.timeline[i + 1].itemIdx === seg.itemIdx
       ) {
         i++; // déjà couvert par le buffer ajouté ci-dessus
       }
     } else if (
       seg.type === "flag-guess" ||
-      seg.type === "synopsis-guess"
+      seg.type === "summary-guess"
     ) {
       const m = state.items[seg.itemIdx];
       await audioSource.add(m.guessAudioBuffer || silentBuffer(seg.dur));

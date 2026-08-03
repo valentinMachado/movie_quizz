@@ -1,5 +1,5 @@
-import { CFG } from "./config.js";
-import { loadAndTrimAudio } from "./audio.js";
+import { CFG, CRY_GAP_SEC } from "./config.js";
+import { loadAndTrimAudio, loadAndLoopAudio } from "./audio.js";
 import { setProgress, setStatus } from "./status.js";
 
 // durée du fondu AUDIBLE (rampSec, voir trimAudioBufferWithFade) — distincte
@@ -24,14 +24,14 @@ export function loadImage(src) {
   });
 }
 
-export async function preloadAll(picked, { musicClipSec, revealSec }) {
+export async function preloadAll(picked, { audioSpeed, revealSec }) {
   const totalTasks = picked.reduce(
     (sum, m) =>
       sum +
-      (m.type === "music"
+      (m.questionType === "audio"
         ? 2
         : (m.type === "country" && m.questionType === "flag") ||
-            m.questionType === "synopsis"
+            m.questionType === "summary"
           ? 1
           : m.imageUrls.length + 1),
     0,
@@ -51,28 +51,47 @@ export async function preloadAll(picked, { musicClipSec, revealSec }) {
       const my = idx++;
       const m = picked[my];
       try {
-        if (m.type === "music") {
-          const [audioBuffer, posterImg] = await Promise.all([
-            loadAndTrimAudio(
-              m.previewUrl,
-              musicClipSec,
-              revealSec,
-              musicFadeSec(revealSec),
-            ).then((buf) => {
-              bump();
-              return buf;
-            }),
-            loadImage(m.posterUrl).then((img) => {
-              bump();
-              return img;
-            }),
-          ]);
+        if (m.questionType === "audio") {
+          // musique (extrait ~30s) : fenêtre aléatoire de audioSpeed.musicSec
+          // secondes, le buffer déborde volontairement sur revealSec pour
+          // continuer à jouer (en fondu) sur l'écran de réponse (voir
+          // loadAndTrimAudio). Tout autre type audio (ex. cri Pokémon,
+          // 1-2s) : rejoué audioSpeed.cryCount fois, espacé, et s'arrête
+          // net à la fin de la devinette — rien ne continue sur la réponse
+          // (voir loadAndLoopAudio) — durée réelle inconnue avant décodage,
+          // renvoyée par la fonction elle-même (`guessSec`), contrairement
+          // à la musique où elle est fixée d'avance (`audioSpeed.musicSec`).
+          const loadAudio =
+            m.type === "music"
+              ? loadAndTrimAudio(
+                  m.previewUrl,
+                  audioSpeed.musicSec,
+                  revealSec,
+                  musicFadeSec(revealSec),
+                ).then((buffer) => ({ buffer, guessSec: audioSpeed.musicSec }))
+              : loadAndLoopAudio(m.previewUrl, audioSpeed.cryCount, CRY_GAP_SEC);
+          const [{ buffer: audioBuffer, guessSec: audioGuessSec }, posterImg] =
+            await Promise.all([
+              loadAudio.then((r) => {
+                bump();
+                return r;
+              }),
+              loadImage(m.posterUrl).then((img) => {
+                bump();
+                return img;
+              }),
+            ]);
           results[my] = {
             title: m.title,
-            type: "music",
-            artist: m.artist,
-            track: m.track,
+            type: m.type,
+            questionType: "audio",
+            // artist/track : uniquement pour la musique (voir
+            // drawMusicReveal, qui retombe sur m.title sinon)
+            ...(m.type === "music"
+              ? { artist: m.artist, track: m.track }
+              : {}),
             audioBuffer,
+            audioGuessSec,
             posterImg,
             reason: m.reason,
             isAnniversary: m.isAnniversary,
@@ -95,7 +114,7 @@ export async function preloadAll(picked, { musicClipSec, revealSec }) {
           };
           continue;
         }
-        if (m.questionType === "synopsis") {
+        if (m.questionType === "summary") {
           const posterImg = await loadImage(m.posterUrl).then((img) => {
             bump();
             return img;
@@ -103,11 +122,11 @@ export async function preloadAll(picked, { musicClipSec, revealSec }) {
           results[my] = {
             title: m.title,
             type: m.type,
-            questionType: "synopsis",
+            questionType: "summary",
             posterImg,
             reason: m.reason,
             isAnniversary: m.isAnniversary,
-            // director : plusieurs synopsis (voir timeline.js/seg.frameIdx),
+            // director : plusieurs summary (voir timeline.js/seg.frameIdx),
             // pas un seul m.overview comme movie/tv/game.
             ...(m.type === "director"
               ? { overviews: m.overviews, movieTitles: m.movieTitles }

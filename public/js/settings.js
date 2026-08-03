@@ -1,5 +1,13 @@
-import { RENDER_QUALITIES, STORAGE_PREFIX, SETTINGS_KEY } from "./config.js";
-import { state } from "./state.js";
+import {
+  RENDER_QUALITIES,
+  SUMMARY_SPEEDS,
+  AUDIO_SPEEDS,
+  CRY_GAP_SEC,
+  STORAGE_PREFIX,
+  SETTINGS_KEY,
+} from "./config.js";
+import { state, currentSummarySpeed, currentAudioSpeed } from "./state.js";
+import { estimateSummarySec } from "./timeline.js";
 import { baseFilterKey } from "./filters.js";
 import {
   countRange,
@@ -10,14 +18,10 @@ import {
   imageSecNumber,
   revealSecRange,
   revealSecNumber,
-  musicClipSecRange,
-  musicClipSecNumber,
   flagSecRange,
   flagSecNumber,
-  synopsisSecRange,
-  synopsisSecNumber,
-  synopsisPerItemRange,
-  synopsisPerItemNumber,
+  summaryPerItemRange,
+  summaryPerItemNumber,
   durationHint,
 } from "./dom.js";
 
@@ -36,17 +40,11 @@ export function currentImageSec() {
 export function currentRevealSec() {
   return parseInt(revealSecNumber.value, 10) || 5;
 }
-export function currentMusicClipSec() {
-  return Math.min(28, parseInt(musicClipSecNumber.value, 10) || 10);
-}
 export function currentFlagSec() {
   return parseInt(flagSecNumber.value, 10) || 5;
 }
-export function currentSynopsisSec() {
-  return parseInt(synopsisSecNumber.value, 10) || 20;
-}
-export function currentSynopsisPerItem() {
-  return parseInt(synopsisPerItemNumber.value, 10) || 1;
+export function currentSummaryPerItem() {
+  return parseInt(summaryPerItemNumber.value, 10) || 1;
 }
 
 export function formatDuration(totalSec) {
@@ -62,16 +60,28 @@ export function totalDurationSec() {
   // réelle du pool, on moyenne donc simplement les buckets des combos
   // "type:questionType" actuellement actifs (approximation suffisante
   // pour un simple indicateur de durée)
-  // "director:synopsis" cycle plusieurs synopsis (voir timeline.js), les
-  // autres *:synopsis un seul bloc statique — même logique que "standard"
+  // "director:summary" cycle plusieurs summary (voir timeline.js), les
+  // autres *:summary un seul bloc statique — même logique que "standard"
   // ci-dessous qui multiplie déjà par imagesPerItem.
-  const hasDirectorSynopsis = state.activeQuestionTypes.has("director:synopsis");
+  const hasDirectorSummary = state.activeQuestionTypes.has("director:summary");
+  // durée réelle inconnue avant d'avoir le texte (voir timeline.js) : on
+  // estime avec une longueur de summary "typique" (estimateSummarySec),
+  // juste pour cet indicateur — le rendu réel s'ajuste au texte effectif.
+  // musique et cri partagent le même préréglage (voir AUDIO_SPEEDS) mais
+  // pas la même durée réelle : un extrait musical dure exactement
+  // musicSec, un cri est rejoué cryCount fois (durée réelle dépendante du
+  // cri, inconnue avant chargement, voir timeline.js) — CRY_AVG_SEC est une
+  // approximation pour ce seul indicateur, le rendu réel s'ajuste au cri
+  // effectif.
+  const CRY_AVG_SEC = 1;
+  const audioSpeed = currentAudioSpeed();
   const itemSecByBucket = {
-    music: currentMusicClipSec() + currentRevealSec(),
+    music: audioSpeed.musicSec + currentRevealSec(),
+    cry: audioSpeed.cryCount * (CRY_AVG_SEC + CRY_GAP_SEC) + currentRevealSec(),
     flag: currentFlagSec() + currentRevealSec(),
-    synopsis:
-      (hasDirectorSynopsis ? currentSynopsisPerItem() : 1) *
-        currentSynopsisSec() +
+    summary:
+      (hasDirectorSummary ? currentSummaryPerItem() : 1) *
+        estimateSummarySec(currentSummarySpeed().secPerWord) +
       currentRevealSec(),
     standard:
       currentImagesPerItem() * currentImageSec() + currentRevealSec(),
@@ -79,11 +89,13 @@ export function totalDurationSec() {
   const bucketOf = (comboKey) =>
     comboKey === "music:audio"
       ? "music"
-      : comboKey === "country:flag"
-        ? "flag"
-        : comboKey.endsWith(":synopsis")
-          ? "synopsis"
-          : "standard";
+      : comboKey.endsWith(":audio")
+        ? "cry"
+        : comboKey === "country:flag"
+          ? "flag"
+          : comboKey.endsWith(":summary")
+            ? "summary"
+            : "standard";
   const activeBuckets = [
     ...new Set([...state.activeQuestionTypes].map(bucketOf)),
   ];
@@ -122,10 +134,10 @@ export function saveSettings() {
     imagesPerItem: currentImagesPerItem(),
     imageSec: currentImageSec(),
     revealSec: currentRevealSec(),
-    musicClipSec: currentMusicClipSec(),
     flagSec: currentFlagSec(),
-    synopsisSec: currentSynopsisSec(),
-    synopsisPerItem: currentSynopsisPerItem(),
+    summarySpeed: state.summarySpeed,
+    audioSpeed: state.audioSpeed,
+    summaryPerItem: currentSummaryPerItem(),
     renderFps: state.renderFps,
     questionTypes: [...state.activeQuestionTypes],
     filters: [...state.selectedFilters],
@@ -160,21 +172,19 @@ export function applySavedSettings() {
     revealSecNumber.value = s.revealSec;
     revealSecRange.value = s.revealSec;
   }
-  if (s.musicClipSec) {
-    musicClipSecNumber.value = s.musicClipSec;
-    musicClipSecRange.value = s.musicClipSec;
+  if (AUDIO_SPEEDS.some((a) => a.key === s.audioSpeed)) {
+    state.audioSpeed = s.audioSpeed;
   }
   if (s.flagSec) {
     flagSecNumber.value = s.flagSec;
     flagSecRange.value = s.flagSec;
   }
-  if (s.synopsisSec) {
-    synopsisSecNumber.value = s.synopsisSec;
-    synopsisSecRange.value = s.synopsisSec;
+  if (SUMMARY_SPEEDS.some((sp) => sp.key === s.summarySpeed)) {
+    state.summarySpeed = s.summarySpeed;
   }
-  if (s.synopsisPerItem) {
-    synopsisPerItemNumber.value = s.synopsisPerItem;
-    synopsisPerItemRange.value = s.synopsisPerItem;
+  if (s.summaryPerItem) {
+    summaryPerItemNumber.value = s.summaryPerItem;
+    summaryPerItemRange.value = s.summaryPerItem;
   }
   if (RENDER_QUALITIES.some((q) => q.fps === s.renderFps)) {
     state.renderFps = s.renderFps;

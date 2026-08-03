@@ -16,6 +16,9 @@ function contentTypeLabel() {
       painter: "PEINTRES",
       director: "RÉALISATEURS",
       flag: "DRAPEAUX",
+      wiki_article: "WIKIPÉDIA",
+      pokemon: "POKÉMON",
+      superhero: "SUPER-HÉROS",
     };
     return labels[[...types][0]] || "TITRES";
   }

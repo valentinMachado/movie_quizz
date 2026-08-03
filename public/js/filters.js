@@ -1,5 +1,7 @@
 import {
   RENDER_QUALITIES,
+  SUMMARY_SPEEDS,
+  AUDIO_SPEEDS,
   TYPE_BASE_LABELS,
   TYPE_EMOJI,
   questionTypeInfo,
@@ -13,10 +15,15 @@ import {
   chipsGenres,
   chipsGeography,
   chipsRoles,
+  chipsPopulation,
+  chipsSuperficie,
+  chipsCategories,
+  chipsSummarySpeed,
+  chipsAudioSpeed,
   groupAudioParams,
   groupFlagParams,
-  groupSynopsisParams,
-  groupSynopsisPerItemParams,
+  groupSummaryParams,
+  groupSummaryPerItemParams,
   groupImageParams,
   countRange,
   countNumber,
@@ -87,29 +94,31 @@ export function makeChip(innerHTML, active, onActivate, extraClass) {
 }
 
 // affiche/masque les réglages qui ne s'appliquent pas aux combinaisons
-// actives. "music:audio", "country:flag" et tout "*:synopsis" ont
-// chacun leur propre durée dédiée (pas images/titre ni temps/image) —
-// nommés explicitement ici : cette durée dédiée est une spécificité de
-// ces modes, pas quelque chose de générique à tout questionType (voir
-// aussi totalDurationSec)
+// actives. tout "*:audio" (musique ET cri Pokémon), "country:flag" et tout
+// "*:summary" ont chacun leur propre durée dédiée (pas images/titre ni
+// temps/image) — nommés explicitement ici : cette durée dédiée est une
+// spécificité de ces modes, pas quelque chose de générique à tout
+// questionType (voir aussi totalDurationSec)
 export function updateSettingsVisibility() {
-  const hasMusic = state.activeQuestionTypes.has("music:audio");
+  const hasAudio = [...state.activeQuestionTypes].some((k) =>
+    k.endsWith(":audio"),
+  );
   const hasFlag = state.activeQuestionTypes.has("country:flag");
-  const hasSynopsis = [...state.activeQuestionTypes].some((k) =>
-    k.endsWith(":synopsis"),
+  const hasSummary = [...state.activeQuestionTypes].some((k) =>
+    k.endsWith(":summary"),
   );
-  // "director:synopsis" cycle PLUSIEURS synopsis (voir timeline.js) : le
-  // réglage "nombre de synopsis" n'a de sens que pour cette combinaison
-  // précise, pas pour movie/tv/game:synopsis (toujours 1 synopsis, bloc
-  // statique) — d'où un contrôle de visibilité dédié, distinct de hasSynopsis.
-  const hasDirectorSynopsis = state.activeQuestionTypes.has("director:synopsis");
+  // "director:summary" cycle PLUSIEURS summary (voir timeline.js) : le
+  // réglage "nombre de summary" n'a de sens que pour cette combinaison
+  // précise, pas pour movie/tv/game:summary (toujours 1 summary, bloc
+  // statique) — d'où un contrôle de visibilité dédié, distinct de hasSummary.
+  const hasDirectorSummary = state.activeQuestionTypes.has("director:summary");
   const hasStandard = [...state.activeQuestionTypes].some(
-    (k) => k !== "music:audio" && k !== "country:flag" && !k.endsWith(":synopsis"),
+    (k) => !k.endsWith(":audio") && k !== "country:flag" && !k.endsWith(":summary"),
   );
-  groupAudioParams.style.display = hasMusic ? "" : "none";
+  groupAudioParams.style.display = hasAudio ? "" : "none";
   groupFlagParams.style.display = hasFlag ? "" : "none";
-  groupSynopsisParams.style.display = hasSynopsis ? "" : "none";
-  groupSynopsisPerItemParams.style.display = hasDirectorSynopsis ? "" : "none";
+  groupSummaryParams.style.display = hasSummary ? "" : "none";
+  groupSummaryPerItemParams.style.display = hasDirectorSummary ? "" : "none";
   groupImageParams.style.display = hasStandard ? "" : "none";
 }
 
@@ -159,6 +168,8 @@ export async function loadFilters() {
   applySavedSettings();
   renderContentTypeChips();
   renderQualityChips();
+  renderSummarySpeedChips();
+  renderAudioSpeedChips();
   updateSettingsVisibility();
   renderChips();
   await updatePoolSize();
@@ -181,8 +192,16 @@ export async function onActiveTypesChanged() {
 
   state.selectedFilters = new Set(
     [...state.selectedFilters].filter((k) => {
-      const f = state.availableFilters.find((c) => c.key === baseFilterKey(k));
-      return f && typeActive(f.type);
+      // purge par COMBO précis (type:questionType), pas juste par type actif
+      // ou non : sinon désactiver "pokemon:image" tout en gardant
+      // "pokemon:summary" actif laissait traîner un filtre choisi pour
+      // :image (invisible dans les chips, plus aucun mode ne le montre —
+      // voir renderChips/modes) mais toujours dans selectedFilters, d'où
+      // son apparition à tort sur l'écran splash (voir splashFilterLabels).
+      const rawKey = baseFilterKey(k);
+      const qt = k.slice(rawKey.length + 1);
+      const f = state.availableFilters.find((c) => c.key === rawKey);
+      return f && state.activeQuestionTypes.has(`${f.type}:${qt}`);
     }),
   );
 
@@ -191,25 +210,38 @@ export async function onActiveTypesChanged() {
   saveSettings();
 }
 
-// une seule rangée pour tous les type, générique à n'importe quel
-// questionType (voir questionTypesByType, dérivé de /api/catalog) :
-// chaque type a au moins un questionType, donc chaque chip est
-// TOUJOURS une combinaison "type:questionType" indépendante (toggle
-// activeQuestionTypes), même quand il n'y a qu'un seul mode possible —
-// pas de cas particulier "chip simple", et donc toujours les deux
-// emoji (contenu de la question + résultat). Un chip par combinaison
-// plutôt qu'une rangée "Mode" partagée : une rangée partagée
-// forcerait le produit cartésien de tous les type à plusieurs modes
-// actifs à la fois, sans pouvoir composer une combinaison précise
+// une boîte par type devinable (Films, Séries, Personnes, ...), et à
+// l'intérieur un chip par questionType propre à ce type (Photo, Résumé,
+// ...) — chaque chip reste une combinaison "type:questionType"
+// indépendante (toggle activeQuestionTypes), même quand un type n'a
+// qu'un seul questionType possible : pas de cas particulier "chip
+// simple". Types groupés plutôt qu'une rangée plate unique : plus
+// lisible dès que plusieurs types ont chacun plusieurs questionTypes
+// (ex. movie: Photo/Résumé, director: Filmographie), sans changer le
+// modèle de données sous-jacent (toujours des combos indépendants, pas
+// de produit cartésien forcé).
 export function renderContentTypeChips() {
   chipsContentType.innerHTML = "";
   for (const [type, baseLabel] of Object.entries(TYPE_BASE_LABELS)) {
-    for (const qt of state.questionTypesByType[type] || []) {
+    const questionTypes = state.questionTypesByType[type] || [];
+    if (!questionTypes.length) continue;
+
+    const group = document.createElement("div");
+    group.className = "type-group";
+    const label = document.createElement("span");
+    label.className = "type-group-label";
+    label.textContent = baseLabel;
+    const row = document.createElement("div");
+    row.className = "chips";
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", baseLabel);
+
+    for (const qt of questionTypes) {
       const comboKey = `${type}:${qt}`;
       const info = questionTypeInfo(type, qt);
-      const label = `${baseLabel} ${info.icon || ""} ${info.label || qt}`.trim();
+      const chipLabel = `${info.icon || ""} ${info.label || qt}`.trim();
       const chip = makeChip(
-        label,
+        chipLabel,
         state.activeQuestionTypes.has(comboKey),
         async () => {
           if (state.activeQuestionTypes.has(comboKey)) {
@@ -222,8 +254,12 @@ export function renderContentTypeChips() {
         },
         "chip-type",
       );
-      chipsContentType.appendChild(chip);
+      row.appendChild(chip);
     }
+
+    group.appendChild(label);
+    group.appendChild(row);
+    chipsContentType.appendChild(group);
   }
 }
 
@@ -248,6 +284,51 @@ export function renderQualityChips() {
   }
 }
 
+// sélection exclusive (un seul actif à la fois), même pattern que
+// renderQualityChips ci-dessus — remplace l'ancien curseur "durée
+// d'affichage" en secondes fixes : chaque préréglage règle juste le
+// facteur secondes/mot appliqué au texte réel (voir timeline.js).
+export function renderSummarySpeedChips() {
+  chipsSummarySpeed.innerHTML = "";
+  for (const s of SUMMARY_SPEEDS) {
+    const chip = makeChip(
+      s.label,
+      state.summarySpeed === s.key,
+      () => {
+        if (state.summarySpeed === s.key) return;
+        state.summarySpeed = s.key;
+        renderSummarySpeedChips();
+        updateDurationHint();
+        saveSettings();
+      },
+      "chip-type",
+    );
+    chipsSummarySpeed.appendChild(chip);
+  }
+}
+
+// même pattern que renderSummarySpeedChips ci-dessus — pilote à la fois la
+// durée d'un extrait musical et le nombre de répétitions d'un cri (voir
+// AUDIO_SPEEDS/preload.js), un seul préréglage pour les deux.
+export function renderAudioSpeedChips() {
+  chipsAudioSpeed.innerHTML = "";
+  for (const s of AUDIO_SPEEDS) {
+    const chip = makeChip(
+      s.label,
+      state.audioSpeed === s.key,
+      () => {
+        if (state.audioSpeed === s.key) return;
+        state.audioSpeed = s.key;
+        renderAudioSpeedChips();
+        updateDurationHint();
+        saveSettings();
+      },
+      "chip-type",
+    );
+    chipsAudioSpeed.appendChild(chip);
+  }
+}
+
 export function renderChips() {
   const groups = {
     liste: chipsListes,
@@ -255,6 +336,9 @@ export function renderChips() {
     genre: chipsGenres,
     geographie: chipsGeography,
     role: chipsRoles,
+    population: chipsPopulation,
+    superficie: chipsSuperficie,
+    categorie: chipsCategories,
   };
   for (const container of Object.values(groups)) {
     container.innerHTML = "";
@@ -271,8 +355,8 @@ export function renderChips() {
     const container = groups[f.group] || chipsListes;
     // un chip par questionType ACTIF (rangée "Type de question", voir
     // activeQuestionTypes) pour ce type, pas par questionType
-    // simplement disponible : si seul "tv:synopsis" est coché en haut,
-    // les filtres séries n'affichent que leur chip synopsis, pas un
+    // simplement disponible : si seul "tv:summary" est coché en haut,
+    // les filtres séries n'affichent que leur chip summary, pas un
     // chip photo qu'aucun filtre "Type de question" ne couvre. Quand
     // plusieurs modes du même type sont actifs à la fois (ex. Pays en
     // drapeau ET en photo), un chip par mode reste nécessaire pour

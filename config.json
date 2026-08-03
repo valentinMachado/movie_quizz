@@ -7,6 +7,8 @@
   "movie": {
     "genrePages": 6,
     "countryPages": 8,
+    "castLimit": 10,
+    "leadCastLimit": 3,
     "staticLists": {
       "popular": {
         "pathAndQuery": "movie/popular",
@@ -166,20 +168,49 @@
     }
   },
   "countryTargets": [
-    { "code": "us", "name": "États-Unis" },
-    { "code": "gb", "name": "Royaume-Uni" },
-    { "code": "fr", "name": "France" },
-    { "code": "ca", "name": "Canada" },
-    { "code": "au", "name": "Australie" },
-    { "code": "de", "name": "Allemagne" },
-    { "code": "it", "name": "Italie" },
-    { "code": "es", "name": "Espagne" },
-    { "code": "in", "name": "Inde" },
-    { "code": "cn", "name": "Chine" },
-    { "code": "kr", "name": "Corée du Sud" },
-    { "code": "jp", "name": "Japon" },
-    { "code": "br", "name": "Brésil" },
-    { "code": "mx", "name": "Mexique" }
+    {
+      "code": "us",
+      "name": "États-Unis",
+      "match": [
+        "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
+        "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho",
+        "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana",
+        "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota",
+        "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+        "New Hampshire", "New Jersey", "New Mexico", "New York",
+        "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon",
+        "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+        "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+        "West Virginia", "Wisconsin", "Wyoming", "United States", "U.S.A",
+        "USA"
+      ]
+    },
+    {
+      "code": "gb",
+      "name": "Royaume-Uni",
+      "match": ["United Kingdom", "England", "Scotland", "Wales", "Britain"]
+    },
+    { "code": "fr", "name": "France", "match": ["France"] },
+    { "code": "ca", "name": "Canada", "match": ["Canada"] },
+    { "code": "au", "name": "Australie", "match": ["Australia"] },
+    { "code": "de", "name": "Allemagne", "match": ["Germany"] },
+    { "code": "it", "name": "Italie", "match": ["Italy"] },
+    { "code": "es", "name": "Espagne", "match": ["Spain"] },
+    { "code": "in", "name": "Inde", "match": ["India"] },
+    { "code": "cn", "name": "Chine", "match": ["China"] },
+    { "code": "kr", "name": "Corée du Sud", "match": ["South Korea", "Korea"] },
+    { "code": "jp", "name": "Japon", "match": ["Japan"] },
+    { "code": "br", "name": "Brésil", "match": ["Brazil"] },
+    { "code": "mx", "name": "Mexique", "match": ["Mexico"] }
+  ],
+  "personBirthDecades": [
+    { "code": "before_1950", "label": "Avant 1950", "gte": 0, "lte": 1949 },
+    { "code": "decade_1950", "label": "Années 1950", "gte": 1950, "lte": 1959 },
+    { "code": "decade_1960", "label": "Années 1960", "gte": 1960, "lte": 1969 },
+    { "code": "decade_1970", "label": "Années 1970", "gte": 1970, "lte": 1979 },
+    { "code": "decade_1980", "label": "Années 1980", "gte": 1980, "lte": 1989 },
+    { "code": "decade_1990", "label": "Années 1990", "gte": 1990, "lte": 1999 },
+    { "code": "after_2000", "label": "Après 2000", "gte": 2000, "lte": 2100 }
   ],
   "game": {
     "genrePages": 4,
@@ -662,6 +693,254 @@
       { "code": "1800_1849", "label": "1800-1849", "gte": 1800, "lte": 1849 },
       { "code": "1850_1899", "label": "1850-1899", "gte": 1850, "lte": 1899 },
       { "code": "1900_plus", "label": "Après 1900", "gte": 1900, "lte": 2100 }
+    ]
+  },
+  "personRoles": {
+    "queryLimit": 100,
+    "countries": [
+      { "code": "fr", "label": "France", "qid": "Q142" },
+      { "code": "us", "label": "États-Unis", "qid": "Q30" },
+      { "code": "gb", "label": "Royaume-Uni", "qid": "Q145" },
+      { "code": "de", "label": "Allemagne", "qid": "Q183" },
+      { "code": "it", "label": "Italie", "qid": "Q38" },
+      { "code": "es", "label": "Espagne", "qid": "Q29" },
+      { "code": "ru", "label": "Russie", "qid": "Q159" },
+      { "code": "cn", "label": "Chine", "qid": "Q148" },
+      { "code": "in", "label": "Inde", "qid": "Q668" },
+      { "code": "br", "label": "Brésil", "qid": "Q155" }
+    ],
+    "eras": [
+      { "code": "before_1900", "label": "Avant 1900", "gte": 0, "lte": 1899 },
+      { "code": "1900_1949", "label": "1900-1949", "gte": 1900, "lte": 1949 },
+      { "code": "1950_1999", "label": "1950-1999", "gte": 1950, "lte": 1999 },
+      { "code": "2000_plus", "label": "Après 2000", "gte": 2000, "lte": 2100 }
+    ],
+    "roles": [
+      {
+        "code": "politician",
+        "label": "Politicien",
+        "occupationQid": "Q82955",
+        "popularSitelinksMin": 20
+      },
+      {
+        "code": "athlete",
+        "label": "Sportif",
+        "occupationQid": "Q2066131",
+        "popularSitelinksMin": 20
+      }
+    ]
+  },
+  "wikiArticle": {
+    "lang": "fr",
+    "queryLimit": 300,
+    "defaultDepth": 3,
+    "categories": [
+      { "code": "histoire", "name": "Histoire", "category": "Bataille" },
+      { "code": "histoire", "name": "Histoire", "category": "Guerre" },
+      {
+        "code": "sciences",
+        "name": "Sciences",
+        "category": "Élément chimique"
+      },
+      { "code": "sciences", "name": "Sciences", "category": "Constellation" },
+      { "code": "geographie", "name": "Géographie", "category": "Fleuve" },
+      { "code": "geographie", "name": "Géographie", "category": "Montagne" },
+      { "code": "geographie", "name": "Géographie", "category": "Île" },
+      { "code": "geographie", "name": "Géographie", "category": "Volcan" },
+      { "code": "geographie", "name": "Géographie", "category": "Désert" },
+      { "code": "monuments", "name": "Monuments", "category": "Monument" },
+      { "code": "mythologie", "name": "Mythologie", "category": "Divinité" },
+      {
+        "code": "mythologie",
+        "name": "Mythologie",
+        "category": "Créature légendaire"
+      },
+      {
+        "code": "animaux",
+        "name": "Animaux",
+        "category": "Mammifère (nom vernaculaire)",
+        "depth": 0,
+        "looseRedaction": true
+      },
+      {
+        "code": "animaux",
+        "name": "Animaux",
+        "category": "Oiseau (nom vernaculaire)",
+        "depth": 0,
+        "looseRedaction": true
+      },
+      {
+        "code": "animaux",
+        "name": "Animaux",
+        "category": "Reptile (nom vernaculaire)",
+        "depth": 0,
+        "looseRedaction": true
+      },
+      {
+        "code": "animaux",
+        "name": "Animaux",
+        "category": "Poisson (nom vernaculaire)",
+        "depth": 0,
+        "looseRedaction": true
+      },
+      {
+        "code": "animaux",
+        "name": "Animaux",
+        "category": "Insecte (nom vernaculaire)",
+        "depth": 0,
+        "looseRedaction": true
+      },
+      {
+        "code": "animaux",
+        "name": "Animaux",
+        "category": "Amphibien (nom vernaculaire)",
+        "depth": 0,
+        "looseRedaction": true
+      }
+    ],
+    "decadeBuckets": 5
+  },
+  "pokemon": {
+    "fetchConcurrency": 10,
+    "types": {
+      "normal": "Normal",
+      "fire": "Feu",
+      "water": "Eau",
+      "electric": "Électrik",
+      "grass": "Plante",
+      "ice": "Glace",
+      "fighting": "Combat",
+      "poison": "Poison",
+      "ground": "Sol",
+      "flying": "Vol",
+      "psychic": "Psy",
+      "bug": "Insecte",
+      "rock": "Roche",
+      "ghost": "Spectre",
+      "dragon": "Dragon",
+      "dark": "Ténèbres",
+      "steel": "Acier",
+      "fairy": "Fée"
+    },
+    "generations": {
+      "generation-i": "Génération I (1996)",
+      "generation-ii": "Génération II (1999)",
+      "generation-iii": "Génération III (2002)",
+      "generation-iv": "Génération IV (2006)",
+      "generation-v": "Génération V (2010)",
+      "generation-vi": "Génération VI (2013)",
+      "generation-vii": "Génération VII (2016)",
+      "generation-viii": "Génération VIII (2019)",
+      "generation-ix": "Génération IX (2022)"
+    },
+    "habitats": {
+      "cave": "Grotte",
+      "forest": "Forêt",
+      "grassland": "Prairie",
+      "mountain": "Montagne",
+      "rare": "Rare",
+      "rough-terrain": "Terrain accidenté",
+      "sea": "Mer",
+      "urban": "Urbain",
+      "waters-edge": "Bord de l'eau"
+    },
+    "starterIds": [
+      1, 4, 7, 152, 155, 158, 252, 255, 258, 387, 390, 393, 495, 498, 501,
+      650, 653, 656, 722, 725, 728, 810, 813, 816, 906, 909, 912
+    ],
+    "pseudoLegendaryIds": [
+      149, 248, 373, 376, 445, 635, 706, 784, 887, 998
+    ],
+    "fossilIds": [
+      138, 139, 140, 141, 142, 345, 346, 347, 348, 408, 409, 410, 411,
+      564, 565, 566, 567, 696, 697, 698, 699, 880, 881, 882, 883
+    ]
+  },
+  "superhero": {
+    "publishers": {
+      "marvel": "Marvel Comics",
+      "dc": "DC Comics"
+    },
+    "alignments": {
+      "good": "Héros",
+      "bad": "Vilain",
+      "neutral": "Neutre"
+    },
+    "genders": [
+      { "code": "male", "label": "Homme", "match": "Male" },
+      { "code": "female", "label": "Femme", "match": "Female" }
+    ],
+    "races": [
+      { "code": "human", "label": "Humain", "match": "Human" },
+      { "code": "mutant", "label": "Mutant", "match": "Mutant" },
+      {
+        "code": "human_radiation",
+        "label": "Humain irradié",
+        "match": "Human / Radiation"
+      },
+      { "code": "cyborg", "label": "Cyborg", "match": "Cyborg" },
+      {
+        "code": "god_eternal",
+        "label": "Dieu / Éternel",
+        "match": "God / Eternal"
+      },
+      { "code": "android", "label": "Androïde", "match": "Android" },
+      { "code": "symbiote", "label": "Symbiote", "match": "Symbiote" },
+      { "code": "alien", "label": "Extraterrestre", "match": "Alien" },
+      { "code": "kryptonian", "label": "Kryptonien", "match": "Kryptonian" },
+      { "code": "demon", "label": "Démon", "match": "Demon" },
+      { "code": "atlantean", "label": "Atlante", "match": "Atlantean" },
+      { "code": "alpha", "label": "Alpha", "match": "Alpha" },
+      { "code": "asgardian", "label": "Asgardien", "match": "Asgardian" },
+      {
+        "code": "cosmic_entity",
+        "label": "Entité cosmique",
+        "match": "Cosmic Entity"
+      },
+      { "code": "inhuman", "label": "Inhumain", "match": "Inhuman" }
+    ],
+    "eras": [
+      { "code": "old_school", "label": "Old School", "ltYear": 1990 },
+      { "code": "recent", "label": "Récent", "gteYear": 1990 }
+    ],
+    "countries": [
+      {
+        "code": "us",
+        "label": "États-Unis",
+        "match": [
+          "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
+          "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho",
+          "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana",
+          "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota",
+          "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+          "New Hampshire", "New Jersey", "New Mexico", "New York",
+          "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon",
+          "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+          "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+          "West Virginia", "Wisconsin", "Wyoming", "United States", "U.S.A",
+          "USA"
+        ]
+      },
+      {
+        "code": "gb",
+        "label": "Royaume-Uni",
+        "match": ["United Kingdom", "England", "Scotland", "Wales", "Britain"]
+      },
+      { "code": "fr", "label": "France", "match": ["France"] },
+      { "code": "ca", "label": "Canada", "match": ["Canada"] },
+      { "code": "au", "label": "Australie", "match": ["Australia"] },
+      { "code": "de", "label": "Allemagne", "match": ["Germany"] },
+      { "code": "cn", "label": "Chine", "match": ["China"] },
+      { "code": "jp", "label": "Japon", "match": ["Japan"] },
+      { "code": "br", "label": "Brésil", "match": ["Brazil"] },
+      {
+        "code": "space",
+        "label": "Extraterrestre",
+        "match": [
+          "planet", "galaxy", "dimension", "asteroid", "nebula", "sector",
+          "realm", "universe", "homeworld", "moon of"
+        ]
+      }
     ]
   }
 }

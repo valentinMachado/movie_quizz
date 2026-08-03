@@ -21,6 +21,34 @@ export const RENDER_QUALITIES = [
   { key: "high", label: "🚀 Élevé", fps: 24, width: 1920, height: 1080 },
 ];
 
+// vitesse de lecture d'un summary, en secondes par mot — remplace
+// l'ancien curseur "durée d'affichage" en secondes fixes : un summary
+// court défile moins longtemps qu'un long, chaque préréglage ne fait que
+// régler le facteur appliqué au nombre de mots réel du texte (voir
+// summaryDurationMs dans timeline.js).
+export const SUMMARY_SPEEDS = [
+  { key: "fast", label: "⚡ Rapide", secPerWord: 0.28 },
+  { key: "normal", label: "⏱️ Normal", secPerWord: 0.4 },
+  { key: "slow", label: "🐌 Long", secPerWord: 0.55 },
+];
+
+// remplace l'ancien curseur unique "durée de l'extrait" (3-28s, pensé
+// uniquement pour la musique) : un même préréglage pilote 2 grandeurs très
+// différentes selon le type audio concerné (voir preload.js) — une durée en
+// secondes pour un extrait musical (fenêtre aléatoire piochée dans un
+// morceau ~30s, voir loadAndTrimAudio), un NOMBRE de répétitions pour un
+// cri (trop court pour qu'une durée en secondes ait un sens ; on le rejoue
+// plusieurs fois à la place, voir loadAndLoopAudio).
+export const AUDIO_SPEEDS = [
+  { key: "fast", label: "⚡ Court", musicSec: 5, cryCount: 1 },
+  { key: "normal", label: "⏱️ Normal", musicSec: 15, cryCount: 2 },
+  { key: "slow", label: "🐌 Long", musicSec: 28, cryCount: 4 },
+];
+// silence entre deux répétitions d'un même cri — plus généreux qu'un
+// simple raccord de boucle (voir loopBufferToDuration), pour bien détacher
+// chaque écoute au lieu de les faire s'enchaîner sans respiration.
+export const CRY_GAP_SEC = 1;
+
 // libellé de base par type (l'emoji "résultat"), préfixé au
 // libellé/icône du questionType (l'emoji "contenu de la question",
 // voir QUESTION_TYPE_DETAILS) pour former le texte de chaque chip
@@ -36,6 +64,13 @@ export const TYPE_BASE_LABELS = {
   country: "🌍 Pays",
   painter: "🎨 Peintres",
   director: "🎥 Réalisateurs",
+  // deviner l'acteur à partir des affiches/résumés de SES films (movie_cast)
+  // — pas sa photo, qui reste sous "person" ci-dessus (même distinction que
+  // director vs person pour un réalisateur).
+  actor: "🎭 Acteurs",
+  wiki_article: "📚 Wikipédia",
+  pokemon: "🐾 Pokémon",
+  superhero: "🦹 Super-héros",
 };
 
 // même emoji que TYPE_BASE_LABELS, isolé du libellé texte — sert à
@@ -52,12 +87,12 @@ export const TYPE_EMOJI = Object.fromEntries(
 
 // libellé/icône par questionType (l'emoji "contenu de la question") —
 // purement de l'affichage, server.js n'a pas de notion de libellé
-// pour ses questionTypes ("image"/"synopsis"/"flag"/"audio", voir
+// pour ses questionTypes ("image"/"summary"/"flag"/"audio", voir
 // TYPES côté serveur), donc c'est une constante client, pas une
 // donnée chargée depuis /api/catalog.
 export const QUESTION_TYPE_DETAILS = {
   image: { icon: "🖼️", label: "Photo" },
-  synopsis: { icon: "📖", label: "Synopsis" },
+  summary: { icon: "📖", label: "Résumé" },
   flag: { icon: "🚩", label: "Drapeau" },
   audio: { icon: "🎧", label: "Extrait audio" },
 };
@@ -71,12 +106,14 @@ export const QUESTION_TYPE_DETAILS = {
 // (getDirectorMoviePosters)
 const QUESTION_TYPE_LABEL_OVERRIDES = {
   painter: { image: "Tableau" },
-  director: { image: "Filmographie", synopsis: "Filmographie" },
+  director: { image: "Filmographie", summary: "Filmographie" },
+  pokemon: { audio: "Cri" },
 };
 
 export function questionTypeInfo(type, questionType) {
   const base = QUESTION_TYPE_DETAILS[questionType] || {};
-  const label = QUESTION_TYPE_LABEL_OVERRIDES[type]?.[questionType] ?? base.label;
+  const label =
+    QUESTION_TYPE_LABEL_OVERRIDES[type]?.[questionType] ?? base.label;
   return { icon: base.icon, label };
 }
 

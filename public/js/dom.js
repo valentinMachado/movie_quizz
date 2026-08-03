@@ -11,32 +11,29 @@ export const imageSecRange = document.getElementById("imageSecRange");
 export const imageSecNumber = document.getElementById("imageSecNumber");
 export const revealSecRange = document.getElementById("revealSecRange");
 export const revealSecNumber = document.getElementById("revealSecNumber");
-export const musicClipSecRange = document.getElementById(
-  "musicClipSecRange",
-);
-export const musicClipSecNumber = document.getElementById(
-  "musicClipSecNumber",
-);
+export const chipsAudioSpeed = document.getElementById("chipsAudioSpeed");
 export const flagSecRange = document.getElementById("flagSecRange");
 export const flagSecNumber = document.getElementById("flagSecNumber");
-export const synopsisSecRange = document.getElementById("synopsisSecRange");
-export const synopsisSecNumber = document.getElementById(
-  "synopsisSecNumber",
+export const chipsSummarySpeed = document.getElementById(
+  "chipsSummarySpeed",
 );
-export const synopsisPerItemRange = document.getElementById(
-  "synopsisPerItemRange",
+export const summaryPerItemRange = document.getElementById(
+  "summaryPerItemRange",
 );
-export const synopsisPerItemNumber = document.getElementById(
-  "synopsisPerItemNumber",
+export const summaryPerItemNumber = document.getElementById(
+  "summaryPerItemNumber",
 );
-export const groupSynopsisPerItemParams = document.getElementById(
-  "groupSynopsisPerItemParams",
+export const groupSummaryPerItemParams = document.getElementById(
+  "groupSummaryPerItemParams",
 );
 export const chipsListes = document.getElementById("chipsListes");
 export const chipsDecades = document.getElementById("chipsDecades");
 export const chipsGenres = document.getElementById("chipsGenres");
 export const chipsGeography = document.getElementById("chipsGeography");
 export const chipsRoles = document.getElementById("chipsRoles");
+export const chipsPopulation = document.getElementById("chipsPopulation");
+export const chipsSuperficie = document.getElementById("chipsSuperficie");
+export const chipsCategories = document.getElementById("chipsCategories");
 export const chipsContentType = document.getElementById("chipsContentType");
 export const chipsQuality = document.getElementById("chipsQuality");
 export const filterSearch = document.getElementById("filterSearch");
@@ -44,12 +41,15 @@ export const countCapNote = document.getElementById("countCapNote");
 export const groupImageParams = document.getElementById("groupImageParams");
 export const groupAudioParams = document.getElementById("groupAudioParams");
 export const groupFlagParams = document.getElementById("groupFlagParams");
-export const groupSynopsisParams = document.getElementById(
-  "groupSynopsisParams",
+export const groupSummaryParams = document.getElementById(
+  "groupSummaryParams",
 );
 export const durationHint = document.getElementById("durationHint");
 export const btnGenerate = document.getElementById("btnGenerate");
 export const btnGenerateDaily = document.getElementById("btnGenerateDaily");
+export const btnGenerateDailyFloat = document.getElementById(
+  "btnGenerateDailyFloat",
+);
 export const btnToggleAnswers = document.getElementById("btnToggleAnswers");
 export const statusEl = document.getElementById("status");
 export const progressBar = document.getElementById("progressBar");

@@ -200,6 +200,175 @@
           0 3px 0 rgba(0, 0, 0, 0.22),
           0 10px 24px rgba(79, 209, 232, 0.15);
       }
+      .daily-cta {
+        display: flex;
+        justify-content: center;
+        margin: 4px 0 26px;
+      }
+      .btn-daily {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 16px 30px;
+        border-radius: 18px;
+        border: none;
+        cursor: pointer;
+        background: linear-gradient(
+          115deg,
+          var(--cyan),
+          var(--purple) 55%,
+          var(--amber)
+        );
+        background-size: 220% 220%;
+        color: #14121c;
+        box-shadow:
+          0 9px 0 rgba(0, 0, 0, 0.32),
+          0 18px 34px -10px rgba(157, 92, 230, 0.55);
+        animation:
+          daily-shimmer 7s ease infinite,
+          daily-pulse 2.6s ease-in-out infinite;
+        transition:
+          transform 0.12s,
+          box-shadow 0.12s;
+      }
+      .btn-daily:hover:not(:disabled) {
+        transform: translateY(-3px);
+        box-shadow:
+          0 12px 0 rgba(0, 0, 0, 0.32),
+          0 22px 40px -10px rgba(157, 92, 230, 0.6);
+      }
+      .btn-daily:active:not(:disabled) {
+        transform: translateY(2px) scale(0.98);
+        box-shadow:
+          0 3px 0 rgba(0, 0, 0, 0.32),
+          0 8px 18px -8px rgba(157, 92, 230, 0.5);
+      }
+      .btn-daily:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        animation: none;
+      }
+      .btn-daily-icon {
+        font-size: 30px;
+        line-height: 1;
+        filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
+      }
+      .btn-daily-text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+      }
+      .btn-daily-title {
+        font-family: var(--game);
+        font-size: 19px;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+      }
+      .btn-daily-sub {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        color: rgba(20, 18, 28, 0.65);
+        margin-top: 2px;
+      }
+      @keyframes daily-shimmer {
+        0%,
+        100% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+      }
+      .btn-daily-float {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 12px 20px;
+        border-radius: 999px;
+        border: none;
+        cursor: pointer;
+        background: linear-gradient(
+          115deg,
+          var(--cyan),
+          var(--purple) 55%,
+          var(--amber)
+        );
+        background-size: 220% 220%;
+        color: #14121c;
+        box-shadow:
+          0 7px 0 rgba(0, 0, 0, 0.32),
+          0 16px 30px -10px rgba(157, 92, 230, 0.55);
+        animation:
+          daily-shimmer 7s ease infinite,
+          daily-pulse-float 2.6s ease-in-out infinite;
+        opacity: 0;
+        transform: translateY(18px) scale(0.9);
+        pointer-events: none;
+        transition:
+          opacity 0.25s,
+          transform 0.25s,
+          box-shadow 0.12s;
+      }
+      .btn-daily-float.show {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+      .btn-daily-float.show:hover:not(:disabled) {
+        transform: translateY(-3px) scale(1.03);
+      }
+      .btn-daily-float.show:active:not(:disabled) {
+        transform: translateY(1px) scale(0.96);
+      }
+      .btn-daily-float:disabled {
+        cursor: not-allowed;
+        filter: grayscale(0.5) brightness(0.75);
+        animation: none;
+      }
+      .btn-daily-float-icon {
+        font-size: 22px;
+        line-height: 1;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+      }
+      .btn-daily-float-text {
+        font-family: var(--game);
+        font-size: 14px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+      @keyframes daily-pulse {
+        0%,
+        100% {
+          box-shadow:
+            0 9px 0 rgba(0, 0, 0, 0.32),
+            0 18px 34px -10px rgba(157, 92, 230, 0.55);
+        }
+        50% {
+          box-shadow:
+            0 9px 0 rgba(0, 0, 0, 0.32),
+            0 20px 44px -6px rgba(79, 209, 232, 0.65);
+        }
+      }
+      @keyframes daily-pulse-float {
+        0%,
+        100% {
+          box-shadow:
+            0 7px 0 rgba(0, 0, 0, 0.32),
+            0 16px 30px -10px rgba(157, 92, 230, 0.55);
+        }
+        50% {
+          box-shadow:
+            0 7px 0 rgba(0, 0, 0, 0.32),
+            0 18px 38px -6px rgba(79, 209, 232, 0.65);
+        }
+      }
       .stats-line {
         text-align: center;
         font-family: var(--mono);
@@ -409,6 +578,53 @@
         flex-direction: column;
         gap: 6px;
       }
+      /* une boîte distincte par type devinable (Films, Séries, ...),
+         chacune contenant les questionTypes qui lui sont propres (Photo,
+         Résumé, ...) — voir renderContentTypeChips dans filters.js */
+      .type-groups {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 8px;
+        max-height: 220px;
+        overflow-y: auto;
+        padding: 2px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(157, 92, 230, 0.5) transparent;
+      }
+      .type-groups::-webkit-scrollbar {
+        width: 5px;
+      }
+      .type-groups::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .type-groups::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, var(--cyan), var(--purple));
+        border-radius: 20px;
+      }
+      /* boîte de largeur libre (au contenu), plusieurs par ligne grâce au
+         wrap du parent — pas une colonne pleine largeur comme les groupes
+         de filtres (Listes/Genres/...) plus bas, qui eux n'ont qu'un seul
+         groupe visible à la fois par ligne */
+      .type-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 10px;
+        border: 1px solid rgba(157, 92, 230, 0.18);
+        border-radius: 12px;
+        background: rgba(157, 92, 230, 0.04);
+      }
+      .type-group .chips {
+        max-height: none;
+        overflow-y: visible;
+      }
+      .type-group-label {
+        font-family: var(--sans);
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--cream);
+      }
       .chip-group-label {
         font-family: var(--mono);
         font-size: 10px;
@@ -423,6 +639,21 @@
         max-height: 150px;
         overflow-y: auto;
         padding: 2px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(157, 92, 230, 0.5) transparent;
+      }
+      .chips::-webkit-scrollbar {
+        width: 5px;
+      }
+      .chips::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .chips::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, var(--cyan), var(--purple));
+        border-radius: 20px;
+      }
+      .chips::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(180deg, var(--purple), var(--cyan));
       }
       #chipsQuality {
         justify-content: center;
@@ -679,19 +910,28 @@
           <img src="/logo.png" alt="Guess It" class="hero-logo" />
         </div>
       </div>
+      <div class="daily-cta">
+        <button id="btnGenerateDaily" class="btn-daily">
+          <span class="btn-daily-icon">🎂</span>
+          <span class="btn-daily-text">
+            <span class="btn-daily-title">Quiz du jour</span>
+            <span class="btn-daily-sub">Un nouveau quiz chaque jour</span>
+          </span>
+        </button>
+      </div>
+      <button id="btnGenerateDailyFloat" class="btn-daily-float">
+        <span class="btn-daily-float-icon">🎂</span>
+        <span class="btn-daily-float-text">Quiz du jour</span>
+      </button>
+
       <h1>Configure ton quiz</h1>
 
       <div class="card">
         <div class="settings">
-          <div class="settings-row">
-            <span class="settings-label" id="typeLabel">Type de question</span>
-            <div
-              id="chipsContentType"
-              class="chips"
-              role="group"
-              aria-labelledby="typeLabel"
-            ></div>
-          </div>
+          <span class="chip-group-label" style="font-size: 13px"
+            >Type de question</span
+          >
+          <div id="chipsContentType" class="type-groups"></div>
           <div class="chip-group" id="groupImageParams">
             <span class="chip-group-label">🖼️</span>
             <div class="settings-row" id="rowImagesPerItem">
@@ -702,7 +942,7 @@
                 type="range"
                 id="imagesPerItemRange"
                 min="1"
-                max="5"
+                max="20"
                 step="1"
                 value="3"
               />
@@ -710,7 +950,7 @@
                 type="number"
                 id="imagesPerItemNumber"
                 min="1"
-                max="5"
+                max="20"
                 value="3"
               />
             </div>
@@ -737,25 +977,16 @@
           </div>
           <div class="chip-group" id="groupAudioParams">
             <span class="chip-group-label">🎧</span>
-            <div class="settings-row" id="rowMusicClip">
-              <label class="settings-label" for="musicClipSecRange"
+            <div class="settings-row" id="rowAudioSpeed">
+              <label class="settings-label" id="audioSpeedLabel"
                 >Durée de l'extrait</label
               >
-              <input
-                type="range"
-                id="musicClipSecRange"
-                min="3"
-                max="28"
-                step="1"
-                value="10"
-              />
-              <input
-                type="number"
-                id="musicClipSecNumber"
-                min="3"
-                max="28"
-                value="10"
-              />
+              <div
+                id="chipsAudioSpeed"
+                class="chips"
+                role="group"
+                aria-labelledby="audioSpeedLabel"
+              ></div>
             </div>
           </div>
           <div class="chip-group" id="groupFlagParams">
@@ -781,16 +1012,16 @@
               /><span class="settings-label" style="min-width: auto">sec</span>
             </div>
           </div>
-          <div class="chip-group" id="groupSynopsisParams">
+          <div class="chip-group" id="groupSummaryParams">
             <span class="chip-group-label">📖</span>
-            <div id="groupSynopsisPerItemParams">
-              <div class="settings-row" id="rowSynopsisPerItem">
-                <label class="settings-label" for="synopsisPerItemRange"
-                  >Nombre de synopsis</label
+            <div id="groupSummaryPerItemParams">
+              <div class="settings-row" id="rowSummaryPerItem">
+                <label class="settings-label" for="summaryPerItemRange"
+                  >Nombre de résumés</label
                 >
                 <input
                   type="range"
-                  id="synopsisPerItemRange"
+                  id="summaryPerItemRange"
                   min="1"
                   max="5"
                   step="1"
@@ -798,38 +1029,27 @@
                 />
                 <input
                   type="number"
-                  id="synopsisPerItemNumber"
+                  id="summaryPerItemNumber"
                   min="1"
                   max="5"
                   value="2"
                 />
               </div>
             </div>
-            <div class="settings-row" id="rowSynopsisSec">
-              <label class="settings-label" for="synopsisSecRange"
-                >Durée d'affichage</label
+            <div class="settings-row" id="rowSummarySpeed">
+              <label class="settings-label" id="summarySpeedLabel"
+                >Vitesse de lecture</label
               >
-              <input
-                type="range"
-                id="synopsisSecRange"
-                min="5"
-                max="50"
-                step="1"
-                value="20"
-              />
-              <input
-                type="number"
-                id="synopsisSecNumber"
-                min="5"
-                max="50"
-                value="20"
-              /><span class="settings-label" style="min-width: auto">sec</span>
+              <div
+                id="chipsSummarySpeed"
+                class="chips"
+                role="group"
+                aria-labelledby="summarySpeedLabel"
+              ></div>
             </div>
           </div>
           <div class="settings-row">
-            <label class="settings-label" for="filterSearch"
-              >Rechercher</label
-            >
+            <label class="settings-label" for="filterSearch">Rechercher</label>
             <div class="search-wrap">
               <span class="search-icon" aria-hidden="true">🔎</span>
               <input
@@ -878,9 +1098,7 @@
             ></div>
           </div>
           <div class="chip-group">
-            <span class="chip-group-label" id="geographyLabel"
-              >Géographie</span
-            >
+            <span class="chip-group-label" id="geographyLabel">Géographie</span>
             <div
               id="chipsGeography"
               class="chips"
@@ -897,6 +1115,37 @@
               aria-labelledby="rolesLabel"
             ></div>
           </div>
+          <div class="chip-group">
+            <span class="chip-group-label" id="populationLabel"
+              >Population</span
+            >
+            <div
+              id="chipsPopulation"
+              class="chips"
+              role="group"
+              aria-labelledby="populationLabel"
+            ></div>
+          </div>
+          <div class="chip-group">
+            <span class="chip-group-label" id="superficieLabel"
+              >Superficie</span
+            >
+            <div
+              id="chipsSuperficie"
+              class="chips"
+              role="group"
+              aria-labelledby="superficieLabel"
+            ></div>
+          </div>
+          <div class="chip-group">
+            <span class="chip-group-label" id="categoriesLabel">Catégorie</span>
+            <div
+              id="chipsCategories"
+              class="chips"
+              role="group"
+              aria-labelledby="categoriesLabel"
+            ></div>
+          </div>
 
           <div class="settings-row">
             <label class="settings-label" for="countRange"
@@ -910,13 +1159,7 @@
               step="1"
               value="10"
             />
-            <input
-              type="number"
-              id="countNumber"
-              min="5"
-              max="50"
-              value="10"
-            />
+            <input type="number" id="countNumber" min="5" max="50" value="10" />
             <span
               id="countCapNote"
               class="hint"
@@ -968,7 +1211,6 @@
 
         <div class="controls">
           <button id="btnGenerate">Générer le quizz</button>
-          <button id="btnGenerateDaily">Quiz du jour</button>
         </div>
         <div id="status" class="status" aria-live="polite">
           Récupération des catégories…

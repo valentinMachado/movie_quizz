@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.3 — 2026-08-03
+
+- 4 nouveaux types de quiz : "acteur" (deviner à partir des affiches/résumés des films où il a joué, comme "réalisateur"), articles Wikipédia (`type: "wiki_article"`, catégories configurables — histoire, sciences, géographie, monuments, mythologie, animaux), Pokémon (image/résumé/cri, PokeAPI) et super-héros (image/résumé, superhero-api).
+- Le type "personne" gagne un mode résumé (`questionType: "summary"`) et un champ "poste occupé" affiché au reveal quand connu (ex. pour un politicien) ; les rôles au-delà d'acteur/réalisateur/peintre sont maintenant pilotés par config (`config.json`'s `personRoles.roles`, sans code) — un rôle "sportif" rejoint "politicien".
+- Renommage de `questionType: "synopsis"` en `"summary"` (mêmes types : film/série/jeu/réalisateur, plus acteur/personne/article/Pokémon/super-héros ci-dessus) ; les résumés sont maintenant tronqués à une longueur lisible et masquent aussi les alias connus du sujet (articles Wikipédia, super-héros), pas seulement son titre/nom.
+- `imagesPerItem` passe de 5 à 20 maximum.
+- Un peintre ou une personne d'un rôle Wikidata (politicien, sportif...) peut maintenant apparaître dans le "quiz du jour" comme anniversaire de naissance, au même titre qu'un acteur/réalisateur — condition sur une date de naissance connue de Wikidata à la précision du jour, pour ne jamais générer de faux anniversaire.
+- Le type "acteur" gagne un filtre "tête d'affiche"/"second couteau" basé sur sa place moyenne au casting ; ses filtres décennie/géographie (comme ceux de "réalisateur") viennent maintenant de sa date/lieu de naissance plutôt que d'un mécanisme dérivé des films.
+
 ## 1.2.2 — 2026-08-03
 
 - Le type "réalisateur" gagne un mode synopsis (`type: "director"`, `questionType: "synopsis"`) : deviner le réalisateur à partir des résumés (rédigés) de plusieurs de ses films, cyclés comme des frames (nouveau réglage `synopsisPerItem`), avec le titre du film source affiché en légende.

@@ -1,4 +1,4 @@
-import { RENDER_QUALITIES } from "./config.js";
+import { RENDER_QUALITIES, SUMMARY_SPEEDS, AUDIO_SPEEDS } from "./config.js";
 
 // canvas de rendu, jamais attaché au DOM : sert uniquement de source aux
 // frames encodées — dimensionné selon la qualité sélectionnée (voir
@@ -44,14 +44,28 @@ export const state = {
   answersRevealed: false,
   splashAudioBuffer: null,
   logoImg: null, // logo préchargé une fois, dessiné de façon synchrone par drawSplash
-  cakeImg: null, // idem pour le gâteau (quiz du jour, item anniversaire — voir drawReveal)
   renderFps: 12,
+  summarySpeed: "normal",
+  audioSpeed: "normal",
 };
 
 export function currentRenderQuality() {
   return (
     RENDER_QUALITIES.find((q) => q.fps === state.renderFps) ||
     RENDER_QUALITIES[1]
+  );
+}
+
+export function currentSummarySpeed() {
+  return (
+    SUMMARY_SPEEDS.find((s) => s.key === state.summarySpeed) ||
+    SUMMARY_SPEEDS[1]
+  );
+}
+
+export function currentAudioSpeed() {
+  return (
+    AUDIO_SPEEDS.find((s) => s.key === state.audioSpeed) || AUDIO_SPEEDS[1]
   );
 }
 

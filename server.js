@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import * as db from "./db.js";
+import * as db from "./db/index.js";
 
 const app = express();
 app.use(express.json());
@@ -17,11 +17,11 @@ const MIN_COUNT = 5;
 // reste dans une plage sûre sans avoir besoin d'éviction.
 const MAX_COUNT = 50;
 const MIN_IMAGES_PER_ITEM = 1;
-const MAX_IMAGES_PER_ITEM = 5;
-// nombre de synopsis cyclés pour director:synopsis (voir selectItemsWithBackdrops)
+const MAX_IMAGES_PER_ITEM = 20;
+// nombre de summary cyclés pour director:summary (voir selectItemsWithBackdrops)
 // — réglage indépendant de imagesPerItem, qui n'a pas de sens pour ce mode.
-const MIN_SYNOPSIS_PER_ITEM = 1;
-const MAX_SYNOPSIS_PER_ITEM = 5;
+const MIN_SUMMARY_PER_ITEM = 1;
+const MAX_SUMMARY_PER_ITEM = 5;
 const IMAGE_FETCH_CONCURRENCY = 8;
 
 // lecture de config uniquement (pas d'appel réseau) — sert seulement à ne
@@ -32,7 +32,7 @@ const pexelsEnabled = Boolean(process.env.PEXELS_API_KEY);
 // --db=<path> : fichier SQLite à ouvrir (défaut cache/data.sqlite) — doit
 // pointer sur le même fichier que le refresh.js qui l'alimente. Ce process
 // ne fait plus aucun appel réseau : uniquement de la lecture (et l'écriture
-// légère des stats d'usage, voir /api/quiz-batch) via db.js.
+// légère des stats d'usage, voir /api/quiz-batch) via db/.
 const DB_ARG = process.argv.find((a) => a.startsWith("--db="));
 const DB_PATH = DB_ARG
   ? DB_ARG.slice("--db=".length)
@@ -48,43 +48,99 @@ db.init(DB_PATH);
 const COUNTRY_ID_OFFSET_IMAGE = 1_000_000_000_000;
 const PAINTER_ID_OFFSET = 2_000_000_000_000;
 const COUNTRY_ID_OFFSET_FLAG = 3_000_000_000_000;
-const SYNOPSIS_ID_OFFSET = {
+const SUMMARY_ID_OFFSET = {
   movie: 4_000_000_000_000,
   tv: 5_000_000_000_000,
   game: 8_000_000_000_000,
 };
 // une entrée "person" peut être source wikidata (peintre, rôle "painter" —
-// voir materializePersonRow) : son external_id est un QID ("Q123"), pas un
+// voir materializePersonRows) : son external_id est un QID ("Q123"), pas un
 // id TMDb numérique — sans cet offset dédié, Number("Q123") vaudrait NaN, et
 // même une fois le "Q" retiré, le nombre obtenu pourrait numériquement
 // entrer en collision avec un vrai id TMDb d'acteur.
 const PERSON_WIKIDATA_ID_OFFSET = 6_000_000_000_000;
 // un réalisateur partage la même ligne `person` (et donc le même id TMDb)
-// que son éventuelle entrée "acteur" (voir materializePersonRow) — sans cet
+// que son éventuelle entrée "acteur" (voir materializePersonRows) — sans cet
 // offset dédié, le pool "director" et le pool "person" pourraient exposer le
 // même id pour deux items différents (photo à deviner vs films à deviner),
 // qui s'écraseraient l'un l'autre dans itemsFromSelections si les deux sont
 // sélectionnés ensemble.
 const DIRECTOR_ID_OFFSET = 7_000_000_000_000;
-// même réalisateur, même id TMDb, mais un mode "synopsis" distinct du mode
+// même réalisateur, même id TMDb, mais un mode "summary" distinct du mode
 // "image" ci-dessus (DIRECTOR_ID_OFFSET) : sans cet offset propre, les deux
-// s'écraseraient l'un l'autre si director:image et director:synopsis sont
+// s'écraseraient l'un l'autre si director:image et director:summary sont
 // sélectionnés ensemble (même piège que DIRECTOR_ID_OFFSET vs person).
-const DIRECTOR_SYNOPSIS_ID_OFFSET = 9_000_000_000_000;
-// en dessous, un synopsis est jugé trop court pour être une devinette
+const DIRECTOR_SUMMARY_ID_OFFSET = 9_000_000_000_000;
+// wiki_article.id (voir db/wikiArticle.js) est le pageid Wikipédia — un
+// nombre a priori "petit" comme les vieux id TMDb, donc lui aussi a besoin
+// de son propre espace d'id disjoint (même piège que painter/director
+// ci-dessus), et de 2 offsets distincts (image vs summary, même principe
+// que director).
+const WIKI_ARTICLE_ID_OFFSET = 10_000_000_000_000;
+const WIKI_ARTICLE_SUMMARY_ID_OFFSET = 11_000_000_000_000;
+// national dex number (id PokeAPI) : un espace d'id minuscule et
+// entièrement dense (1..~1025) — bien plus sujet à collision avec les id
+// TMDb/IGDB "bruts" (movie/tv/game, jamais offsetés eux, voir plus bas)
+// qu'un simple risque théorique : garantit une collision quasi certaine
+// sans cet offset dédié. 3 offsets distincts (image/summary/audio) même
+// principe que director/wiki_article ci-dessus, pour qu'un même pokémon
+// sélectionné sur plusieurs questionTypes à la fois ne s'écrase pas dans
+// itemsFromSelections.
+const POKEMON_ID_OFFSET = 12_000_000_000_000;
+const POKEMON_SUMMARY_ID_OFFSET = 13_000_000_000_000;
+const POKEMON_AUDIO_ID_OFFSET = 14_000_000_000_000;
+// super-héros (superhero-api) : même piège d'id qu'avec Pokémon (id dense,
+// petit entier, voir POKEMON_ID_OFFSET ci-dessus) — 2 offsets (image/
+// summary), pas de 3e "audio" : cette API n'a aucune source sonore.
+const SUPERHERO_ID_OFFSET = 15_000_000_000_000;
+const SUPERHERO_SUMMARY_ID_OFFSET = 16_000_000_000_000;
+// person:image garde son id "brut" (naturalId, éventuellement déjà offseté
+// par PERSON_WIKIDATA_ID_OFFSET) — même piège que director/pokemon/superhero
+// ci-dessus si person:summary partageait cet id : les deux s'écraseraient
+// dans itemsFromSelections si sélectionnés ensemble.
+const PERSON_SUMMARY_ID_OFFSET = 17_000_000_000_000;
+// acteur (type "actor", quiz filmographie via affiches/résumés de ses
+// films — voir materializeActorRow) : même id TMDb que son éventuelle
+// entrée "person"/"director" (une seule ligne `person` par acteur, voir
+// commentaire sur DIRECTOR_ID_OFFSET plus haut), donc même besoin d'un
+// espace d'id disjoint, 2 offsets (image/summary) même principe que
+// director.
+const ACTOR_ID_OFFSET = 18_000_000_000_000;
+const ACTOR_SUMMARY_ID_OFFSET = 19_000_000_000_000;
+// en dessous, un summary est jugé trop court pour être une devinette
 // exploitable (ex: "Documentaire.")
-const MIN_SYNOPSIS_LEN = 30;
+const MIN_SUMMARY_LEN = 30;
+// au-delà, un summary devient trop long à lire/faire défiler dans le temps
+// imparti — surtout les extraits Wikipédia (exintro), souvent bien plus
+// longs qu'un summary TMDb/IGDB typique.
+const MAX_SUMMARY_LEN = 800;
 
 function toPoolId(type, questionType, naturalId) {
   if (type === "country" && questionType === "image")
     return COUNTRY_ID_OFFSET_IMAGE + naturalId;
   if (type === "country" && questionType === "flag")
     return COUNTRY_ID_OFFSET_FLAG + naturalId;
-  if (type === "director" && questionType === "synopsis")
-    return DIRECTOR_SYNOPSIS_ID_OFFSET + naturalId;
+  if (type === "director" && questionType === "summary")
+    return DIRECTOR_SUMMARY_ID_OFFSET + naturalId;
+  if (type === "wiki_article" && questionType === "summary")
+    return WIKI_ARTICLE_SUMMARY_ID_OFFSET + naturalId;
+  if (type === "pokemon" && questionType === "audio")
+    return POKEMON_AUDIO_ID_OFFSET + naturalId;
+  if (type === "pokemon" && questionType === "summary")
+    return POKEMON_SUMMARY_ID_OFFSET + naturalId;
+  if (type === "pokemon") return POKEMON_ID_OFFSET + naturalId;
+  if (type === "superhero" && questionType === "summary")
+    return SUPERHERO_SUMMARY_ID_OFFSET + naturalId;
+  if (type === "superhero") return SUPERHERO_ID_OFFSET + naturalId;
+  if (type === "person" && questionType === "summary")
+    return PERSON_SUMMARY_ID_OFFSET + naturalId;
   if (type === "painter") return PAINTER_ID_OFFSET + naturalId;
   if (type === "director") return DIRECTOR_ID_OFFSET + naturalId;
-  if (questionType === "synopsis") return SYNOPSIS_ID_OFFSET[type] + naturalId;
+  if (type === "actor" && questionType === "summary")
+    return ACTOR_SUMMARY_ID_OFFSET + naturalId;
+  if (type === "actor") return ACTOR_ID_OFFSET + naturalId;
+  if (type === "wiki_article") return WIKI_ARTICLE_ID_OFFSET + naturalId;
+  if (questionType === "summary") return SUMMARY_ID_OFFSET[type] + naturalId;
   return naturalId;
 }
 
@@ -92,14 +148,14 @@ function toPoolId(type, questionType, naturalId) {
 //
 // chaque materialize*Row(s) prend les lignes déjà filtrées (voir
 // TYPES[type].getPool) et ne garde QUE le questionType demandé — un même
-// type peut être sollicité plusieurs fois (movie:image et movie:synopsis)
+// type peut être sollicité plusieurs fois (movie:image et movie:summary)
 // avec des filtres différents, voir materializeSelection.
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// un synopsis reprend rarement le titre EXACT tel qu'affiché ailleurs : il
+// un summary reprend rarement le titre EXACT tel qu'affiché ailleurs : il
 // coupe souvent au sous-titre ("Titre: Sous-titre" -> "Titre" tout court, ex.
 // IGDB sur "Grand Theft Auto: London 1969" qui reparle juste de "Grand Theft
 // Auto") ou tronque un numéro de suite ("Monster Hunter 4 Ultimate" ->
@@ -117,6 +173,20 @@ function titleVariants(title) {
     const prefix = words.slice(0, n).join(" ").trim();
     if (prefix.length >= TITLE_VARIANT_MIN_LEN) variants.add(prefix);
   }
+  // noms propres isolés (mot commençant par une majuscule) : un titre
+  // composé ("Grizzly de Californie") mentionne souvent l'un de ses
+  // composants seul plus loin dans le texte ("...présent en Californie...")
+  // sans jamais répéter le titre complet — les préfixes ci-dessus ne
+  // couvrent que le DÉBUT du titre, pas un mot isolé en milieu/fin.
+  for (const word of words) {
+    // ponctuation collée par le split sur les espaces ("Wiggle!", "Steady,")
+    // : à retirer avant de tester la variante, sinon elle n'a aucune chance
+    // de matcher le mot tel qu'il apparaît (sans cette ponctuation) ailleurs.
+    const clean = word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (/^[A-ZÀ-ÖØ-Þ]/.test(clean) && clean.length >= TITLE_VARIANT_MIN_LEN) {
+      variants.add(clean);
+    }
+  }
   // plus long d'abord : dans une alternance regex, le premier candidat qui
   // matche à une position donnée gagne — sans ce tri, un fragment court
   // ("Monster Hunter") pourrait consommer le texte avant que la variante
@@ -124,18 +194,68 @@ function titleVariants(title) {
   return [...variants].sort((a, b) => b.length - a.length);
 }
 
-// un synopsis (TMDb overview / IGDB summary) mentionne très souvent son
+// un summary (TMDb overview / IGDB summary) mentionne très souvent son
 // propre titre en toutes lettres (ex: IGDB commence typiquement par "<Titre>
 // is a ..."), ce qui rendrait la devinette triviale — on masque toute
 // occurrence (insensible à la casse) du titre ou d'une de ses variantes
-// probables (voir titleVariants) avant de l'exposer.
-function redactTitle(text, title) {
+// probables (voir titleVariants) avant de l'exposer, sous "[titre]".
+// `aliases` (wiki_article uniquement, voir materializeWikiArticleRows) :
+// noms alternatifs connus du sujet (redirections Wikipédia — variantes
+// d'orthographe, noms étrangers/scientifiques...) qu'un simple
+// titleVariants(title) ne peut pas deviner ; masqués séparément sous
+// "[alias]" (pas "[titre]", ce n'est justement pas LE titre affiché — plus
+// parlant qu'un "[nom]" générique) — passe après le titre (priorité au
+// titre en cas de chevauchement).
+//
+// `loose` (par défaut false, wiki_article uniquement — voir
+// materializeWikiArticleRows/loose_redaction en base, piloté par
+// "looseRedaction" par catégorie dans config.json) : par défaut, une
+// variante ne matche qu'en MOT ENTIER (limites `\p{L}\p{N}` plutôt que `\b`,
+// qui ignore les lettres accentuées en JS) — sans ça, une variante courte
+// comme "Fort" masquerait aussi le milieu d'un mot sans rapport
+// ("fortifié" -> "[titre]ifié"). `loose: true` retombe sur un simple
+// sous-texte, volontairement, pour les catégories où capter un DÉRIVÉ du
+// titre est plus utile que risqué (ex. Animaux : "renard" -> "renardeau"
+// laisserait fuiter la réponse si on ne le masquait pas).
+function redactTitle(text, title, aliases = [], loose = false) {
   if (!text || !title) return text;
-  const pattern = titleVariants(title).map(escapeRegExp).join("|");
-  return text.replace(new RegExp(pattern, "gi"), "[titre]");
+  // "s?" : un pluriel simple ("Wiggle" -> "Wiggles") reste un mot entier
+  // dès qu'on retombe sur une frontière ensuite — sans lui, un titre
+  // singulier ne masquerait jamais sa propre forme plurielle dans le texte.
+  const wrap = (pattern) =>
+    loose
+      ? pattern
+      : `(?<![\\p{L}\\p{N}])(?:${pattern})s?(?![\\p{L}\\p{N}])`;
+  const flags = loose ? "gi" : "giu";
+
+  const titlePattern = titleVariants(title).map(escapeRegExp).join("|");
+  let result = text.replace(new RegExp(wrap(titlePattern), flags), "[titre]");
+
+  const aliasVariants = new Set();
+  for (const name of aliases) {
+    for (const v of titleVariants(name)) aliasVariants.add(v);
+  }
+  if (aliasVariants.size > 0) {
+    const aliasPattern = [...aliasVariants]
+      .sort((a, b) => b.length - a.length)
+      .map(escapeRegExp)
+      .join("|");
+    result = result.replace(new RegExp(wrap(aliasPattern), flags), "[alias]");
+  }
+  return result;
 }
 
-// movie/tv se matérialisent pareil (poster TMDb + question bonus "synopsis"
+// coupe au dernier mot entier avant MAX_SUMMARY_LEN (pas en plein milieu
+// d'un mot) et marque la coupe par une ellipse — appelé après redactTitle,
+// pas avant : éviter de trancher pile sur "[titre]".
+function truncateOverview(text) {
+  if (text.length <= MAX_SUMMARY_LEN) return text;
+  const cut = text.slice(0, MAX_SUMMARY_LEN);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
+}
+
+// movie/tv se matérialisent pareil (poster TMDb + question bonus "summary"
 // si l'overview est assez longue) — seule la source SQLite et le type
 // changent.
 function materializeMovieLikeRows(rows, type, questionType) {
@@ -157,18 +277,17 @@ function materializeMovieLikeRows(rows, type, questionType) {
         ...(item.reason ? { reason: item.reason } : {}),
         ...(item.isAnniversary ? { isAnniversary: true } : {}),
       });
-    } else if (questionType === "synopsis") {
-      const overview = redactTitle(
-        (item.overview || "").trim(),
-        item.title,
+    } else if (questionType === "summary") {
+      const overview = truncateOverview(
+        redactTitle((item.overview || "").trim(), item.title),
       );
-      if (overview.length >= MIN_SYNOPSIS_LEN) {
+      if (overview.length >= MIN_SUMMARY_LEN) {
         result.push({
-          id: toPoolId(type, "synopsis", item.id),
+          id: toPoolId(type, "summary", item.id),
           title: item.title,
           overview,
           type,
-          questionType: "synopsis",
+          questionType: "summary",
           posterUrl,
           ...(item.reason ? { reason: item.reason } : {}),
           ...(item.isAnniversary ? { isAnniversary: true } : {}),
@@ -193,15 +312,15 @@ function materializeGameRows(rows, questionType) {
         ...(g.reason ? { reason: g.reason } : {}),
         ...(g.isAnniversary ? { isAnniversary: true } : {}),
       });
-    } else if (questionType === "synopsis") {
-      const summary = redactTitle((g.summary || "").trim(), g.title);
-      if (summary.length >= MIN_SYNOPSIS_LEN) {
+    } else if (questionType === "summary") {
+      const summary = truncateOverview(redactTitle((g.summary || "").trim(), g.title));
+      if (summary.length >= MIN_SUMMARY_LEN) {
         result.push({
-          id: toPoolId("game", "synopsis", g.id),
+          id: toPoolId("game", "summary", g.id),
           title: g.title,
           overview: summary,
           type: "game",
-          questionType: "synopsis",
+          questionType: "summary",
           posterUrl,
           ...(g.reason ? { reason: g.reason } : {}),
           ...(g.isAnniversary ? { isAnniversary: true } : {}),
@@ -255,27 +374,60 @@ function materializeCountryRows(rows, questionType) {
   return result;
 }
 
-function materializePersonRow(p) {
-  // acteur/réalisateur (source tmdb) : external_id est déjà l'id TMDb
-  // numérique, utilisé tel quel. Peintre (source wikidata, rôle "painter") :
-  // external_id est un QID ("Q123") — on retire le "Q" et on offset pour
-  // rester dans un espace d'id disjoint des vrais id TMDb.
-  const naturalId =
-    p.source === "wikidata"
-      ? PERSON_WIKIDATA_ID_OFFSET + Number(p.external_id.slice(1))
-      : Number(p.external_id);
-  return {
-    id: naturalId,
-    title: p.name,
-    type: "person",
-    questionType: "image",
-    // profile_image_url (acteurs TMDb) ; repli sur portrait_image_url
-    // (peintres wikidata, qui n'ont pas de profile_image_url).
-    posterUrl: p.profile_image_url || p.portrait_image_url,
-    personId: p.id,
-    ...(p.reason ? { reason: p.reason } : {}),
-    ...(p.isAnniversary ? { isAnniversary: true } : {}),
-  };
+// person:summary lit person.summary, rempli soit par Wikidata (résumé
+// Wikipédia FR d'un rôle "person" — politicien/athlete, voir
+// fetchPersonRoleEntities), soit par TMDb ou Wikipédia FR/EN en repli
+// (biography, voir fetchAndStorePersonDetails) pour un acteur/réalisateur —
+// un peintre (source wikidata, rôle "painter") n'a jamais de summary, comme
+// un acteur sans aucune de ces 3 sources : filtré comme n'importe quel
+// summary trop court (MIN_SUMMARY_LEN).
+function materializePersonRows(rows, questionType) {
+  const result = [];
+  for (const p of rows) {
+    // acteur/réalisateur (source tmdb) : external_id est déjà l'id TMDb
+    // numérique, utilisé tel quel. Peintre (source wikidata, rôle "painter") :
+    // external_id est un QID ("Q123") — on retire le "Q" et on offset pour
+    // rester dans un espace d'id disjoint des vrais id TMDb.
+    const naturalId =
+      p.source === "wikidata"
+        ? PERSON_WIKIDATA_ID_OFFSET + Number(p.external_id.slice(1))
+        : Number(p.external_id);
+    if (questionType === "image") {
+      result.push({
+        id: naturalId,
+        title: p.name,
+        type: "person",
+        questionType: "image",
+        // profile_image_url (acteurs TMDb) ; repli sur portrait_image_url
+        // (peintres wikidata, qui n'ont pas de profile_image_url).
+        posterUrl: p.profile_image_url || p.portrait_image_url,
+        personId: p.id,
+        ...(p.reason ? { reason: p.reason } : {}),
+        ...(p.isAnniversary ? { isAnniversary: true } : {}),
+        // poste occupé (P39 Wikidata, ex. rôle "politicien") — affiché au reveal
+        // "si présent" ; un acteur (source tmdb) n'a jamais cette colonne.
+        ...(p.position_held ? { positionHeld: p.position_held } : {}),
+      });
+    } else if (questionType === "summary") {
+      const overview = truncateOverview(
+        redactTitle((p.summary || "").trim(), p.name),
+      );
+      if (overview.length >= MIN_SUMMARY_LEN) {
+        result.push({
+          id: toPoolId("person", "summary", naturalId),
+          title: p.name,
+          overview,
+          type: "person",
+          questionType: "summary",
+          posterUrl: p.profile_image_url || p.portrait_image_url,
+          personId: p.id,
+          ...(p.reason ? { reason: p.reason } : {}),
+          ...(p.isAnniversary ? { isAnniversary: true } : {}),
+        });
+      }
+    }
+  }
+  return result;
 }
 
 function materializePainterRow(p) {
@@ -290,6 +442,139 @@ function materializePainterRow(p) {
   };
 }
 
+// article Wikipédia : même mécanique summary que movie/game (redactTitle +
+// MIN_SUMMARY_LEN), plus un questionType "image" (backdrops = images de
+// l'article, voir getBackdropsForItem) — les deux modes exigent une vignette
+// (thumbnail_url), seule image disponible pour l'écran de réponse.
+// `wikiArticleId` (id brut, pas offseté) ne sert qu'au mode "image" (lookup
+// dans getBackdropsForItem, même principe que `personId` pour painter/
+// director) : absent du mode "summary", qui n'appelle jamais
+// getBackdropsForItem et dont l'objet traverse selectItemsWithBackdrops tel
+// quel (pas de ré-emballage "allowlist" comme pour le mode "image", voir
+// selectItemsWithBackdrops) — le garder aurait fuité un champ interne dans
+// la réponse client.
+function materializeWikiArticleRows(rows, questionType) {
+  const result = [];
+  for (const item of rows) {
+    if (!item.thumbnail_url) continue;
+    if (questionType === "image") {
+      result.push({
+        id: toPoolId("wiki_article", "image", item.id),
+        title: item.title,
+        type: "wiki_article",
+        questionType: "image",
+        posterUrl: item.thumbnail_url,
+        wikiArticleId: item.id,
+      });
+    } else if (questionType === "summary") {
+      let aliases;
+      try {
+        aliases = JSON.parse(item.aliases || "[]");
+      } catch {
+        aliases = [];
+      }
+      const overview = truncateOverview(
+        redactTitle((item.extract || "").trim(), item.title, aliases, !!item.loose_redaction),
+      );
+      if (overview.length >= MIN_SUMMARY_LEN) {
+        result.push({
+          id: toPoolId("wiki_article", "summary", item.id),
+          title: item.title,
+          overview,
+          type: "wiki_article",
+          questionType: "summary",
+          posterUrl: item.thumbnail_url,
+        });
+      }
+    }
+  }
+  return result;
+}
+
+// pokémon (PokeAPI, voir db/refresh/pokeapi.js) : 3 questionTypes, tous
+// tirés du même sprite/résumé/cri déjà connus au moment du fetch (pas de
+// warmLoop) — "audio" (cri) exige cry_url, absent pour quelques espèces
+// sans cri connu côté PokeAPI, comme "flag" exige c.capital pour un pays.
+function materializePokemonRows(rows, questionType) {
+  const result = [];
+  for (const p of rows) {
+    if (questionType === "image") {
+      result.push({
+        id: toPoolId("pokemon", "image", p.id),
+        title: p.name,
+        type: "pokemon",
+        questionType: "image",
+        posterUrl: p.sprite_url,
+      });
+    } else if (questionType === "summary") {
+      const overview = truncateOverview(
+        redactTitle((p.summary || "").trim(), p.name),
+      );
+      if (overview.length >= MIN_SUMMARY_LEN) {
+        result.push({
+          id: toPoolId("pokemon", "summary", p.id),
+          title: p.name,
+          overview,
+          type: "pokemon",
+          questionType: "summary",
+          posterUrl: p.sprite_url,
+        });
+      }
+    } else if (questionType === "audio" && p.cry_url) {
+      result.push({
+        id: toPoolId("pokemon", "audio", p.id),
+        title: p.name,
+        type: "pokemon",
+        questionType: "audio",
+        previewUrl: p.cry_url,
+        posterUrl: p.sprite_url,
+      });
+    }
+  }
+  return result;
+}
+
+// super-héros (superhero-api, voir db/refresh/superhero.js) : 2
+// questionTypes, portrait + bio de synthèse déjà construits au moment du
+// fetch (pas de warmLoop, même cas que "pokemon"/"music" ci-dessus) —
+// aliases (vrai nom, alter-ego) masqués du summary comme pour wiki_article,
+// pas de mode "audio" (aucune source sonore dans cette API).
+function materializeSuperheroRows(rows, questionType) {
+  const result = [];
+  for (const h of rows) {
+    if (questionType === "image") {
+      result.push({
+        id: toPoolId("superhero", "image", h.id),
+        title: h.name,
+        type: "superhero",
+        questionType: "image",
+        posterUrl: h.image_url,
+      });
+    } else if (questionType === "summary") {
+      let aliases;
+      try {
+        aliases = JSON.parse(h.aliases || "[]");
+      } catch {
+        aliases = [];
+      }
+      const overview = truncateOverview(
+        redactTitle((h.summary || "").trim(), h.name, aliases),
+      );
+      if (overview.length >= MIN_SUMMARY_LEN) {
+        result.push({
+          id: toPoolId("superhero", "summary", h.id),
+          title: h.name,
+          overview,
+          type: "superhero",
+          questionType: "summary",
+          posterUrl: h.image_url,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 function materializeDirectorRow(p, questionType) {
   // source toujours "tmdb" (crédits de réalisation, voir refresh.js) :
   // external_id est déjà l'id TMDb numérique, pas de préfixe à retirer
@@ -300,8 +585,27 @@ function materializeDirectorRow(p, questionType) {
     type: "director",
     questionType,
     // photo du réalisateur, révélée à l'écran de réponse — les images/
-    // synopsis de devinette viennent de ses films (voir
+    // summary de devinette viennent de ses films (voir
     // selectItemsWithBackdrops), pas cette photo.
+    posterUrl: p.profile_image_url,
+    personId: p.id,
+  };
+}
+
+// mirror exact de materializeDirectorRow ci-dessus, pour le quiz "acteur"
+// (deviner le nom à partir des affiches/résumés des films où il a joué —
+// voir movie_cast/getActorMoviePosters) : source toujours "tmdb" (casting,
+// voir fetchAndStoreMovieCredits/fetchAndStoreFilmography), pas de peintre
+// possible ici contrairement à "person".
+function materializeActorRow(p, questionType) {
+  return {
+    id: toPoolId("actor", questionType, Number(p.external_id)),
+    title: p.name,
+    type: "actor",
+    questionType,
+    // photo de l'acteur, révélée à l'écran de réponse — les images/summary
+    // de devinette viennent de ses films (voir selectItemsWithBackdrops),
+    // pas cette photo.
     posterUrl: p.profile_image_url,
     personId: p.id,
   };
@@ -309,31 +613,31 @@ function materializeDirectorRow(p, questionType) {
 
 // un type = quels questionTypes il peut produire (info structurelle fixe,
 // pas dérivée des données — voir /api/catalog), comment lire son pool filtré
-// (db.getXPool(filters), voir db.js) et comment matérialiser ce pool en
+// (db.getXPool(filters), voir db/typeItem.js) et comment matérialiser ce pool en
 // items de quiz pour UN questionType donné. Toute la logique d'ingestion
-// (fetch entités, warmLoops, filtres) vit dans refresh.js — ce process ne
+// (fetch entités, warmLoops, filtres) vit dans db/refresh.js — ce process ne
 // fait plus que lire. `game` reste toujours présent : si IGDB n'est pas
 // configuré côté refresh.js, le pool est simplement vide.
 const TYPES = {
   movie: {
-    questionTypes: ["image", "synopsis"],
+    questionTypes: ["image", "summary"],
     getPool: db.getMoviePool,
     materialize: (rows, questionType) =>
       materializeMovieLikeRows(rows, "movie", questionType),
   },
   tv: {
-    questionTypes: ["image", "synopsis"],
+    questionTypes: ["image", "summary"],
     getPool: db.getTvShowPool,
     materialize: (rows, questionType) =>
       materializeMovieLikeRows(rows, "tv", questionType),
   },
   person: {
-    questionTypes: ["image"],
+    questionTypes: ["image", "summary"],
     getPool: db.getPersonPool,
-    materialize: (rows) => rows.map(materializePersonRow),
+    materialize: (rows, questionType) => materializePersonRows(rows, questionType),
   },
   game: {
-    questionTypes: ["image", "synopsis"],
+    questionTypes: ["image", "summary"],
     getPool: db.getGamePool,
     materialize: (rows, questionType) => materializeGameRows(rows, questionType),
   },
@@ -354,10 +658,31 @@ const TYPES = {
     materialize: (rows) => rows.map(materializePainterRow),
   },
   director: {
-    questionTypes: ["image", "synopsis"],
+    questionTypes: ["image", "summary"],
     getPool: db.getDirectorPool,
     materialize: (rows, questionType) =>
       rows.map((p) => materializeDirectorRow(p, questionType)),
+  },
+  actor: {
+    questionTypes: ["image", "summary"],
+    getPool: db.getActorPool,
+    materialize: (rows, questionType) =>
+      rows.map((p) => materializeActorRow(p, questionType)),
+  },
+  wiki_article: {
+    questionTypes: ["image", "summary"],
+    getPool: db.getWikiArticlePool,
+    materialize: (rows, questionType) => materializeWikiArticleRows(rows, questionType),
+  },
+  pokemon: {
+    questionTypes: ["image", "summary", "audio"],
+    getPool: db.getPokemonPool,
+    materialize: (rows, questionType) => materializePokemonRows(rows, questionType),
+  },
+  superhero: {
+    questionTypes: ["image", "summary"],
+    getPool: db.getSuperheroPool,
+    materialize: (rows, questionType) => materializeSuperheroRows(rows, questionType),
   },
 };
 
@@ -368,16 +693,17 @@ function hasAnyPool() {
 // LED de statut /api/stats.ready : c'est ça qu'on annonce au client — "la
 // base est chauffée" (nom aligné sur le vocabulaire warmLoop/chauffage de
 // refresh.js), pas "les warmLoops sont ready" (détail d'implémentation).
-// Ne couvre que les warmLoops "bloquants" (peintures, photos pays) sont-ils
-// à jour pour tout ce qui est actuellement dans le pool ? Le pool
-// "director" se remplit progressivement au fil du même warmLoop
-// réalisateurs (jamais bloquant côté refresh.js) — un pool encore vide se
-// traduit juste par un /api/pool-size à 0 pour ce type, déjà géré
-// normalement côté client (comme n'importe quelle combinaison de filtres
-// sans résultat), donc pas besoin de le vérifier ici non plus.
+// Ne couvre que les warmLoops "bloquants" (peintures, photos pays, images
+// d'articles Wikipédia) sont-ils à jour pour tout ce qui est actuellement
+// dans le pool ? Le pool "director" se remplit progressivement au fil du
+// même warmLoop réalisateurs (jamais bloquant côté refresh.js) — un pool
+// encore vide se traduit juste par un /api/pool-size à 0 pour ce type, déjà
+// géré normalement côté client (comme n'importe quelle combinaison de
+// filtres sans résultat), donc pas besoin de le vérifier ici non plus.
 function isDbWarmed() {
   if (db.anyPainterArtworkStale()) return false;
   if (pexelsEnabled && db.anyCountryPhotosStale()) return false;
+  if (db.anyWikiArticleImagesStale()) return false;
   return true;
 }
 
@@ -394,7 +720,7 @@ function shuffle(arr) {
 // type+questionType+filtres — valide que le type/questionType existe (sinon
 // lève, voir l'appelant pour la conversion en 400), puis lit et matérialise
 // son pool filtré. Deux entrées peuvent cibler le même type avec des filtres
-// différents (ex. movie:image en "Populaire" et movie:synopsis en
+// différents (ex. movie:image en "Populaire" et movie:summary en
 // "Années 1990"), c'est tout l'intérêt de ce découpage par entrée plutôt que
 // par type brut.
 function materializeSelection({ type, questionType, filters }) {
@@ -429,7 +755,7 @@ function allTypeQuestionSelections() {
 
 // répartit `count` aussi équitablement que possible entre les buckets
 // sélectionnés (un bucket = une clé `type:questionType` distincte parmi les
-// `selections[]` demandées — ex. "movie:image" et "movie:synopsis" sont deux
+// `selections[]` demandées — ex. "movie:image" et "movie:summary" sont deux
 // buckets même si même type), comble les manques en piochant ailleurs pour
 // quand même atteindre `count`. `shuffleFn` (défaut : `shuffle` non-seedé)
 // permet au quiz du jour de passer un mélange seedé par la date (voir
@@ -562,18 +888,49 @@ function getBackdropsForItem(item, need) {
       vote_count: 1,
       aspect_ratio: 1,
     }));
-  } else if (item.type === "director") {
-    // affiches des films réalisés (pas son portrait — même logique que
+  } else if (item.type === "director" || item.type === "actor") {
+    // affiches des films réalisés/joués (pas son portrait — même logique que
     // "painter" ci-dessus) ; aspect_ratio d'affiche (~2:3), volontairement
     // hors de la plage "standard" 16:9 pour ne jamais être écarté par le
     // filtre isStandardRatio plus bas. `title` (extra, ignoré des autres
     // types) survit jusqu'au client via selectItemsWithBackdrops : un
     // poster n'affiche pas toujours son titre de façon lisible.
-    backdrops = db.getDirectorMoviePosters(item.personId).map((m) => ({
+    const posters =
+      item.type === "director"
+        ? db.getDirectorMoviePosters(item.personId)
+        : db.getActorMoviePosters(item.personId);
+    backdrops = posters.map((m) => ({
       url: `https://image.tmdb.org/t/p/w500${m.posterPath}`,
       title: m.title,
       vote_count: 1,
       aspect_ratio: 2 / 3,
+    }));
+  } else if (item.type === "pokemon") {
+    // un seul sprite officiel connu par espèce (pas de table multi-images
+    // comme movie/tv/game, voir db/pokemon.js) — une seule "backdrop", le
+    // mode image ne cycle donc jamais plusieurs plans pour ce type,
+    // contrairement à movie/tv/game (imagesPerItem n'a pas d'effet ici).
+    backdrops = item.posterUrl
+      ? [{ url: item.posterUrl, vote_count: 1, aspect_ratio: 1 }]
+      : [];
+  } else if (item.type === "superhero") {
+    // un seul portrait connu par personnage (pas de table multi-images comme
+    // movie/tv/game) — même cas que "pokemon" ci-dessus. Ratio 3:4 réel des
+    // images superhero-api (480x640), hors de la plage "standard" 16:9 : la
+    // bascule ratioPool plus bas (standardRatio.length === 0) retombe donc
+    // automatiquement sur ce portrait sans qu'il faille lister "superhero"
+    // dans l'exception explicite juste en dessous.
+    backdrops = item.posterUrl
+      ? [{ url: item.posterUrl, vote_count: 1, aspect_ratio: 3 / 4 }]
+      : [];
+  } else if (item.type === "wiki_article") {
+    // images embarquées dans l'article, chauffées en tâche de fond (voir
+    // fetchAndStoreWikiArticleImages) — ratios très variables (portrait,
+    // carte, objet...), voir isStandardRatio ci-dessous.
+    backdrops = db.getWikiArticleImages(item.wikiArticleId).map((img) => ({
+      url: img.url,
+      vote_count: img.vote_count,
+      aspect_ratio: img.aspect_ratio,
     }));
   } else {
     backdrops = [];
@@ -584,8 +941,11 @@ function getBackdropsForItem(item, need) {
   const isStandardRatio = (b) =>
     b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85;
   const standardRatio = backdrops.filter(isStandardRatio);
+  // "person"/"wiki_article" : photos à ratio libre (portraits, cartes,
+  // objets...), contrairement aux backdrops de film (quasi tous 16:9) — un
+  // filtre "ratio standard" écarterait à tort la plupart d'entre elles.
   const ratioPool =
-    item.type === "person" || standardRatio.length === 0
+    item.type === "person" || item.type === "wiki_article" || standardRatio.length === 0
       ? backdrops
       : standardRatio;
 
@@ -595,7 +955,7 @@ function getBackdropsForItem(item, need) {
 
   // objets bruts (pas juste l'url) : "director" y accroche aussi `title`,
   // voir l'appelant (selectItemsWithBackdrops). Pas de répétition quand le
-  // pool est plus petit que `need` (même principe que director:synopsis
+  // pool est plus petit que `need` (même principe que director:summary
   // ci-dessous) : le nombre de frames s'adapte à ce qui existe vraiment
   // pour cet item plutôt que de remontrer une image déjà vue.
   return pickFromPool(finalPool, Math.min(need, finalPool.length));
@@ -605,7 +965,7 @@ async function selectItemsWithBackdrops(
   candidatesShuffled,
   count,
   imagesPerItem,
-  synopsisPerItem,
+  summaryPerItem,
 ) {
   const result = [];
   let excludedCount = 0;
@@ -614,9 +974,9 @@ async function selectItemsWithBackdrops(
   while (result.length < count && idx < candidatesShuffled.length) {
     const batch = candidatesShuffled.slice(idx, idx + batchSize);
     idx += batchSize;
-    // seul questionType "image" a besoin de backdrops (et director:synopsis
-    // de synopsis de films, cas à part ci-dessous) — pour les autres
-    // (movie/tv/game:synopsis, flag, audio), `m` EST déjà la forme finale
+    // seul questionType "image" a besoin de backdrops (et director:summary
+    // de summary de films, cas à part ci-dessous) — pour les autres
+    // (movie/tv/game:summary, flag, audio), `m` EST déjà la forme finale
     // attendue par le client : elle vient telle quelle de
     // materializeMovieLikeRows/materializeCountryRows/materializeMusicTrackRow
     // (voir TYPES), pas besoin de la reconstruire ici.
@@ -624,27 +984,32 @@ async function selectItemsWithBackdrops(
       batch,
       IMAGE_FETCH_CONCURRENCY,
       async (m) => {
-        if (m.type === "director" && m.questionType === "synopsis") {
-          // synopsis de plusieurs films réalisés, cyclés comme frames côté
-          // client (comme les affiches du mode "image") — on masque le nom
-          // du RÉALISATEUR (pas un titre de film, contrairement à
-          // materializeMovieLikeRows/materializeGameRows) puisque c'est lui
-          // la réponse à deviner ici.
-          const synopses = db
-            .getDirectorMovieSynopses(m.personId)
+        if (
+          (m.type === "director" || m.type === "actor") &&
+          m.questionType === "summary"
+        ) {
+          // summary de plusieurs films réalisés/joués, cyclés comme frames
+          // côté client (comme les affiches du mode "image") — on masque le
+          // nom DU RÉALISATEUR/DE L'ACTEUR (pas un titre de film,
+          // contrairement à materializeMovieLikeRows/materializeGameRows)
+          // puisque c'est lui la réponse à deviner ici.
+          const summaries = (m.type === "director"
+            ? db.getDirectorMovieSummaries(m.personId)
+            : db.getActorMovieSummaries(m.personId)
+          )
             .map((s) => ({
               title: s.title,
-              overview: redactTitle((s.overview || "").trim(), m.title),
+              overview: truncateOverview(redactTitle((s.overview || "").trim(), m.title)),
             }))
-            .filter((s) => s.overview.length >= MIN_SYNOPSIS_LEN);
-          if (synopses.length === 0) return null;
+            .filter((s) => s.overview.length >= MIN_SUMMARY_LEN);
+          if (summaries.length === 0) return null;
           // pas de répétition ici (contrairement aux affiches, voir
           // getBackdropsForItem) : revoir deux fois le MÊME paragraphe est
           // bien plus visible/gênant qu'une affiche répétée — on plafonne
           // plutôt le nombre de frames à ce que ce réalisateur a vraiment.
           const picked = pickFromPool(
-            synopses,
-            Math.min(synopsisPerItem, synopses.length),
+            summaries,
+            Math.min(summaryPerItem, summaries.length),
           );
           return {
             id: m.id,
@@ -677,7 +1042,7 @@ async function selectItemsWithBackdrops(
           // (voir drawGuess côté client) : un poster n'écrit pas toujours
           // son titre de façon lisible, contrairement aux autres types où
           // aucune légende par image n'est nécessaire.
-          ...(m.type === "director"
+          ...(m.type === "director" || m.type === "actor"
             ? { imageTitles: backdrops.map((b) => b.title || null) }
             : {}),
           ...(director ? { director } : {}),
@@ -737,7 +1102,7 @@ app.post("/api/pool-size", (req, res) => {
 // minuit, sans état à stocker côté serveur), puis passé tel quel dans le
 // pipeline existant (selectItemsWithBackdrops) — chaque candidat porte un
 // `reason` (voir materializeMovieLikeRows/materializeMusicTrackRow/
-// materializePersonRow, seul mode qui le peuple) qui explique au client
+// materializePersonRows, seul mode qui le peuple) qui explique au client
 // pourquoi il est dans le quiz du jour (voir drawReveal côté scenes.js).
 // nombre d'années écoulées depuis `year` — exact sans ajustement mois/jour
 // (l'appelant a déjà filtré sur le mois/jour du jour même, voir
@@ -781,7 +1146,7 @@ function dailyListPicks(rng) {
       const rows = cfg.getPool({ liste: [code] });
       if (rows.length === 0) continue;
       for (const row of rows) row.reason = label;
-      // certains questionTypes peuvent ne rien donner (ex. "synopsis" si
+      // certains questionTypes peuvent ne rien donner (ex. "summary" si
       // aucun overview assez long dans ce tirage) — on essaie les
       // questionTypes dans un ordre aléatoire jusqu'à en trouver un qui
       // matérialise au moins un item, plutôt que de se limiter au premier.
@@ -847,13 +1212,17 @@ function dailyPersonAnniversaryBucket(month, day) {
     row.reason = `Né(e) ${yearsAgo(year)}`;
     row.isAnniversary = true;
   }
-  return rows.map(materializePersonRow);
+  const result = [];
+  for (const questionType of TYPES.person.questionTypes) {
+    result.push(...materializePersonRows(rows, questionType));
+  }
+  return result;
 }
 
 // 1 item par bucket type:questionType parmi les 4 sources anniversaire —
 // contrairement à dailyListPicks (1 par liste, questionType au hasard), un
 // anniversaire veut représenter CHAQUE questionType qu'il peut produire (ex.
-// movie:image ET movie:synopsis séparément, si les deux ont un item ce
+// movie:image ET movie:summary séparément, si les deux ont un item ce
 // jour-là), pas un seul tiré au hasard parmi eux.
 function dailyAnniversaryPicks(month, day, rng) {
   const pool = [
@@ -868,9 +1237,23 @@ function dailyAnniversaryPicks(month, day, rng) {
     if (!byBucket.has(key)) byBucket.set(key, []);
     byBucket.get(key).push(m);
   }
+  // un même film/jeu peut avoir à la fois du contenu movie:image ET
+  // movie:summary ce jour-là (voir commentaire ci-dessus) — mais s'il n'y a
+  // QU'UN SEUL film en anniversaire, les deux buckets retomberaient sinon
+  // sur ce même film, affiché deux fois dans le quiz (une par
+  // questionType). On exclut donc, bucket après bucket, les entités déjà
+  // retenues ailleurs ; si plus aucun candidat inédit n'existe pour un
+  // bucket, on le laisse simplement vide (même logique que "moins de
+  // contenu = quiz plus court" plutôt que de dupliquer une entité).
+  const usedEntities = new Set();
   const picked = [];
   for (const items of byBucket.values()) {
-    picked.push(seededShuffle(items, rng)[0]);
+    const pick = seededShuffle(items, rng).find(
+      (m) => !usedEntities.has(`${m.type}:${m.title}`),
+    );
+    if (!pick) continue;
+    usedEntities.add(`${pick.type}:${pick.title}`);
+    picked.push(pick);
   }
   return picked;
 }
@@ -915,7 +1298,7 @@ app.post("/api/quiz-daily", async (req, res) => {
 
   // taille figée par construction, pas un total configurable réparti ensuite :
   // 1 item par bucket type:questionType d'anniversaire (movie:image ET
-  // movie:synopsis séparément si les deux existent, voir
+  // movie:summary séparément si les deux existent, voir
   // dailyAnniversaryPicks) + 1 item par liste "actualité" du jour, tous
   // questionTypes confondus (voir dailyListPicks) — un jour avec moins de
   // contenu (pas d'anniversaire personne, une liste vide) donne simplement un
@@ -939,9 +1322,9 @@ app.post("/api/quiz-daily", async (req, res) => {
     MAX_IMAGES_PER_ITEM,
     Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
   );
-  const synopsisPerItem = Math.min(
-    MAX_SYNOPSIS_PER_ITEM,
-    Math.max(MIN_SYNOPSIS_PER_ITEM, parseInt(body.synopsisPerItem, 10) || 1),
+  const summaryPerItem = Math.min(
+    MAX_SUMMARY_PER_ITEM,
+    Math.max(MIN_SUMMARY_PER_ITEM, parseInt(body.summaryPerItem, 10) || 1),
   );
   const count = picked.length;
 
@@ -949,7 +1332,7 @@ app.post("/api/quiz-daily", async (req, res) => {
     seededShuffle(picked, rng),
     count,
     imagesPerItem,
-    synopsisPerItem,
+    summaryPerItem,
   );
 
   res.json({
@@ -959,7 +1342,7 @@ app.post("/api/quiz-daily", async (req, res) => {
     delivered: withImages.length,
     excludedCount,
     imagesPerItem,
-    synopsisPerItem,
+    summaryPerItem,
     totalGenerated: db.recordQuizGenerated(),
   });
 });
@@ -998,9 +1381,9 @@ app.post("/api/quiz-batch", async (req, res) => {
     MAX_IMAGES_PER_ITEM,
     Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
   );
-  const synopsisPerItem = Math.min(
-    MAX_SYNOPSIS_PER_ITEM,
-    Math.max(MIN_SYNOPSIS_PER_ITEM, parseInt(body.synopsisPerItem, 10) || 1),
+  const summaryPerItem = Math.min(
+    MAX_SUMMARY_PER_ITEM,
+    Math.max(MIN_SUMMARY_PER_ITEM, parseInt(body.summaryPerItem, 10) || 1),
   );
 
   const count = Math.min(
@@ -1039,7 +1422,7 @@ app.post("/api/quiz-batch", async (req, res) => {
     picked,
     count,
     imagesPerItem,
-    synopsisPerItem,
+    summaryPerItem,
   );
 
   res.json({
@@ -1049,7 +1432,7 @@ app.post("/api/quiz-batch", async (req, res) => {
     delivered: withImages.length,
     excludedCount,
     imagesPerItem,
-    synopsisPerItem,
+    summaryPerItem,
     poolSize: all.length,
     totalGenerated: db.recordQuizGenerated(),
   });

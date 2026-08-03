@@ -163,9 +163,15 @@ export function drawSideThumbnails(m, upToIdx, colX, colW) {
     m4 = 4 * RS,
     m8 = 8 * RS;
   const x = colX + (colW - thumbW) / 2;
-  for (let j = 0; j < upToIdx; j++) {
-    const y = startY + j * (thumbH + gap);
-    if (y + thumbH > canvas.height - 40 * RS) break;
+  // au-delà de ce que la colonne peut afficher, on montre les plus
+  // récentes plutôt que de rester bloqué sur les toutes premières
+  const maxVisible = Math.max(
+    0,
+    Math.floor((canvas.height - 40 * RS - startY) / (thumbH + gap)),
+  );
+  const start = Math.max(0, upToIdx - maxVisible);
+  for (let j = start; j < upToIdx; j++) {
+    const y = startY + (j - start) * (thumbH + gap);
     ctx.save();
     ctx.globalAlpha = 0.9;
     roundedRectPath(x - m4, y - m4, thumbW + m8, thumbH + m8, r + m4);

@@ -74,21 +74,27 @@ export function easeOutBack(t) {
 
 // découpe `text` en lignes qui tiennent chacune dans `maxWidth`, avec
 // la police déjà active sur `ctx` au moment de l'appel — mot par mot,
-// pas de coupure au milieu d'un mot
+// pas de coupure au milieu d'un mot. Un "\n" dans `text` (voir buildSummary
+// côté db/refresh/superhero.js, une section par ligne façon fiche
+// technique) force un retour à la ligne même si la ligne courante est
+// encore courte — les autres appelants (titres, résumés movie/tv/game...)
+// n'en contiennent jamais, donc ce cas reste un simple passage à vide ici.
 export function wrapText(text, maxWidth) {
-  const words = text.split(/\s+/).filter(Boolean);
   const lines = [];
-  let line = "";
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(test).width > maxWidth) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = test;
+  for (const paragraph of text.split("\n")) {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    let line = "";
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
     }
+    if (line) lines.push(line);
   }
-  if (line) lines.push(line);
   return lines;
 }
 

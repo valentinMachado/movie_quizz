@@ -1,9 +1,10 @@
-import { CFG } from "./config.js";
-import { state } from "./state.js";
+import { CFG, SUMMARY_SPEEDS, AUDIO_SPEEDS } from "./config.js";
+import { state, currentSummarySpeed, currentAudioSpeed } from "./state.js";
 import {
   answersEl,
   btnGenerate,
   btnGenerateDaily,
+  btnGenerateDailyFloat,
   btnToggleAnswers,
   filterSearch,
   countNumber,
@@ -15,16 +16,12 @@ import {
   imageSecRange,
   imagesPerItemNumber,
   imagesPerItemRange,
-  musicClipSecNumber,
-  musicClipSecRange,
   resultRow,
   revealSecNumber,
   revealSecRange,
   stage,
-  synopsisSecNumber,
-  synopsisSecRange,
-  synopsisPerItemNumber,
-  synopsisPerItemRange,
+  summaryPerItemNumber,
+  summaryPerItemRange,
 } from "./dom.js";
 import {
   addSeenIds,
@@ -33,10 +30,8 @@ import {
   currentFlagSec,
   currentImageSec,
   currentImagesPerItem,
-  currentMusicClipSec,
   currentRevealSec,
-  currentSynopsisSec,
-  currentSynopsisPerItem,
+  currentSummaryPerItem,
   getSeenIds,
   saveSettings,
   updateDurationHint,
@@ -50,7 +45,7 @@ import {
   loadCueBuffer,
   loopBufferToDuration,
 } from "./audio.js";
-import { buildTimeline } from "./timeline.js";
+import { buildTimeline, summaryDurationMs } from "./timeline.js";
 import {
   mediabunnyLoadError,
   renderFast,
@@ -65,18 +60,19 @@ import {
 // que les défauts HTML du mode manuel (voir index.html) pour un rendu
 // cohérent avec un mode manuel qu'on n'aurait pas retouché.
 const DAILY_QUIZ_PARAMS = {
-  imagesPerItem: 2,
-  imageSec: 4,
+  imagesPerItem: 3,
+  imageSec: 5,
   revealSec: 4,
-  musicClipSec: 10,
-  flagSec: 4,
-  synopsisSec: 20,
-  synopsisPerItem: 2,
+  audioSpeed: "normal",
+  flagSec: 5,
+  summarySpeed: "normal",
+  summaryPerItem: 2,
 };
 
 async function generateQuiz(daily = false) {
   btnGenerate.disabled = true;
   btnGenerateDaily.disabled = true;
+  btnGenerateDailyFloat.disabled = true;
   resultRow.classList.remove("show");
   answersEl.classList.remove("show");
   state.answersRevealed = false;
@@ -91,38 +87,34 @@ async function generateQuiz(daily = false) {
         console.warn("Logo indisponible pour le splash :", e.message);
         return null;
       });
-  const cakeImgPromise = state.cakeImg
-    ? Promise.resolve(state.cakeImg)
-    : loadImage("/cake.png").catch((e) => {
-        console.warn("Gâteau indisponible pour le quiz du jour :", e.message);
-        return null;
-      });
-
   try {
     const imagesPerItem = daily
       ? DAILY_QUIZ_PARAMS.imagesPerItem
-      : Math.min(5, Math.max(1, currentImagesPerItem()));
+      : Math.min(20, Math.max(1, currentImagesPerItem()));
     const imageSec = daily ? DAILY_QUIZ_PARAMS.imageSec : currentImageSec();
     const revealSec = daily ? DAILY_QUIZ_PARAMS.revealSec : currentRevealSec();
-    const musicClipSec = daily
-      ? DAILY_QUIZ_PARAMS.musicClipSec
-      : currentMusicClipSec();
+    const audioSpeed = daily
+      ? AUDIO_SPEEDS.find((s) => s.key === DAILY_QUIZ_PARAMS.audioSpeed)
+      : currentAudioSpeed();
     const flagSec = daily ? DAILY_QUIZ_PARAMS.flagSec : currentFlagSec();
-    const synopsisSec = daily
-      ? DAILY_QUIZ_PARAMS.synopsisSec
-      : currentSynopsisSec();
-    const synopsisPerItem = daily
-      ? DAILY_QUIZ_PARAMS.synopsisPerItem
-      : Math.min(5, Math.max(1, currentSynopsisPerItem()));
+    const summarySecPerWord = daily
+      ? SUMMARY_SPEEDS.find((s) => s.key === DAILY_QUIZ_PARAMS.summarySpeed)
+          .secPerWord
+      : currentSummarySpeed().secPerWord;
+    const summaryPerItem = daily
+      ? DAILY_QUIZ_PARAMS.summaryPerItem
+      : Math.min(5, Math.max(1, currentSummaryPerItem()));
 
     let res;
     if (daily) {
-      setStatus(`Récupération du quiz du jour (${imagesPerItem} images chacun)…`);
+      setStatus(
+        `Récupération du quiz du jour (${imagesPerItem} images chacun)…`,
+      );
       setStagePlaceholder("Récupération de la liste des titres…");
       res = await fetch("/api/quiz-daily", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagesPerItem, synopsisPerItem }),
+        body: JSON.stringify({ imagesPerItem, summaryPerItem }),
       });
     } else {
       const count = Math.min(50, Math.max(1, currentCount()));
@@ -139,20 +131,17 @@ async function generateQuiz(daily = false) {
           selections,
           count,
           imagesPerItem,
-          synopsisPerItem,
+          summaryPerItem,
           exclude,
         }),
       });
     }
-    if (!res.ok)
-      throw new Error((await res.json()).error || res.statusText);
+    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
     const data = await res.json();
 
     if (data.recycled) {
       clearSeenIds();
-      setStatus(
-        "Réservoir épuisé pour ces filtres, historique réinitialisé.",
-      );
+      setStatus("Réservoir épuisé pour ces filtres, historique réinitialisé.");
     }
     if (data.excludedCount > 0) {
       setStatus(
@@ -161,7 +150,7 @@ async function generateQuiz(daily = false) {
     }
 
     setStagePlaceholder("Préchargement des images et extraits audio…");
-    state.items = await preloadAll(data.items, { musicClipSec, revealSec });
+    state.items = await preloadAll(data.items, { audioSpeed, revealSec });
     if (!daily) addSeenIds(data.items.map((m) => m.id));
     const failedCount = data.items.length - state.items.length;
     if (failedCount > 0) {
@@ -189,14 +178,18 @@ async function generateQuiz(daily = false) {
         CFG.splashMs / 1000,
       );
       for (const m of state.items) {
-        if (m.type === "music") continue;
+        if (m.questionType === "audio") continue;
         const guessDurSec =
           m.type === "country" && m.questionType === "flag"
             ? flagSec
-            : m.questionType === "synopsis"
+            : m.questionType === "summary"
               ? m.type === "director"
-                ? m.overviews.length * synopsisSec
-                : synopsisSec
+                ? m.overviews.reduce(
+                    (sum, ov) =>
+                      sum + summaryDurationMs(ov, summarySecPerWord) / 1000,
+                    0,
+                  )
+                : summaryDurationMs(m.overview, summarySecPerWord) / 1000
               : m.backdropImgs.length * imageSec;
         m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
           loopBufferToDuration(guessingSrc, guessDurSec),
@@ -207,30 +200,28 @@ async function generateQuiz(daily = false) {
     }
 
     state.logoImg = await logoImgPromise;
-    state.cakeImg = await cakeImgPromise;
 
     const built = buildTimeline(
       imageSec * 1000,
       revealSec * 1000,
       CFG.splashMs,
-      musicClipSec * 1000,
       flagSec * 1000,
-      synopsisSec * 1000,
+      summarySecPerWord,
     );
     state.timeline = built.timeline;
     state.totalDurationMs = built.total;
 
-    const hasMusic = state.items.some((m) => m.type === "music");
+    const hasAudio = state.items.some((m) => m.questionType === "audio");
     setStagePlaceholder(
       supportsFastEncode
         ? "Rendu rapide en cours (canvas invisible)…"
-        : hasMusic
+        : hasAudio
           ? "Rendu en cours (temps réel — attention, ce mode de repli ne supporte pas encore l'audio, la vidéo sera muette)…"
           : "Rendu en cours (temps réel, navigateur non compatible WebCodecs)…",
     );
-    if (!supportsFastEncode && hasMusic) {
+    if (!supportsFastEncode && hasAudio) {
       setStatus(
-        "Ton navigateur ne supporte pas le rendu rapide : la vidéo sera générée sans le son des extraits musicaux.",
+        "Ton navigateur ne supporte pas le rendu rapide : la vidéo sera générée sans le son des extraits audio.",
         "err",
       );
     }
@@ -270,6 +261,7 @@ async function generateQuiz(daily = false) {
   } finally {
     btnGenerate.disabled = false;
     btnGenerateDaily.disabled = false;
+    btnGenerateDailyFloat.disabled = false;
   }
 }
 
@@ -319,16 +311,6 @@ revealSecNumber.addEventListener("input", () => {
   updateDurationHint();
   saveSettings();
 });
-musicClipSecRange.addEventListener("input", () => {
-  musicClipSecNumber.value = musicClipSecRange.value;
-  updateDurationHint();
-  saveSettings();
-});
-musicClipSecNumber.addEventListener("input", () => {
-  musicClipSecRange.value = musicClipSecNumber.value;
-  updateDurationHint();
-  saveSettings();
-});
 flagSecRange.addEventListener("input", () => {
   flagSecNumber.value = flagSecRange.value;
   updateDurationHint();
@@ -339,23 +321,13 @@ flagSecNumber.addEventListener("input", () => {
   updateDurationHint();
   saveSettings();
 });
-synopsisSecRange.addEventListener("input", () => {
-  synopsisSecNumber.value = synopsisSecRange.value;
+summaryPerItemRange.addEventListener("input", () => {
+  summaryPerItemNumber.value = summaryPerItemRange.value;
   updateDurationHint();
   saveSettings();
 });
-synopsisSecNumber.addEventListener("input", () => {
-  synopsisSecRange.value = synopsisSecNumber.value;
-  updateDurationHint();
-  saveSettings();
-});
-synopsisPerItemRange.addEventListener("input", () => {
-  synopsisPerItemNumber.value = synopsisPerItemRange.value;
-  updateDurationHint();
-  saveSettings();
-});
-synopsisPerItemNumber.addEventListener("input", () => {
-  synopsisPerItemRange.value = synopsisPerItemNumber.value;
+summaryPerItemNumber.addEventListener("input", () => {
+  summaryPerItemRange.value = summaryPerItemNumber.value;
   updateDurationHint();
   saveSettings();
 });
@@ -365,7 +337,19 @@ filterSearch.addEventListener("input", () => {
 });
 
 btnGenerate.addEventListener("click", () => generateQuiz(false));
-btnGenerateDaily.addEventListener("click", () => generateQuiz(true));
+function startDailyQuiz() {
+  stage.scrollIntoView({ behavior: "smooth", block: "start" });
+  generateQuiz(true);
+}
+btnGenerateDaily.addEventListener("click", startDailyQuiz);
+btnGenerateDailyFloat.addEventListener("click", startDailyQuiz);
+
+// bouton flottant : reprend le CTA principal une fois qu'il sort du
+// viewport (scroll restauré au reload, ou simplement scrollé plus bas) —
+// sinon le seul accès au quiz du jour reste hors écran.
+new IntersectionObserver(([entry]) => {
+  btnGenerateDailyFloat.classList.toggle("show", !entry.isIntersecting);
+}).observe(btnGenerateDaily);
 btnToggleAnswers.addEventListener("click", () => {
   state.answersRevealed = !state.answersRevealed;
   if (state.answersRevealed) {

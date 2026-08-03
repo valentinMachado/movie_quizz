@@ -11,6 +11,21 @@ export function getAudioCtx() {
   return audioCtx;
 }
 
+// l'encodeur vidéo (voir video/encode.js) exige un nombre de canaux
+// CONSTANT sur toute la piste audio — un fichier mono (ex. cri Pokémon,
+// contrairement aux extraits musicaux/pistes cue, toujours stéréo) ferait
+// sinon planter l'encodage dès qu'il se mélange à un extrait stéréo
+// ailleurs dans la même vidéo. Dupliqué sur les 2 canaux plutôt que
+// laissé mono : le volume perçu reste identique (pas de perte au centre).
+function toStereo(ctx, buffer) {
+  if (buffer.numberOfChannels >= 2) return buffer;
+  const stereo = ctx.createBuffer(2, buffer.length, buffer.sampleRate);
+  const mono = buffer.getChannelData(0);
+  stereo.getChannelData(0).set(mono);
+  stereo.getChannelData(1).set(mono);
+  return stereo;
+}
+
 // découpe un passage aléatoire de `clipSec` dans le buffer décodé (l'extrait
 // iTunes fait ~30s, on n'en garde qu'une fenêtre pour ne pas dépasser la
 // durée réglée par l'utilisateur)
@@ -68,8 +83,45 @@ export async function loadAndTrimAudio(url, clipSec, fadeSec, rampSec) {
   const res = await fetch(url);
   if (!res.ok) throw new Error("Extrait audio illisible: " + url);
   const arrayBuffer = await res.arrayBuffer();
-  const decoded = await ctx.decodeAudioData(arrayBuffer);
+  const decoded = toStereo(ctx, await ctx.decodeAudioData(arrayBuffer));
   return trimAudioBufferWithFade(ctx, decoded, clipSec, fadeSec, rampSec);
+}
+
+// un cri suivi de `gapSec` de silence — boucler CETTE unité (plutôt que le
+// cri seul) donne l'espacement demandé entre 2 répétitions, au lieu d'un
+// enchaînement continu sans respiration. Comme `guessSec` (voir
+// loadAndLoopAudio) est toujours un multiple exact de la durée de cette
+// unité, la dernière répétition retombe pile dans le silence du gap : pas
+// besoin de fondu pour éviter un clic de coupure.
+function buildRepeatUnit(ctx, source, gapSec) {
+  const gapFrames = Math.round(gapSec * source.sampleRate);
+  const unit = ctx.createBuffer(
+    source.numberOfChannels,
+    source.length + gapFrames,
+    source.sampleRate,
+  );
+  for (let ch = 0; ch < source.numberOfChannels; ch++) {
+    unit.getChannelData(ch).set(source.getChannelData(ch)); // reste = silence (0 par défaut)
+  }
+  return unit;
+}
+
+// rejoue le cri `repeatCount` fois, espacées de `gapSec` — contrairement à
+// la musique (voir loadAndTrimAudio), le buffer s'arrête pile à la fin de la
+// devinette : rien ne continue à jouer sur l'écran de réponse (voir encode.js,
+// qui ne saute le segment "music-reveal" suivant QUE pour la musique). La
+// durée réelle dépend du cri (inconnue avant décodage), donc renvoyée avec
+// le buffer (`guessSec`, repris par timeline.js pour caler la durée du
+// segment de devinette, faute d'une durée fixe comme pour la musique).
+export async function loadAndLoopAudio(url, repeatCount, gapSec) {
+  const ctx = getAudioCtx();
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Cri illisible: " + url);
+  const decoded = toStereo(ctx, await ctx.decodeAudioData(await res.arrayBuffer()));
+  const unit = buildRepeatUnit(ctx, decoded, gapSec);
+  const guessSec = repeatCount * (decoded.duration + gapSec);
+  const buffer = loopBufferToDuration(unit, guessSec);
+  return { buffer, guessSec };
 }
 
 // silence de la durée voulue, même format que les extraits musicaux —
@@ -93,7 +145,8 @@ export function loadCueBuffer(key) {
           const res = await fetch(CUE_URLS[key]);
           if (!res.ok) return null;
           const arrayBuffer = await res.arrayBuffer();
-          return await getAudioCtx().decodeAudioData(arrayBuffer);
+          const ctx = getAudioCtx();
+          return toStereo(ctx, await ctx.decodeAudioData(arrayBuffer));
         } catch (e) {
           console.warn(`Piste audio "${key}" indisponible :`, e.message);
           return null;
