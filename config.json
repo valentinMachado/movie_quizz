@@ -4,6 +4,12 @@
     "pageFetch": 4,
     "imageFetch": 8
   },
+  "demonyms": {
+    "us": "américain", "gb": "britannique", "fr": "français", "ca": "canadien",
+    "au": "australien", "de": "allemand", "it": "italien", "es": "espagnol",
+    "in": "indien", "cn": "chinois", "kr": "sud-coréen", "jp": "japonais",
+    "br": "brésilien", "mx": "mexicain", "ru": "russe"
+  },
   "movie": {
     "genrePages": 6,
     "countryPages": 8,
@@ -649,7 +655,6 @@
     ]
   },
   "painting": {
-    "queryLimit": 200,
     "genres": [
       { "code": "impressionism", "label": "Impressionnisme", "qid": "Q40415" },
       { "code": "romanticism", "label": "Romantisme", "qid": "Q37068" },
@@ -671,28 +676,6 @@
       { "code": "fauvism", "label": "Fauvisme", "qid": "Q166593" },
       { "code": "pointillism", "label": "Pointillisme", "qid": "Q200034" },
       { "code": "naturalism", "label": "Naturalisme", "qid": "Q55995" }
-    ],
-    "countries": [
-      { "code": "fr", "label": "France", "qid": "Q142" },
-      { "code": "it", "label": "Italie", "qid": "Q38" },
-      { "code": "nl", "label": "Pays-Bas", "qid": "Q55" },
-      { "code": "es", "label": "Espagne", "qid": "Q29" },
-      { "code": "de", "label": "Allemagne", "qid": "Q183" },
-      { "code": "gb", "label": "Royaume-Uni", "qid": "Q145" },
-      { "code": "us", "label": "États-Unis", "qid": "Q30" },
-      { "code": "jp", "label": "Japon", "qid": "Q17" },
-      { "code": "cn", "label": "Chine", "qid": "Q148" },
-      { "code": "ru", "label": "Russie", "qid": "Q159" },
-      { "code": "be", "label": "Belgique", "qid": "Q31" },
-      { "code": "at", "label": "Autriche", "qid": "Q40" }
-    ],
-    "eras": [
-      { "code": "before_1500", "label": "Avant 1500", "gte": 0, "lte": 1499 },
-      { "code": "1500_1699", "label": "1500-1699", "gte": 1500, "lte": 1699 },
-      { "code": "1700_1799", "label": "1700-1799", "gte": 1700, "lte": 1799 },
-      { "code": "1800_1849", "label": "1800-1849", "gte": 1800, "lte": 1849 },
-      { "code": "1850_1899", "label": "1850-1899", "gte": 1850, "lte": 1899 },
-      { "code": "1900_plus", "label": "Après 1900", "gte": 1900, "lte": 2100 }
     ]
   },
   "personRoles": {
@@ -773,28 +756,28 @@
         "code": "animaux",
         "name": "Animaux",
         "category": "Reptile (nom vernaculaire)",
-        "depth": 0,
+        "depth": 2,
         "looseRedaction": true
       },
       {
         "code": "animaux",
         "name": "Animaux",
         "category": "Poisson (nom vernaculaire)",
-        "depth": 0,
+        "depth": 2,
         "looseRedaction": true
       },
       {
         "code": "animaux",
         "name": "Animaux",
         "category": "Insecte (nom vernaculaire)",
-        "depth": 0,
+        "depth": 2,
         "looseRedaction": true
       },
       {
         "code": "animaux",
         "name": "Animaux",
         "category": "Amphibien (nom vernaculaire)",
-        "depth": 0,
+        "depth": 2,
         "looseRedaction": true
       }
     ],

@@ -376,12 +376,23 @@ function materializeCountryRows(rows, questionType) {
 
 // person:summary lit person.summary, rempli soit par Wikidata (résumé
 // Wikipédia FR d'un rôle "person" — politicien/athlete, voir
-// fetchPersonRoleEntities), soit par TMDb ou Wikipédia FR/EN en repli
-// (biography, voir fetchAndStorePersonDetails) pour un acteur/réalisateur —
+// fetchPersonRoleEntities), soit par TMDb (biography, voir
+// fetchAndStorePersonDetails) pour un acteur/réalisateur —
 // un peintre (source wikidata, rôle "painter") n'a jamais de summary, comme
-// un acteur sans aucune de ces 3 sources : filtré comme n'importe quel
+// un acteur dont TMDb n'a pas de biographie : filtré comme n'importe quel
 // summary trop court (MIN_SUMMARY_LEN).
 function materializePersonRows(rows, questionType) {
+  // libellés du groupe "role" (Acteur/Réalisateur/Peintre/Politicien/...),
+  // affichés au reveal (voir drawReveal/personSubtitle côté client) — batch
+  // sur tout `rows` plutôt qu'un getEntityFilters par ligne (N+1) ; nommé
+  // `roleLabel` pour ne pas entrer en collision avec `p.role` (le CODE de
+  // rôle unique posé par getPersonsByBirthMonthDay pour le bucketing du quiz
+  // du jour, voir dailyAnniversaryPicks).
+  const roleNames = db.getEntityFilterNamesBatch(
+    "person",
+    rows.map((p) => p.id),
+    "role",
+  );
   const result = [];
   for (const p of rows) {
     // acteur/réalisateur (source tmdb) : external_id est déjà l'id TMDb
@@ -392,6 +403,23 @@ function materializePersonRows(rows, questionType) {
       p.source === "wikidata"
         ? PERSON_WIKIDATA_ID_OFFSET + Number(p.external_id.slice(1))
         : Number(p.external_id);
+    // poste occupé (P39, ex. rôle "politicien") / métier précis (P106, hors
+    // classe générique du rôle, ex. "joueur de tennis" pour un "athlète") /
+    // nationalité (démonyme FR, TMDb comme Wikidata) / libellés de rôle
+    // joints (ex. "Acteur, Réalisateur") — affichés "si présents" au reveal,
+    // voir drawReveal/personSubtitle côté client. positionHeld/
+    // specificOccupation restent toujours absents pour un acteur/réalisateur
+    // (source tmdb), qui n'ont jamais ces deux colonnes.
+    const revealFields = {
+      ...(p.position_held ? { positionHeld: p.position_held } : {}),
+      ...(p.specific_occupation
+        ? { specificOccupation: p.specific_occupation }
+        : {}),
+      ...(p.nationality ? { nationality: p.nationality } : {}),
+      ...(roleNames.get(p.id)?.length
+        ? { roleLabel: roleNames.get(p.id).join(", ") }
+        : {}),
+    };
     if (questionType === "image") {
       result.push({
         id: naturalId,
@@ -404,9 +432,12 @@ function materializePersonRows(rows, questionType) {
         personId: p.id,
         ...(p.reason ? { reason: p.reason } : {}),
         ...(p.isAnniversary ? { isAnniversary: true } : {}),
-        // poste occupé (P39 Wikidata, ex. rôle "politicien") — affiché au reveal
-        // "si présent" ; un acteur (source tmdb) n'a jamais cette colonne.
-        ...(p.position_held ? { positionHeld: p.position_held } : {}),
+        ...revealFields,
+        // code du groupe "role" (acteur/réalisateur/peintre/politicien/...) —
+        // présent seulement quand la row vient de getPersonsByBirthMonthDay
+        // (getPersonPool ne le sélectionne pas ailleurs), sert de clé de
+        // bucket à dailyAnniversaryPicks pour retenir 1 anniversaire par rôle.
+        ...(p.role ? { role: p.role } : {}),
       });
     } else if (questionType === "summary") {
       const overview = truncateOverview(
@@ -423,6 +454,8 @@ function materializePersonRows(rows, questionType) {
           personId: p.id,
           ...(p.reason ? { reason: p.reason } : {}),
           ...(p.isAnniversary ? { isAnniversary: true } : {}),
+          ...revealFields,
+          ...(p.role ? { role: p.role } : {}),
         });
       }
     }
@@ -654,7 +687,10 @@ const TYPES = {
   },
   painter: {
     questionTypes: ["image"],
-    getPool: db.getPainterPool,
+    // seuil d'œuvres appliqué ICI et pas dans le pool lui-même : le warmLoop
+    // qui récupère les tableaux a besoin de voir tous les peintres, y compris
+    // ceux qui n'en ont pas encore (voir PAINTER_MIN_ARTWORKS).
+    getPool: (selections) => db.getPainterPool(selections, db.PAINTER_MIN_ARTWORKS),
     materialize: (rows) => rows.map(materializePainterRow),
   },
   director: {
@@ -925,7 +961,7 @@ function getBackdropsForItem(item, need) {
       : [];
   } else if (item.type === "wiki_article") {
     // images embarquées dans l'article, chauffées en tâche de fond (voir
-    // fetchAndStoreWikiArticleImages) — ratios très variables (portrait,
+    // fetchAndStoreWikiArticleImagesBatch) — ratios très variables (portrait,
     // carte, objet...), voir isStandardRatio ci-dessous.
     backdrops = db.getWikiArticleImages(item.wikiArticleId).map((img) => ({
       url: img.url,
@@ -1046,6 +1082,14 @@ async function selectItemsWithBackdrops(
             ? { imageTitles: backdrops.map((b) => b.title || null) }
             : {}),
           ...(director ? { director } : {}),
+          // reveal "person" (voir materializePersonRows/personSubtitle côté
+          // client) : `undefined` sur tout autre type, donc no-op ailleurs.
+          ...(m.positionHeld ? { positionHeld: m.positionHeld } : {}),
+          ...(m.specificOccupation
+            ? { specificOccupation: m.specificOccupation }
+            : {}),
+          ...(m.nationality ? { nationality: m.nationality } : {}),
+          ...(m.roleLabel ? { roleLabel: m.roleLabel } : {}),
           ...(m.reason ? { reason: m.reason } : {}),
           ...(m.isAnniversary ? { isAnniversary: true } : {}),
         };
@@ -1205,7 +1249,12 @@ function dailyMusicAnniversaryBucket(month, day) {
 function dailyPersonAnniversaryBucket(month, day) {
   // type "person" (voir TYPES) couvre déjà acteurs/réalisateurs/peintres
   // (rôle multi-valué, voir refresh.js fetchPainterEntities) — pas besoin
-  // d'interroger séparément les pools "director"/"painter" en plus.
+  // d'interroger séparément les pools "director"/"painter" en plus. Chaque
+  // row porte son code de rôle (`role`, voir getPersonsByBirthMonthDay), une
+  // personne multi-rôle ressortant une fois par rôle — propagé par
+  // materializePersonRows jusque dans le bucket key de dailyAnniversaryPicks,
+  // pour 1 anniversaire retenu PAR RÔLE plutôt qu'un seul toutes personnes
+  // confondues.
   const rows = db.getPersonsByBirthMonthDay("person", month, day);
   for (const row of rows) {
     const year = String(row.birthday).slice(0, 4);
@@ -1219,11 +1268,12 @@ function dailyPersonAnniversaryBucket(month, day) {
   return result;
 }
 
-// 1 item par bucket type:questionType parmi les 4 sources anniversaire —
-// contrairement à dailyListPicks (1 par liste, questionType au hasard), un
-// anniversaire veut représenter CHAQUE questionType qu'il peut produire (ex.
-// movie:image ET movie:summary séparément, si les deux ont un item ce
-// jour-là), pas un seul tiré au hasard parmi eux.
+// 1 item par bucket type:questionType (type:questionType:role pour "person",
+// voir plus bas) parmi les 4 sources anniversaire — contrairement à
+// dailyListPicks (1 par liste, questionType au hasard), un anniversaire veut
+// représenter CHAQUE questionType qu'il peut produire (ex. movie:image ET
+// movie:summary séparément, si les deux ont un item ce jour-là), pas un seul
+// tiré au hasard parmi eux.
 function dailyAnniversaryPicks(month, day, rng) {
   const pool = [
     ...dailyMovieAnniversaryBucket(month, day),
@@ -1233,7 +1283,14 @@ function dailyAnniversaryPicks(month, day, rng) {
   ];
   const byBucket = new Map();
   for (const m of pool) {
-    const key = `${m.type}:${m.questionType}`;
+    // "person" ajoute le rôle (acteur/réalisateur/peintre/...) à la clé — un
+    // acteur et un peintre nés le même jour doivent chacun avoir leur chance,
+    // pas rivaliser dans le même bucket "person:image" (voir
+    // dailyPersonAnniversaryBucket). Les 3 autres sources n'ont pas de rôle,
+    // `m.role` y est toujours undefined donc la clé reste inchangée pour elles.
+    const key = m.role
+      ? `${m.type}:${m.questionType}:${m.role}`
+      : `${m.type}:${m.questionType}`;
     if (!byBucket.has(key)) byBucket.set(key, []);
     byBucket.get(key).push(m);
   }

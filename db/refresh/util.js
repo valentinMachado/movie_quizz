@@ -83,7 +83,22 @@ export function storeFilterGroup(type, filterGroup, sourcesConfig, items, filter
 // jamais depuis les refresh lists légers (même règle que genre/décennie).
 const POPULARITY_TIER_CODES = ["obscur", "niche"];
 
-export function storePopularityTiers(type, entries, popularIds = new Set()) {
+// `popularCode` (optionnel) : au lieu de laisser `popularIds` SANS palier, leur
+// poser ce code — la liste éditoriale devient alors le palier haut d'un
+// vocabulaire unique obscur → niche → populaire. Sert au type "person", dont
+// le groupe "liste" était alimenté par deux sources aux vocabulaires
+// différents : un doublon d'affichage côté client ("Acteurs populaires" ET
+// "Populaire"), et surtout un acteur qui ne pouvait JAMAIS être "populaire",
+// ce palier n'étant calculé que sur les personnes issues de Wikidata.
+// Les autres types gardent le comportement d'origine : ils ont plusieurs
+// listes éditoriales (Populaire, Tendances...), qu'il serait faux de réduire
+// à un palier de notoriété.
+export function storePopularityTiers(
+  type,
+  entries,
+  popularIds = new Set(),
+  { popularCode = null } = {},
+) {
   const known = entries
     .filter((e) => e.value != null && !popularIds.has(e.entityId))
     .map((e) => e.value)
@@ -91,18 +106,25 @@ export function storePopularityTiers(type, entries, popularIds = new Set()) {
   if (known.length === 0) return;
   const mid = known[Math.floor(known.length / 2)];
   const tierFor = (v) => (v <= mid ? "obscur" : "niche");
-  db.upsertFilters(type, "liste", [
+  const codes = [
     { code: "obscur", name: "Obscur" },
     { code: "niche", name: "Niche" },
-  ]);
+  ];
+  if (popularCode) codes.push({ code: popularCode, name: "Populaire" });
+  db.upsertFilters(type, "liste", codes);
   db.replaceEntityFilterSubset(
     type,
     "liste",
-    POPULARITY_TIER_CODES,
+    popularCode ? [...POPULARITY_TIER_CODES, popularCode] : POPULARITY_TIER_CODES,
     entries.map((e) => ({
       entityId: e.entityId,
-      codes:
-        e.value == null || popularIds.has(e.entityId) ? [] : [tierFor(e.value)],
+      codes: popularIds.has(e.entityId)
+        ? popularCode
+          ? [popularCode]
+          : []
+        : e.value == null
+          ? []
+          : [tierFor(e.value)],
     })),
   );
 }

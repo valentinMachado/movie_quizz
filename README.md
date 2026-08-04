@@ -24,6 +24,7 @@ Guess It is a small Node.js + Express application that generates "guess it from 
 ## Requirements
 
 - Node.js 18 or later
+- A `bzip2` binary on `PATH` — **required by `refresh.js`, not by `server.js`**. Node has no bzip2 support and the pure-JS implementations are far too slow for multi-gigabyte dumps, so the external binary is spawned. Without it, `refresh.js` still runs but falls back to the (heavily rate-limited) Wikipedia API for article summaries and popularity. See [Deployment](#deployment).
 - A TMDb API key
 - Optionally, IGDB (Twitch Developer) credentials for the video game category
 - Optionally, a Pexels API key for the country photo-guessing mode (landmark/landscape photos)
@@ -70,6 +71,48 @@ Then open `http://localhost:3000` (or your custom `PORT`). `server.js` can
 be started before `refresh.js` has produced any data — `/api/quiz-batch`
 just returns 503 until at least one category has something in it.
 
+## Deployment
+
+Only `refresh.js` has requirements beyond Node — `server.js` needs nothing but
+the `cache/` directory it reads from. A machine that only serves the API can
+therefore skip everything in this section.
+
+**`bzip2` binary.** Wikimedia publishes its dumps as `.bz2`, a format Node
+cannot read natively. Install it before the first refresh:
+
+```bash
+apt install bzip2          # Debian/Ubuntu
+dnf install bzip2          # Fedora/RHEL
+brew install bzip2         # macOS
+choco install bzip2        # Windows (or Git Bash, which ships with it)
+```
+
+`refresh.js` probes for it at startup and logs a warning if it is missing,
+then falls back to the Wikipedia API — functionally equivalent but far slower
+(measured: 4091 s versus 426 s to build the `wiki_article` pool, Wikimedia
+answering `429 Too Many Requests` with `Retry-After: 51` under load).
+
+**Disk.** `cache/` holds everything and must never be deleted:
+
+| file | steady-state size | rebuilt |
+| --- | --- | --- |
+| `data.sqlite` | ~100 MB | never — this is the app's data |
+| `frwiki-index.sqlite` | ~5 GB | every ~30 days, ~2 h 30 |
+
+Downloaded archives are deleted as soon as they are ingested, so steady state
+is ~5 GB. Budget a further ~6 GB of headroom for the largest archive held
+transiently during a rebuild (`KEEP_DUMP_FILES` in `db/refresh/frwiki-dump.js`
+keeps them instead, for debugging — never enable it in production).
+
+The index is rebuilt table by table, so adding or changing one dump only
+re-downloads that one. It is also independent of `data.sqlite`: wiping the
+app's data does not cost another 2 h 30 of dump ingestion.
+
+**Network.** A first full refresh downloads ~1.9 GB of SQL dumps plus ~5 GB
+per month of pageview data, then ~2 GB of targeted range requests against the
+7.2 GB article dump (never downloaded whole — see `db/refresh/frwiki-dump.js`).
+Steady state is roughly one month's pageview archive per month.
+
 ## Scripts
 
 - `npm start` - starts the API server (`server.js`, read-only)
@@ -95,6 +138,8 @@ The full HTTP contract (`GET /api/catalog`, `POST /api/pool-size`, `GET /api/sta
 
 Everything — entities, images, directors, paintings, country photos, Wikipedia article images, the filter tables (genre/liste/decennie/geographie plus a few type-specific groups — `role` for person, `billing` for actor, `categorie` for wiki_article, `gender`/`race` for superhero), and usage stats — lives in `cache/data.sqlite`, created and migrated automatically on first run. There is no separate stats file.
 
+`cache/` also holds the local Wikimedia dump index (`frwiki-index.sqlite` and its companions), which `refresh.js` builds and reads but `server.js` never touches. It carries its own freshness journal, so the two are independent: deleting `data.sqlite` does not invalidate the index, and vice versa. See [Deployment](#deployment) for sizes and rebuild costs.
+
 ## Notes
 
 - TMDb data is queried in French (`language=fr-FR`).
@@ -116,5 +161,6 @@ Everything — entities, images, directors, paintings, country photos, Wikipedia
 - Wikipedia article filters cover the `wiki_article` type end to end: the pool is built from configurable Wikipedia categories (`config.json`'s `wikiArticle.categories`, e.g. "Bataille", "Élément chimique", "Fleuve", "Monument", "Créature légendaire", several animal categories), grouped into a `categorie` filter (Histoire/Sciences/Géographie/Monuments/Mythologie/Animaux) plus the usual `genre`/`decennie`/`geographie` where resolvable from the article's own Wikidata item. Redaction masks the article's title and any known aliases (Wikipedia redirects — alternate spellings, foreign/scientific names) under `[titre]`/`[alias]`; animal categories opt into "loose" redaction (substring match instead of whole-word) since a common-name derivative (e.g. "renard" → "renardeau") would otherwise leak the answer.
 - Pokémon filters (`type: "pokemon"`) come straight from PokeAPI: `genre` = elemental type (full coverage), `decennie` = generation (full coverage), `geographie` = habitat (partial — PokeAPI/Bulbapedia stopped tracking habitat past a certain generation), `liste` = legendary/mythical (from the API) plus starter/pseudo-legendary/fossil (hardcoded national-dex-number lists in `config.json`, no API equivalent for those) and an `obscur`/`niche`/`populaire` tier from `base_experience`. The Pokédex flavor text (French, falling back to English) is redacted the same way as any other summary. Cries are short mono clips, converted to stereo client-side before video encoding (every other audio source in the app is stereo, and the encoder requires a constant channel count throughout the track).
 - Superhero filters (`type: "superhero"`, sourced from the free superhero-api dataset, ~560 comic-book characters) cover publisher (Marvel/DC), alignment (hero/villain/neutral, reused as the `genre` group), gender, race, era (pre/post-1990 first appearance), and country/origin (including an "extraterrestrial" bucket matched on planet/galaxy/dimension keywords) — plus an `obscur`/`niche`/`populaire` tier from a composite score (how many biography/work/connection fields are filled in). There's no ready-made bio text in the source data, so a French summary is synthesized from structured fields (alignment, occupation, affiliations...); known aliases (real name, alter ego) are redacted the same way as `wiki_article`.
-- Popularity tiers (`liste` filter codes `obscur`/`niche`, plus `populaire` for types with no separate curated popular list — painter, wiki_article, superhero, Wikidata person roles) are recomputed from scratch on every full refresh, split at the median (movie/tv/game/person) or tertiles (painter/wiki_article/superhero/person-role, computed **within each Wikidata role's own population** so politicians and athletes are compared only to their own kind) of each source's own popularity/rating-count signal, excluding whatever is already tagged by that type's curated "Populaire" list where one exists.
+- Popularity tiers (`liste` filter codes `obscur`/`niche`, plus `populaire` for types with no separate curated popular list — painter, wiki_article, superhero, Wikidata person roles) are recomputed from scratch on every full refresh, split at the median (movie/tv/game/person) or tertiles (painter/wiki_article/superhero/person-role, computed **within each Wikidata role's own population** so politicians and athletes are compared only to their own kind) of each source's own popularity/rating-count signal, excluding whatever is already tagged by that type's curated "Populaire" list where one exists. `person` is the exception: TMDb's curated popular list *is* its `populaire` tier rather than a separate code, because the two signals feeding that pool are not comparable (TMDb popularity has a median of 0.96 and a maximum of 71; Wikipedia pageviews, used for Wikidata roles, a median of 87 and a maximum of 425 853) — a single tertile over both would have made every actor `obscur` and every Wikidata person `populaire`.
+- The `painter` pool is built from anyone Wikidata lists "painter" among the occupations of, which pulls in people who did paint but have no catalogued work (Freddie Mercury, Serge Gainsbourg, George W. Bush — 820 of 1154 entries had zero artwork). Quiz generation therefore requires at least `PAINTER_MIN_ARTWORKS` (3) known works, and the popularity tiers are recomputed over that subset only — as a read-time filter, since artworks are fetched by a background warm loop *after* the pool is built, and filtering at insertion would permanently strand painters not yet visited.
 - Adding a new Wikidata-sourced person role (e.g. scientist, writer) needs zero new code: one entry in `config.json`'s `personRoles.roles` (`code`, `label`, `occupationQid`, `popularSitelinksMin`) is enough — `refresh.js` picks it up automatically. Worth a live SPARQL sanity check against `query.wikidata.org` first if the role's occupation class is broad (a wide class combined with the popularity filter can approach the query timeout — `politician` already needed a lower `queryLimit` than `painter` for this reason).

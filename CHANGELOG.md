@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 — 2026-08-04
+
+- Les données Wikipédia viennent maintenant de dumps Wikimedia ingérés en local (`cache/frwiki-index.sqlite`) plutôt que de l'API MediaWiki : découverte des articles par catégorie, résumés, alias de redirection, vignettes et identifiants Wikidata. Wikipédia répondait en 0,33 s mais imposait `429 Too Many Requests` avec `Retry-After: 51 s` — le pool d'articles se construit désormais en **426 s au lieu de 4 091 s**, et les seuls appels réseau qui subsistent pour ce type vont à Wikidata (dates d'événement), introuvables dans les dumps. **Nouvelle dépendance : le binaire `bzip2` doit être installé sur la machine qui fait tourner `refresh.js`** (voir la section Deployment du README) ; sans lui tout continue de fonctionner via l'API, simplement beaucoup plus lentement.
+- La notoriété des personnes et des articles se mesure désormais en **consultations réelles de Wikipédia en français** (dumps `pageview_complete`, 3 mois glissants) plutôt qu'en nombre de langues ayant un article. Le classement précédent enterrait des peintres connus en France mais peu traduits (Yan Pei-Ming, Raymond-Émile Waydelich) et remontait des inconnus ici à forte couverture internationale. Une personne sans article en français vaut 0 : pour un quiz francophone, personne ne la devinera.
+- Le pool des articles Wikipédia passe de 112 à ~3 500 entrées réellement jouables. Il annonçait auparavant 5 006 articles dont un quart était écarté silencieusement au moment de générer la question, faute de vignette — `pool-size` reflète maintenant ce qui est réellement disponible.
+- Le type "peintre" exige au moins 3 œuvres connues. La requête Wikidata retenait toute personne listant "peintre" parmi ses occupations, ce qui faisait entrer Freddie Mercury, Serge Gainsbourg ou George W. Bush — 820 des 1 154 entrées n'avaient aucun tableau, et depuis le passage aux consultations réelles ils occupaient le haut du classement.
+- Le filtre "Acteurs populaires" du type "personne" disparaît au profit de "Populaire" : ses membres avaient tous le rôle acteur, il disait donc exactement "populaire ET acteur", et aucun acteur ne pouvait porter "Populaire" par ailleurs. Les paliers Obscur/Niche/Populaire forment maintenant un vocabulaire unique pour tout le type.
+- Fix : les genres musicaux apparaissaient en double au catalogue (l'ancien identifiant iTunes et le nom du genre), et des genres que plus aucun morceau ne portait y restaient proposés.
+- Fix : la profondeur d'exploration des catégories d'animaux (reptiles, poissons, insectes, amphibiens) était trop faible pour en sortir des articles.
+- `refresh.js` affiche une bannière verte quand tous les pools sont complets — le moment où le serveur peut être lancé, jusqu'ici noyé dans les logs des warmLoops.
+
 ## 1.2.3 — 2026-08-03
 
 - 4 nouveaux types de quiz : "acteur" (deviner à partir des affiches/résumés des films où il a joué, comme "réalisateur"), articles Wikipédia (`type: "wiki_article"`, catégories configurables — histoire, sciences, géographie, monuments, mythologie, animaux), Pokémon (image/résumé/cri, PokeAPI) et super-héros (image/résumé, superhero-api).

@@ -1,8 +1,9 @@
 import "dotenv/config";
 import * as db from "./index.js";
-import { logError, logInfo, logWarn, logDebug } from "./refresh/log.js";
+import { logError, logInfo, logWarn, logDebug, logBanner } from "./refresh/log.js";
 import {
   APP_VERSION,
+  IGNORE_VERSION,
   MAX_TYPE_COUNT,
   CATEGORY_FETCH_CONCURRENCY,
   IMAGE_FETCH_CONCURRENCY,
@@ -38,6 +39,7 @@ import {
   fetchPainterEntities,
   fetchAndStorePainterArtworks,
   fetchAllPersonRoleEntities,
+  syncPainterPopularityTiers,
 } from "./refresh/wikidata.js";
 import {
   fetchCountryEntities,
@@ -46,8 +48,8 @@ import {
 import { fetchMusicEntities, refreshMusicLists } from "./refresh/music.js";
 import {
   fetchWikiArticleEntities,
-  fetchAndStoreWikiArticleImages,
-  fetchAndStorePersonWikiPhotos,
+  fetchAndStoreWikiArticleImagesBatch,
+  fetchAndStorePersonWikiPhotosBatch,
 } from "./refresh/wikipedia.js";
 import { fetchPokemonEntities } from "./refresh/pokeapi.js";
 import { fetchSuperheroEntities } from "./refresh/superhero.js";
@@ -149,7 +151,7 @@ const TYPES = {
       {
         // birthday/place_of_birth (quiz du jour "anniversaire", voir
         // server.js/dailyPersonAnniversaryBucket) + biography/summary (TMDb,
-        // repli Wikipédia FR/EN si absent — voir fetchAndStorePersonDetails)
+        // sans repli si absent — voir fetchAndStorePersonDetails)
         // — même garde source=tmdb que "Personnes TMDb (images)" ci-dessus,
         // acteurs ET réalisateurs (même remarque) : un peintre (source
         // wikidata) n'a pas d'external_id TMDb interrogeable ici.
@@ -176,19 +178,18 @@ const TYPES = {
         fetchAndStore: fetchAndStoreFilmography,
       },
       {
-        // rôles Wikidata (politicien, sportif...) n'ont qu'un seul portrait
-        // en base (voir fetchPersonRoleEntities) — complète avec d'autres
-        // photos de leur article Wikipédia FR (person.wiki_title, résolu à
-        // ce moment-là). Un peintre (aussi source wikidata) n'a pas de
-        // wiki_title (jamais résolu dans fetchPainterEntities) : exclu ici
-        // naturellement, ses tableaux couvrent déjà ce besoin.
+        // rôles Wikidata (politicien, sportif, peintre — voir
+        // fetchPersonRoleEntities, dont fetchPainterEntities délègue
+        // désormais la découverte) n'ont qu'un seul portrait en base —
+        // complète avec d'autres photos de leur article Wikipédia FR
+        // (person.wiki_title, résolu à ce moment-là).
         name: "Personnes Wikidata (photos)",
         collectTargets: () => db.getPersonPool(),
         needsRefresh: (person) =>
           person.source === "wikidata" &&
           !!person.wiki_title &&
           db.personNeedsWikiPhotos(person),
-        fetchAndStore: fetchAndStorePersonWikiPhotos,
+        fetchAndStoreBatch: fetchAndStorePersonWikiPhotosBatch,
       },
     ],
   },
@@ -253,7 +254,7 @@ const TYPES = {
         name: "Articles Wikipédia (images)",
         collectTargets: () => db.getWikiArticlePool(),
         needsRefresh: (article) => db.wikiArticleNeedsImages(article),
-        fetchAndStore: fetchAndStoreWikiArticleImages,
+        fetchAndStoreBatch: fetchAndStoreWikiArticleImagesBatch,
       },
     ],
   },
@@ -293,7 +294,12 @@ async function refreshTypes() {
   const toFetch = types.filter(
     (t) =>
       !atDevCap(t) &&
-      !db.isRefreshFresh("type", t, db.TTL_MS.typePool, APP_VERSION),
+      !db.isRefreshFresh(
+        "type",
+        t,
+        db.TTL_MS.typePool,
+        IGNORE_VERSION ? null : APP_VERSION,
+      ),
   );
   logInfo(
     `Types : ${types.length - toFetch.length}/${types.length} déjà frais en base ou déjà au plafond --max-type-count, ${toFetch.length} à récupérer…`,
@@ -326,10 +332,23 @@ async function refreshTypes() {
     for (const type of types) db.clampTypeGlobalPool(type, MAX_TYPE_COUNT);
   }
 
+  // Jalon le plus attendu d'un run (les crawls de types durent des heures et
+  // les warmLoops loguent en parallèle tout du long) : bannière plutôt que
+  // logInfo, pour être repérable sans relire le log. Formulation prudente sur
+  // ce qui est réellement fini — voir startWarmLoops/syncDerivedPersonFilters,
+  // les pools actor/director continuent bel et bien de grossir après ça.
   const elapsedSec = ((Date.now() - startTs) / 1000).toFixed(1);
-  logInfo(
-    `Types rafraîchis en ${elapsedSec}s : ${types.length} types.`,
-  );
+  logBanner([
+    `POOLS COMPLETS en ${elapsedSec}s — ${types.length} types, toutes les entités`,
+    "récupérées aux sources sont en base.",
+    "",
+    types.map((t) => `${t} ${db.countTypeItems(t)}`).join(" · "),
+    "",
+    "Continuent en tâche de fond : warmLoops (images, crédits, anniversaires,",
+    "photos) et listes Populaire/Tendances. Ils enrichissent l'existant ; seuls",
+    "actor et director grossissent encore, alimentés par les crédits de films.",
+    "Le serveur peut être lancé.",
+  ]);
 }
 
 // ---------- warm loops (généralisés) ----------
@@ -339,7 +358,20 @@ async function refreshTypes() {
 // chaque warm loop se réduit à ces 4 fonctions plutôt qu'à une boucle
 // dupliquée pour chaque type. Chaque écriture SQLite étant déjà
 // durable, il n'y a pas besoin de persistance incrémentale séparée.
-async function runBackfillLoop({ name, collectTargets, needsRefresh, fetchAndStore }) {
+// `fetchAndStore` traite UNE cible (le cas général : un appel réseau par
+// entité). `fetchAndStoreBatch` + `batchSize` traitent un PAQUET de cibles
+// d'un coup, pour les sources qui savent répondre pour plusieurs entités à
+// la fois — voir "Articles Wikipédia (images)", où grouper les titres divise
+// le nombre de requêtes par ~20. Les deux formes passent par le même moteur,
+// le cas unitaire n'étant qu'un lot de 1.
+async function runBackfillLoop({
+  name,
+  collectTargets,
+  needsRefresh,
+  fetchAndStore,
+  fetchAndStoreBatch,
+  batchSize = 20,
+}) {
   for (;;) {
     let sleepMs = 60 * 60 * 1000; // repasse dans 1h par défaut
     try {
@@ -355,24 +387,28 @@ async function runBackfillLoop({ name, collectTargets, needsRefresh, fetchAndSto
         );
         let warmed = 0;
         let failed = 0;
+        const size = fetchAndStoreBatch ? batchSize : 1;
+        const runBatch = fetchAndStoreBatch ?? ((batch) => fetchAndStore(batch[0]));
+        const batches = [];
+        for (let i = 0; i < toWarm.length; i += size) batches.push(toWarm.slice(i, i + size));
         await mapWithConcurrency(
-          toWarm,
+          batches,
           IMAGE_FETCH_CONCURRENCY,
-          async (target) => {
+          async (batch) => {
             try {
-              await fetchAndStore(target);
+              await runBatch(batch);
             } catch (e) {
               // erreur réseau : on retentera au prochain passage — journalisé
               // en debug seulement (fréquent/transitoire), voir le compteur
               // "failed" du résumé pour repérer un taux d'échec anormal.
-              failed++;
+              failed += batch.length;
               logDebug(
-                `${name} : échec sur cible ${target.id ?? target.ccn3 ?? "?"} — ${e.message}`,
+                `${name} : échec sur cible ${batch[0].id ?? batch[0].ccn3 ?? "?"} — ${e.message}`,
               );
               return;
             }
-            warmed++;
-            if (warmed % 100 === 0 || warmed === toWarm.length) {
+            warmed += batch.length;
+            if (warmed % 100 < size || warmed === toWarm.length) {
               logInfo(`${name} : ${warmed}/${toWarm.length}`);
             }
           },
@@ -443,6 +479,7 @@ function syncDerivedPersonFilters() {
   db.syncActorBillingFromMovieCast(MOVIE_LEAD_CAST_LIMIT);
   syncPersonDerivedPopularityTiers();
   syncPersonDerivedBirthFilters();
+  syncPainterPopularityTiers();
 }
 
 syncDerivedPersonFilters();

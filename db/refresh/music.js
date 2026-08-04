@@ -1,5 +1,5 @@
 import * as db from "../index.js";
-import { logWarn } from "./log.js";
+import { logWarn, logInfo } from "./log.js";
 import {
   MUSIC_GENRE_STORE,
   MUSIC_STATIC_LISTS,
@@ -173,6 +173,11 @@ function storeMusicGenres(rows) {
     "genre",
     rows.map((r) => ({ entityId: r.id, codes: r.genre ? [r.genre.code] : [] })),
   );
+  // `rows` couvre TOUT le pool du crawl (voir l'appelant), donc les codes
+  // restés sans morceau sont bien obsolètes — typiquement les anciens ids
+  // iTunes numériques, remplacés par le nom du genre.
+  const pruned = db.pruneUnusedFilters("music", "genre");
+  if (pruned > 0) logInfo(`music : ${pruned} genre(s) obsolète(s) retiré(s) du catalogue.`);
 }
 
 // mêmes bornes que DECADE_LISTS/TV_DECADE_LISTS/GAME_DECADE_LISTS (avant
@@ -229,8 +234,13 @@ export async function fetchMusicEntities() {
     try {
       // flux genre iTunes : homogène, tous les morceaux du flux appartiennent
       // au genre de la source — pas besoin de le redétecter par morceau.
+      // code = NOM du genre, pas son id iTunes : les morceaux issus des
+      // charts pays n'ont que `primaryGenreName` (voir mapItunesSongResult),
+      // donc les deux chemins doivent converger sur le nom sous peine de
+      // créer deux codes distincts au même libellé — c'est-à-dire un genre
+      // affiché en double côté client (constaté : 15 doublons).
       const sourceGenre = src.genreId
-        ? { code: src.genreId, name: src.genreName }
+        ? { code: src.genreName, name: src.genreName }
         : null;
       const list = src.genreId
         ? await fetchMusicGenreTracks(src)
@@ -288,12 +298,14 @@ export async function fetchMusicEntities() {
 
   const rows = [...tracks.values()];
   db.upsertMusicTracks(rows);
-  storeMusicGenres(rows);
-  storeMusicDecades(rows);
+  // avant storeMusicGenres : son pruneUnusedFilters se fie au pool pour
+  // décider qu'un code n'est plus porté par personne (voir db.pruneUnusedFilters).
   db.replaceTypeItems(
     "music",
     rows.map((r) => r.id),
   );
+  storeMusicGenres(rows);
+  storeMusicDecades(rows);
   storeFilterGroup(
     "music",
     "liste",

@@ -1,6 +1,5 @@
 import * as db from "../index.js";
 import { logWarn, logInfo, logDebug } from "./log.js";
-import { fetchExtractsByTitles } from "./wikipedia.js";
 import {
   CONFIG,
   TMDB_KEY,
@@ -22,6 +21,7 @@ import {
   PERSON_COUNTRY_TARGET_ACTORS,
   TV_TARGET_EPISODES_PER_SHOW,
   PERSON_BIRTH_DECADES,
+  DEMONYMS,
 } from "./config.js";
 import {
   mapWithConcurrency,
@@ -396,25 +396,27 @@ export async function fetchPersonEntities() {
     "role",
     ids.map((id) => ({ entityId: id, codes: ["actor"] })),
   );
-  // "Populaire" (source person_popular, comme movie/tv/game) : replaceEntityFilters
-  // (pas addEntityFilters) sur TOUT `ids` pour bien retirer le tag d'un
-  // acteur qui ne serait plus dans person_popular à un crawl suivant.
-  db.upsertFilters("person", "liste", [
-    { code: "person_popular", name: "Populaire" },
-  ]);
-  db.replaceEntityFilters(
-    "person",
-    "liste",
-    ids.map((id) => ({
-      entityId: id,
-      codes: popularIds.has(id) ? ["person_popular"] : [],
-    })),
-  );
+  // L'appartenance à la liste person_popular de TMDb EST le palier haut de ces
+  // personnes-là (voir popularCode dans storePopularityTiers) : un acteur est
+  // "populaire" parce qu'il figure au classement TMDb, pas parce qu'il tombe
+  // dans le tiers supérieur d'une valeur qui n'est pas comparable à celle des
+  // rôles Wikidata — mesuré : popularité TMDb de médiane 0,96 pour un maximum
+  // de 71, consultations Wikipédia de médiane 87 pour un maximum de 425 853.
+  //
+  // Il y avait ici un code "person_popular" distinct, libellé "Acteurs
+  // populaires" pour ne pas afficher deux "Populaire" côté client. C'était
+  // traiter le symptôme : ses 778 membres avaient TOUS le rôle acteur, donc le
+  // filtre disait exactement "populaire ET acteur", et aucun acteur ne pouvait
+  // porter "populaire". Un seul vocabulaire pour tout le groupe désormais.
   storePopularityTiers(
     "person",
     db.getPersonPopularity(ids).map((p) => ({ entityId: p.id, value: p.popularity })),
     popularIds,
+    { popularCode: "populaire" },
   );
+  // tags laissés par les crawls antérieurs à cette fusion — sans ça le code
+  // resterait au catalogue, porté par des personnes que plus rien ne met à jour.
+  db.removeEntityFilterCode("person", "liste", "person_popular");
 }
 
 // ---------- warmLoops "images" : remplacent l'ancien fetch à la demande ----------
@@ -626,24 +628,22 @@ export async function fetchAndStoreMovieCredits(movie) {
 // jour "anniversaire", voir server.js/dailyPersonAnniversaryBucket) +
 // biography, stockée dans person.summary pour alimenter person:summary
 // (même colonne que les rôles Wikidata, voir db/person.js/setPersonBirthday).
-// Priorité biography : TMDb fr-FR (déjà là, gratuit) > Wikipédia FR >
-// Wikipédia EN > null — le repli Wikipédia cherche par NOM exact (pas de
-// QID Wikidata connu pour un acteur TMDb), donc peut rater un homonyme ;
-// sauté si un summary existe déjà (rien à gagner, voir setPersonBirthday).
+// biography : TMDb fr-FR uniquement, sinon null. Il y avait ici un repli
+// Wikipédia FR puis EN, recherché par NOM exact — supprimé : c'était de loin
+// le plus gros consommateur de requêtes Wikipédia du projet (1 à 2 par
+// personne SANS bio TMDb, non batchable puisque ce warmLoop traite une
+// personne à la fois), pour une donnée dont on peut se passer et que la
+// recherche par nom pouvait de toute façon attribuer à un homonyme.
 export async function fetchAndStorePersonDetails(person) {
   const data = await tmdbJSON(
     `https://api.themoviedb.org/3/person/${person.external_id}?api_key=${TMDB_KEY}&language=fr-FR`,
   );
-  let biography = data.biography || null;
-  if (!biography && !person.summary) {
-    const frExtracts = await fetchExtractsByTitles([person.name]);
-    biography = frExtracts.get(person.name) || null;
-  }
-  if (!biography && !person.summary) {
-    const enExtracts = await fetchExtractsByTitles([person.name], "en");
-    biography = enExtracts.get(person.name) || null;
-  }
-  db.setPersonBirthday(person.id, data.birthday, data.place_of_birth, biography);
+  const biography = data.biography || null;
+  // nationalité affichée au reveal (voir materializePersonRows côté
+  // server.js) : démonyme FR dérivé du même place_of_birth ci-dessus, aucun
+  // appel réseau de plus.
+  const nationality = DEMONYMS[countryCodeForPlaceOfBirth(data.place_of_birth)] ?? null;
+  db.setPersonBirthday(person.id, data.birthday, data.place_of_birth, biography, nationality);
 }
 
 // warmLoops "Réalisateurs (filmographie complète)" / "Acteurs (filmographie

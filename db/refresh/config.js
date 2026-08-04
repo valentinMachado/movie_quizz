@@ -62,6 +62,21 @@ export const DB_PATH = DB_ARG
     ? ":memory:"
     : path.join(process.cwd(), "cache", "data.sqlite");
 
+// --ignore-version : après un bump de version (package.json), le checkpoint
+// "type" (voir isRefreshFresh(..., APP_VERSION) dans refresh.js) considère
+// tout type comme périmé même s'il est dans son TTL, pour forcer un
+// re-crawl complet à chaque release. Utile en prod, gênant en local pour
+// relancer refresh.js juste après avoir tiré une release sans se retaper un
+// crawl complet : ce flag fait ignorer la comparaison de version dans ce
+// seul check, la fraîcheur TTL continue de s'appliquer normalement.
+export const IGNORE_VERSION = process.argv.includes("--ignore-version");
+
+// --no-frwiki-dump : force wiki_article à repasser par l'API MediaWiki au
+// lieu de l'index local construit depuis les dumps Wikimedia (voir
+// frwiki-dump.js). Utile pour tester sans déclencher un téléchargement de
+// 1,8 Go, ou pour comparer les deux chemins sur un même jeu de catégories.
+export const FRWIKI_DUMP_ENABLED = !process.argv.includes("--no-frwiki-dump");
+
 if (!TMDB_KEY) {
   logError("TMDB_API_KEY manquante dans .env");
   process.exit(1);
@@ -111,6 +126,12 @@ export const PERSON_STATIC_LISTS = CONFIG.person.staticLists;
 // filtré par pays d'origine, direct) et fetchPersonCountryActors (même
 // discover, puis casting du film).
 export const COUNTRY_TARGETS = CONFIG.countryTargets;
+// démonymes FR par code pays (union de countryTargets/personRoles.countries)
+// — sert à afficher une nationalité au reveal "person" (voir
+// fetchAndStorePersonDetails/fetchPersonRoleEntities), un simple objet plutôt
+// qu'un champ de plus sur countryTargets/personRoles.countries : les deux
+// listes de pays ne se recoupent pas exactement.
+export const DEMONYMS = CONFIG.demonyms;
 export const MOVIE_COUNTRY_PAGES = CONFIG.movie.countryPages; // ~160 films/pays (20/page), réduit en mode dev comme les autres pages
 export const TV_COUNTRY_PAGES = CONFIG.tv.countryPages;
 
@@ -186,22 +207,24 @@ export const MUSIC_COUNTRY_FILTERS = Object.fromEntries(
 // par notoriété DU MORCEAU).
 export const MUSIC_BLINDTEST_SONGS = CONFIG.music.blindtestSongs;
 
-// peintures — voir wikidata.js pour le détail des requêtes SPARQL
-// (genres/pays/époques en dur dans config.json)
+// peintures — voir wikidata.js pour le détail des requêtes SPARQL. Le
+// peintre est découvert comme n'importe quel rôle "person" Wikidata (voir
+// PERSON_ROLES/fetchPersonRoleEntities plus bas) : pays/époques/queryLimit
+// partagés avec eux, seul le mouvement artistique (genre) reste propre à la
+// peinture (en dur dans config.json, aucun équivalent générique).
 export const PAINTING_GENRES = CONFIG.painting.genres;
-export const PAINTING_COUNTRIES = CONFIG.painting.countries;
-export const PAINTING_ERAS = CONFIG.painting.eras;
-export const PAINTING_QUERY_LIMIT = CONFIG.painting.queryLimit;
 
-// rôles "person" alimentés depuis Wikidata (politicien, et tout futur rôle
-// similaire — scientifique, écrivain...) : pays/époques PARTAGÉS par tous les
-// rôles (P27/P569 sont des axes génériques, pas spécifiques à un métier), pour
-// qu'ajouter un rôle tienne dans une seule entrée de `roles` (voir
-// fetchPersonRoleEntities dans wikidata.js).
-// plus bas que PAINTING_QUERY_LIMIT (200) : un métier générique (ex.
-// politicien, P106) couvre un ensemble Wikidata bien plus large qu'"instance
-// of peinture" — vérifié en direct sur query.wikidata.org, LIMIT 200 combiné
-// au FILTER sitelinks flirte avec le timeout de 15s de wikidataQuery.
+// rôles "person" alimentés depuis Wikidata (politicien, athlète, peintre —
+// voir PAINTER_ROLE dans wikidata.js, qui réutilise ce même mécanisme sans
+// passer par `roles` ci-dessous — et tout futur rôle similaire) : pays/
+// époques PARTAGÉS par tous les rôles (P27/P569 sont des axes génériques,
+// pas spécifiques à un métier), pour qu'ajouter un rôle tienne dans une
+// seule entrée de `roles` (voir fetchPersonRoleEntities dans wikidata.js).
+// 100 vérifié en direct sur query.wikidata.org pour politicien/athlète ET
+// peintre (Q1028181) : un métier générique (P106 direct, sans le filtrage
+// "instance of peinture" que faisait l'ancienne découverte bespoke) reste
+// large côté Wikidata, un LIMIT plus haut flirte avec le timeout de 15s de
+// wikidataQuery.
 export const PERSON_ROLE_QUERY_LIMIT = CONFIG.personRoles.queryLimit;
 export const PERSON_ROLE_COUNTRIES = CONFIG.personRoles.countries;
 export const PERSON_ROLE_ERAS = CONFIG.personRoles.eras;
@@ -218,9 +241,13 @@ export const WIKI_ARTICLE_CATEGORIES = CONFIG.wikiArticle.categories;
 export const WIKI_ARTICLE_QUERY_LIMIT = CONFIG.wikiArticle.queryLimit;
 // défaut de profondeur de parcours des sous-catégories (voir
 // collectCategoryPages dans wikipedia.js) — surchargeable par entrée de
-// `categories` via son propre champ "depth" (ex. les catégories "(nom
-// vernaculaire)" d'Animaux, des listes plates sans sous-catégories, fixées
-// à 0 : inutile d'y risquer une dérive si `queryLimit` change un jour).
+// `categories` via son propre champ "depth". Seules Mammifère et Oiseau
+// restent à 0 : elles ont assez de membres DIRECTS (702 pour Mammifère) pour
+// remplir `queryLimit` à elles seules, et ces membres directs sont les noms
+// vernaculaires courants, les meilleurs à deviner. Les autres "(nom
+// vernaculaire)" sont à 2, mesuré sur l'index local : à 0 elles ne
+// ramenaient presque rien (Reptile 0 article, Amphibien 1, Insecte 8), leurs
+// espèces vivant dans des sous-catégories (Serpent, Lézard, Tortue...).
 export const WIKI_ARTICLE_DEFAULT_DEPTH = CONFIG.wikiArticle.defaultDepth;
 // nombre de tranches du filtre "decennie" (histoire uniquement) — tranches
 // calculées par quantile sur les années réellement trouvées à chaque crawl

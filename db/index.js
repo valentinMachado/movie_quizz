@@ -18,6 +18,7 @@ export {
   anyPainterArtworkStale,
   replacePainterArtworks,
   getPainterArtworks,
+  painterArtworkCounts,
   personNeedsBirthday,
   setPersonBirthday,
   personNeedsFilmography,
@@ -71,6 +72,7 @@ export { upsertSuperheroes, getSuperhero } from "./superhero.js";
 
 export {
   upsertWikiArticles,
+  setWikiArticlePopularities,
   getWikiArticle,
   replaceWikiArticleImages,
   getWikiArticleImages,
@@ -100,6 +102,7 @@ export {
   getCountryPool,
   getPersonPool,
   getPainterPool,
+  PAINTER_MIN_ARTWORKS,
   getDirectorPool,
   getActorPool,
   getWikiArticlePool,
@@ -122,7 +125,10 @@ export {
   replaceEntityFilters,
   replaceEntityFilterSubset,
   addEntityFilters,
+  pruneUnusedFilters,
+  removeEntityFilterCode,
   getEntityFilters,
+  getEntityFilterNamesBatch,
   getFilterLabel,
   getFiltersForType,
 } from "./filters.js";

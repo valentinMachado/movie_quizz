@@ -92,8 +92,31 @@ export const getCountryPool = (selections) =>
   getTypePool("country", "ccn3", "country", selections);
 export const getPersonPool = (selections) =>
   getTypePool("person", "id", "person", selections);
-export const getPainterPool = (selections) =>
-  getTypePool("person", "id", "painter", selections);
+// Un "peintre" sans œuvre n'en est pas un pour le quiz. La requête Wikidata
+// qui construit ce pool retient toute personne dont les occupations incluent
+// « peintre » — d'où Freddie Mercury, Serge Gainsbourg ou George W. Bush, qui
+// ont réellement peint mais dont Wikidata ne connaît aucun tableau. Mesuré :
+// 820 des 1 154 du pool sans AUCUNE œuvre, et depuis que la notoriété se
+// mesure en consultations réelles, ce sont eux qui trustent le palier
+// "populaire". Seuil arbitré avec l'utilisateur : au moins 3 œuvres.
+export const PAINTER_MIN_ARTWORKS = 3;
+
+// `minArtworks` est un filtre de LECTURE, pas une condition d'entrée au pool :
+// les œuvres sont récupérées par un warmLoop APRÈS la construction du pool.
+// Filtrer à l'entrée priverait définitivement de leurs tableaux les peintres
+// pas encore visités — le warmLoop "Peintres (tableaux)" appelle ce même
+// getter, sans seuil, justement pour les voir tous.
+export const getPainterPool = (selections, minArtworks = 0) => {
+  const rows = getTypePool("person", "id", "painter", selections);
+  if (minArtworks <= 0) return rows;
+  const counts = new Map(
+    db
+      .prepare("SELECT painter_id, COUNT(*) AS n FROM painting GROUP BY painter_id")
+      .all()
+      .map((r) => [r.painter_id, r.n]),
+  );
+  return rows.filter((r) => (counts.get(r.id) ?? 0) >= minArtworks);
+};
 export const getDirectorPool = (selections) =>
   getTypePool("person", "id", "director", selections);
 export const getActorPool = (selections) =>

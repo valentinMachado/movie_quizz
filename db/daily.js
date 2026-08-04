@@ -48,11 +48,17 @@ export function getMusicTracksByReleaseMonthDay(month, day) {
 // une même personne peut être à la fois dans le pool "person" (acteur/
 // peintre) et "director" (réalisateur) — le type d'appel (voir server.js)
 // choisit lequel interroger, comme getPersonPool/getDirectorPool le font déjà.
+// JOIN sur entity_filter(filter_group='role') : une personne à plusieurs
+// rôles (ex. acteur ET réalisateur) ressort une fois par rôle, avec son code
+// de rôle attaché (`role`) — voulu, pour que dailyPersonAnniversaryBucket
+// (voir server.js) puisse retenir 1 anniversaire par rôle plutôt qu'un seul
+// toutes personnes confondues.
 export function getPersonsByBirthMonthDay(type, month, day) {
   return db
     .prepare(
-      `SELECT t.* FROM person t
+      `SELECT t.*, ef.code AS role FROM person t
        JOIN type_item ti ON ti.entity_id = t.id AND ti.type = ?
+       JOIN entity_filter ef ON ef.type = ti.type AND ef.entity_id = t.id AND ef.filter_group = 'role'
        WHERE t.birthday IS NOT NULL
          AND substr(t.birthday, 6, 2) = ?
          AND substr(t.birthday, 9, 2) = ?`,

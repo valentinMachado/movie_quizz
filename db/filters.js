@@ -81,6 +81,55 @@ export function addEntityFilters(type, filterGroup, entries) {
 
 // lecture cache-only, jamais d'appel réseau — regroupé par filter_group,
 // utile pour un futur affichage détaillé d'une entité.
+// Supprime d'un groupe les codes que plus aucune entité DU POOL ne porte —
+// le pool, pas entity_filter seul : replaceTypeItems sort une entité du pool
+// sans effacer ses entity_filter, et ces lignes orphelines gardaient sinon en
+// vie un code que plus aucune question ne peut sélectionner. À n'appeler
+// qu'après le replaceTypeItems de la passe ET après un remplacement COMPLET
+// du groupe, par un appelant qui connaît tous les codes légitimes (sinon on
+// efface un code qu'une autre phase du crawl s'apprêtait à peupler).
+//
+// Utile quand l'univers des codes change et pas seulement leur contenu : les
+// genres musicaux sont passés de l'id iTunes au nom du genre (voir
+// storeMusicGenres), et sans ce nettoyage les anciens codes numériques
+// resteraient proposés dans le catalogue alors qu'ils ne peuvent plus rien
+// sélectionner.
+export function pruneUnusedFilters(type, filterGroup) {
+  return db
+    .prepare(
+      `DELETE FROM filter WHERE type = ? AND filter_group = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM entity_filter ef
+           JOIN type_item ti ON ti.type = ef.type AND ti.entity_id = ef.entity_id
+           WHERE ef.type = filter.type
+             AND ef.filter_group = filter.filter_group
+             AND ef.code = filter.code
+         )`,
+    )
+    .run(type, filterGroup).changes;
+}
+
+// Efface un code devenu obsolète, côté entités ET catalogue. Contrairement à
+// pruneUnusedFilters (qui constate qu'un code n'est plus porté), celui-ci est
+// affirmatif : l'appelant SAIT que ce code n'a plus lieu d'être, typiquement
+// parce qu'il a été fusionné dans un autre (voir "person_popular" fondu dans
+// "populaire", storePopularityTiers/popularCode). Sans ça, les tags posés par
+// les crawls précédents survivraient indéfiniment, plus jamais mis à jour.
+export function removeEntityFilterCode(type, filterGroup, code) {
+  const tx = db.transaction(() => {
+    const n = db
+      .prepare(
+        "DELETE FROM entity_filter WHERE type = ? AND filter_group = ? AND code = ?",
+      )
+      .run(type, filterGroup, code).changes;
+    db.prepare(
+      "DELETE FROM filter WHERE type = ? AND filter_group = ? AND code = ?",
+    ).run(type, filterGroup, code);
+    return n;
+  });
+  return tx();
+}
+
 export function getEntityFilters(type, entityId) {
   const rows = db
     .prepare(
@@ -107,6 +156,28 @@ export function getFilterLabel(type, filterGroup, code) {
     )
     .get(type, filterGroup, code);
   return row?.name || null;
+}
+
+// libellés d'UN groupe pour un LOT d'entités en une seule requête — utilisé
+// par materializePersonRows (server.js) pour afficher le rôle au reveal : la
+// même fonction matérialise potentiellement tout un pool, interroger
+// getEntityFilters entité par entité y serait du N+1 (contrairement à
+// getEntityFilters, appelé pour UNE seule entité à la fois ailleurs).
+export function getEntityFilterNamesBatch(type, entityIds, filterGroup) {
+  const out = new Map();
+  if (entityIds.length === 0) return out;
+  const rows = db
+    .prepare(
+      `SELECT ef.entity_id, f.name FROM entity_filter ef
+       JOIN filter f ON f.type = ef.type AND f.filter_group = ef.filter_group AND f.code = ef.code
+       WHERE ef.type = ? AND ef.filter_group = ? AND ef.entity_id IN (${entityIds.map(() => "?").join(",")})`,
+    )
+    .all(type, filterGroup, ...entityIds);
+  for (const r of rows) {
+    if (!out.has(r.entity_id)) out.set(r.entity_id, []);
+    out.get(r.entity_id).push(r.name);
+  }
+  return out;
 }
 
 export function getFiltersForType(type) {

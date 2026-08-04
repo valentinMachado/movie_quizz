@@ -16,6 +16,20 @@ function log(level, ...args) {
     level === "error" ? console.error : level === "warn" ? console.warn : console.log;
   out(prefix, ...args);
 }
+// Bannière verte, volontairement voyante : marque un jalon qu'on doit pouvoir
+// repérer d'un coup d'œil dans un log qui a défilé pendant des heures (voir
+// la fin de refreshTypes). Couleur seulement sur un vrai terminal — redirigé
+// vers un fichier ou dans pm2, les séquences ANSI ne feraient que polluer.
+const GREEN = process.stdout.isTTY ? "\x1b[1;32m" : "";
+const RESET = process.stdout.isTTY ? "\x1b[0m" : "";
+export function logBanner(lines) {
+  const rule = "=".repeat(74);
+  log(
+    "info",
+    `\n${GREEN}${rule}\n${lines.map((l) => (l ? `  ${l}` : "")).join("\n")}\n${rule}${RESET}`,
+  );
+}
+
 export const logError = (...args) => log("error", ...args);
 export const logWarn = (...args) => log("warn", ...args);
 export const logInfo = (...args) => log("info", ...args);

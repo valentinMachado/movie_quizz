@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS wiki_article (
   thumbnail_url TEXT,
   aliases TEXT,
   loose_redaction INTEGER NOT NULL DEFAULT 0,
+  popularity REAL,
   updated_at INTEGER NOT NULL
 );
 
@@ -354,6 +355,10 @@ function migrate() {
     ["tv_show", db.prepare("PRAGMA table_info(tv_show)").all().map((c) => c.name)],
     ["game", db.prepare("PRAGMA table_info(game)").all().map((c) => c.name)],
     ["person", personCols],
+    // wiki_article : pageviews cumulées (voir setWikiArticlePopularities) —
+    // même colonne que les autres pour que "valeur brute de notoriété" reste
+    // un seul concept quel que soit le type et sa source.
+    ["wiki_article", db.prepare("PRAGMA table_info(wiki_article)").all().map((c) => c.name)],
   ]) {
     if (!cols.includes("popularity")) {
       try {
@@ -406,12 +411,14 @@ function migrate() {
       if (!/duplicate column name/i.test(e.message)) throw e;
     }
   }
-  // résumé (extrait Wikipédia FR) + poste occupé (P39 Wikidata) — alimentés
-  // uniquement pour les rôles "person" via Wikidata (voir
+  // résumé (extrait Wikipédia FR) + poste occupé (P39) + métier précis (P106)
+  // — alimentés uniquement pour les rôles "person" via Wikidata (voir
   // fetchPersonRoleEntities dans refresh/wikidata.js), un acteur (source
-  // tmdb) n'aura jamais ces deux colonnes renseignées.
+  // tmdb) n'aura jamais ces colonnes renseignées. nationality (démonyme FR)
+  // est la seule des 4 alimentée par LES DEUX sources (TMDb via
+  // fetchAndStorePersonDetails, Wikidata via fetchPersonRoleEntities).
   const personColsForSummary = db.prepare("PRAGMA table_info(person)").all().map((c) => c.name);
-  for (const col of ["summary", "position_held"]) {
+  for (const col of ["summary", "position_held", "nationality", "specific_occupation"]) {
     if (!personColsForSummary.includes(col)) {
       try {
         db.exec(`ALTER TABLE person ADD COLUMN ${col} TEXT`);

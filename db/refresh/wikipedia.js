@@ -11,6 +11,20 @@ import {
 } from "./config.js";
 import { mapWithConcurrency, tagFilter, storeFilterGroup } from "./util.js";
 import { wikidataQuery } from "./wikidata.js";
+import {
+  ensureFrwikiIndex,
+  ensureMultistreamIndex,
+  extractsFromDump,
+  aliasesFromIndex,
+  thumbnailsFromIndex,
+  ensurePageviewIndex,
+  pageviewsFromIndex,
+  frwikiIndexReady,
+  collectCategoryPagesFromIndex,
+  qidsByPageIdFromIndex,
+  imageTitlesFromIndex,
+  pageIdFromTitle,
+} from "./frwiki-dump.js";
 
 // articles Wikipédia — API MediaWiki (fr.wikipedia.org/w/api.php), gratuite,
 // sans clé, jamais utilisée ailleurs dans ce repo (seul Wikidata/SPARQL
@@ -90,25 +104,17 @@ const wikimediaFetch = makeThrottledFetch(WIKIMEDIA_MIN_INTERVAL_MS);
 // API REST Pageviews : hôte distinct (wikimedia.org, pas fr.wikipedia.org),
 // file indépendante pour tourner en parallèle du reste (voir fetchPageviews).
 const pageviewsFetch = makeThrottledFetch(WIKIMEDIA_MIN_INTERVAL_MS);
-// une file par langue Wikipédia sollicitée (fr, plus "en" en repli pour les
-// bios TMDb sans traduction FR — voir fetchAndStorePersonDetails) : même
-// principe que pageviewsFetch ci-dessus, un hôte distinct par langue n'a
-// aucune raison d'attendre le débit d'un autre.
-const wikimediaFetchByLang = new Map([[WIKI_ARTICLE_LANG, wikimediaFetch]]);
-function fetchForLang(lang) {
-  if (!wikimediaFetchByLang.has(lang)) {
-    wikimediaFetchByLang.set(lang, makeThrottledFetch(WIKIMEDIA_MIN_INTERVAL_MS));
-  }
-  return wikimediaFetchByLang.get(lang);
-}
+// une seule langue sollicitée (WIKI_ARTICLE_LANG). Il y a eu ici une file
+// par langue, pour un repli "en" sur les bios TMDb sans traduction FR —
+// supprimé avec ce repli (voir fetchAndStorePersonDetails dans tmdb.js).
 
 // exporté : réutilisé par wikidata.js (résumés des rôles "person", voir
 // fetchExtractsByTitles plus bas) pour rester sur la même file sérialisée
 // (wikimediaFetch) plutôt que d'ouvrir une 2e file non coordonnée vers le
 // même hôte fr.wikipedia.org.
-export async function wikipediaApi(params, lang = WIKI_ARTICLE_LANG) {
-  const url = `https://${lang}.wikipedia.org/w/api.php?${new URLSearchParams({ format: "json", ...params })}`;
-  const res = await fetchForLang(lang)(url);
+export async function wikipediaApi(params) {
+  const url = `https://${WIKI_ARTICLE_LANG}.wikipedia.org/w/api.php?${new URLSearchParams({ format: "json", ...params })}`;
+  const res = await wikimediaFetch(url);
   if (!res.ok) throw new Error(`Wikipédia ${res.status}`);
   return await res.json();
 }
@@ -252,28 +258,20 @@ async function fetchExtractsBatch(pageids) {
 // redirections côté serveur MediaWiki ; `normalized`/`redirects` en réponse
 // remappent le titre final vers le titre demandé, nécessaire pour retrouver
 // quel appelant a demandé quoi. Batché par 20 comme fetchExtractsBatch.
-// `lang` optionnel (def. WIKI_ARTICLE_LANG/"fr") : fetchAndStorePersonDetails
-// (tmdb.js) l'appelle aussi en "en" en repli quand ni TMDb ni Wikipédia FR
-// n'ont de biographie pour un acteur — recherche par nom exact (le nom TMDb
-// tel quel), pas de résolution QID, donc un homonyme peut occasionnellement
-// faire échouer le match (accepté, voir échange avec l'utilisateur).
-export async function fetchExtractsByTitles(titles, lang = WIKI_ARTICLE_LANG) {
+export async function fetchExtractsByTitles(titles) {
   const extracts = new Map(); // titre demandé -> extrait
   for (let i = 0; i < titles.length; i += 20) {
     const batch = titles.slice(i, i + 20);
     let data;
     try {
-      data = await wikipediaApi(
-        {
-          action: "query",
-          prop: "extracts",
-          exintro: "1",
-          explaintext: "1",
-          redirects: "1",
-          titles: batch.join("|"),
-        },
-        lang,
-      );
+      data = await wikipediaApi({
+        action: "query",
+        prop: "extracts",
+        exintro: "1",
+        explaintext: "1",
+        redirects: "1",
+        titles: batch.join("|"),
+      });
     } catch (e) {
       logWarn("Erreur extraits Wikipédia (par titre):", e.message);
       continue;
@@ -291,6 +289,12 @@ export async function fetchExtractsByTitles(titles, lang = WIKI_ARTICLE_LANG) {
 }
 
 export async function fetchWikiArticleEntities() {
+  // index local des dumps Wikimedia (voir frwiki-dump.js) : construit ici,
+  // AVANT tout le reste, pour que les warmLoups d'images le trouvent déjà
+  // ouvert (frwikiIndexReady) quand le pool sera écrit. `false` = dump
+  // indisponible ou désactivé (--no-frwiki-dump) : tout ce qui suit repasse
+  // par l'API MediaWiki, plus lent mais fonctionnellement identique.
+  const useIndex = await ensureFrwikiIndex();
   const byPage = new Map(); // pageid -> title
   const filterTagsByPage = new Map();
   const genreLabels = new Map(); // genreCode -> label, voir genreCodeFromCategory
@@ -301,11 +305,16 @@ export async function fetchWikiArticleEntities() {
   await mapWithConcurrency(WIKI_ARTICLE_CATEGORIES, CATEGORY_FETCH_CONCURRENCY, async (cat) => {
     let pages = [];
     try {
-      pages = await collectCategoryPages(
-        cat.category,
-        WIKI_ARTICLE_QUERY_LIMIT,
-        cat.depth ?? WIKI_ARTICLE_DEFAULT_DEPTH,
-      );
+      const depth = cat.depth ?? WIKI_ARTICLE_DEFAULT_DEPTH;
+      pages = useIndex
+        ? collectCategoryPagesFromIndex(
+            cat.category,
+            WIKI_ARTICLE_QUERY_LIMIT,
+            depth,
+            MAX_CATEGORY_VISITS_PER_ROOT,
+            looksLikeRealArticle,
+          )
+        : await collectCategoryPages(cat.category, WIKI_ARTICLE_QUERY_LIMIT, depth);
     } catch (e) {
       logWarn(`Erreur catégorie Wikipédia "${cat.category}":`, e.message);
     }
@@ -334,37 +343,67 @@ export async function fetchWikiArticleEntities() {
 
   const pageids = [...byPage.keys()];
   const items = []; // { pageid, title, extract, thumbnailUrl }
-  const batches = [];
-  for (let i = 0; i < pageids.length; i += 20) batches.push(pageids.slice(i, i + 20));
-  let extractBatchesDone = 0;
-  await mapWithConcurrency(batches, CATEGORY_FETCH_CONCURRENCY, async (batch) => {
-    let pages;
-    try {
-      pages = await fetchExtractsBatch(batch);
-    } catch (e) {
-      logWarn("Erreur extraits Wikipédia:", e.message);
-      return;
-    } finally {
-      extractBatchesDone++;
-      // toutes ces requêtes passent par la même file sérialisée que le
-      // parcours des catégories (voir wikimediaFetch) : sans repère, ce
-      // passage peut sembler bloqué alors qu'il avance juste lentement.
-      if (extractBatchesDone % 10 === 0 || extractBatchesDone === batches.length) {
-        logInfo(`wiki_article : extraits ${extractBatchesDone}/${batches.length} lots`);
-      }
-    }
-    for (const p of pages) {
-      if (!p.extract) continue;
+  // Résumé + alias + vignette : les trois venaient du même appel api.php, le
+  // plus cher de tout le crawl (~18 s le lot, throttling Wikimedia). Le dump
+  // multistream les rend tous les trois hors ligne — voir extractsFromDump.
+  const useDump = useIndex && (await ensureMultistreamIndex());
+  if (useDump) {
+    const extracts = await extractsFromDump(pageids, (done, total) =>
+      logInfo(`wiki_article : résumés ${done}/${total} blocs`),
+    );
+    const aliases = aliasesFromIndex(pageids);
+    const thumbnails = thumbnailsFromIndex(pageids);
+    for (const pageid of pageids) {
+      const extract = extracts.get(pageid);
+      // sans résumé exploitable ou sans vignette, l'article ne produirait
+      // aucune question (voir materializeWikiArticleRows côté server.js) :
+      // pas de repli API, on l'écarte (décision utilisateur du 2026-08-04).
+      if (!extract || !thumbnails.has(pageid)) continue;
       items.push({
-        pageid: p.pageid,
-        title: p.title,
-        extract: p.extract,
-        thumbnailUrl: p.thumbnail?.source || null,
-        aliases: (p.redirects || []).map((r) => r.title),
-        looseRedaction: loosePageIds.has(p.pageid),
+        pageid,
+        title: byPage.get(pageid),
+        extract,
+        thumbnailUrl: thumbnails.get(pageid),
+        aliases: aliases.get(pageid) ?? [],
+        looseRedaction: loosePageIds.has(pageid),
       });
     }
-  });
+    logInfo(
+      `wiki_article : ${items.length}/${pageids.length} articles retenus depuis le dump (résumé + vignette).`,
+    );
+  } else {
+    const batches = [];
+    for (let i = 0; i < pageids.length; i += 20) batches.push(pageids.slice(i, i + 20));
+    let extractBatchesDone = 0;
+    await mapWithConcurrency(batches, CATEGORY_FETCH_CONCURRENCY, async (batch) => {
+      let pages;
+      try {
+        pages = await fetchExtractsBatch(batch);
+      } catch (e) {
+        logWarn("Erreur extraits Wikipédia:", e.message);
+        return;
+      } finally {
+        extractBatchesDone++;
+        // toutes ces requêtes passent par la même file sérialisée que le
+        // parcours des catégories (voir wikimediaFetch) : sans repère, ce
+        // passage peut sembler bloqué alors qu'il avance juste lentement.
+        if (extractBatchesDone % 10 === 0 || extractBatchesDone === batches.length) {
+          logInfo(`wiki_article : extraits ${extractBatchesDone}/${batches.length} lots`);
+        }
+      }
+      for (const p of pages) {
+        if (!p.extract) continue;
+        items.push({
+          pageid: p.pageid,
+          title: p.title,
+          extract: p.extract,
+          thumbnailUrl: p.thumbnail?.source || null,
+          aliases: (p.redirects || []).map((r) => r.title),
+          looseRedaction: loosePageIds.has(p.pageid),
+        });
+      }
+    });
+  }
 
   db.upsertWikiArticles(items);
   // pool + filtre "categorie" ouverts dès que le texte est là — ne pas les
@@ -397,16 +436,29 @@ export async function fetchWikiArticleEntities() {
   );
 
   // popularité (filtre "liste" Populaire/Niche/Obscur) : posée après coup,
-  // le pool reste utilisable entre-temps sans ce filtre-là.
-  const pageviews = await fetchAllPageviews(items);
-  storeWikiArticlePopularityTiers(
-    items.map((i) => ({ entityId: i.pageid, value: pageviews.get(i.pageid) ?? null })),
-  );
+  // le pool reste utilisable entre-temps sans ce filtre-là. La valeur BRUTE
+  // est conservée en plus des tranches (voir setWikiArticlePopularities) —
+  // elle était jusqu'ici calculée puis jetée.
+  // dump de consultations si disponible (0 requête), sinon l'API article par
+  // article. Construit ICI et pas au début du crawl : c'est le plus long des
+  // deux téléchargements, et le pool est déjà ouvert à ce stade.
+  const pageviews =
+    useIndex && (await ensurePageviewIndex())
+      ? pageviewsFromIndex(items.map((i) => i.pageid))
+      : await fetchAllPageviews(items);
+  const popularityEntries = items.map((i) => ({
+    entityId: i.pageid,
+    value: pageviews.get(i.pageid) ?? null,
+  }));
+  db.setWikiArticlePopularities(popularityEntries);
+  storeWikiArticlePopularityTiers(popularityEntries);
 
   // QID résolus UNE SEULE FOIS pour tout le pool, réutilisés par décennie
   // (histoire uniquement) ET géographie (tout le pool, "quand c'est
   // possible") ci-dessous — évite de refaire la résolution deux fois.
-  const qidByPageid = await resolveWikidataQids(items.map((i) => i.pageid));
+  const qidByPageid = useIndex
+    ? qidsByPageIdFromIndex(items.map((i) => i.pageid))
+    : await resolveWikidataQids(items.map((i) => i.pageid));
   logInfo(`wiki_article : ${qidByPageid.size}/${items.length} QID Wikidata résolus`);
   const qids = [...new Set(qidByPageid.values())];
 
@@ -727,7 +779,7 @@ function storeWikiArticleGeography(pageids, qidByPageid, countryByQid) {
 // icônes/logos/diagrammes de template (infobox, bandeaux) : quasi jamais des
 // svg/gif sur Wikipédia contrairement aux vraies photos ; le reste est filtré
 // par nom (heuristique, pas exhaustif) puis par largeur minimale (voir
-// fetchAndStoreWikiArticleImages) pour éliminer ce que le nom seul ne capte pas.
+// resolveImageInfoByTitle) pour éliminer ce que le nom seul ne capte pas.
 const ICON_EXT_RE = /\.(svg|gif)$/i;
 const ICON_NAME_RE =
   /icon|logo|symbol|flag_of|coat[_ ]of[_ ]arms|disambig|commons-logo|nuvola|crystal|gnome|blank|pd-icon|question[_ ]mark|folder|padlock|ambox|emblem/i;
@@ -747,32 +799,99 @@ async function articleImageTitles(pageid) {
     .filter((title) => !ICON_EXT_RE.test(title) && !ICON_NAME_RE.test(title));
 }
 
-async function resolveImageInfo(fileTitles) {
-  if (fileTitles.length === 0) return [];
-  const data = await wikipediaApi({
-    action: "query",
-    titles: fileTitles.join("|"),
-    prop: "imageinfo",
-    iiprop: "url|size",
-  });
-  return Object.values(data.query?.pages || {})
-    .map((p) => p.imageinfo?.[0])
-    .filter((info) => info?.url && info.width >= MIN_IMAGE_WIDTH);
+// url + dimensions de N fichiers, par lots de 50 (limite anonyme de l'API
+// MediaWiki pour `titles`). Renvoie une Map TITRE DEMANDÉ -> imageinfo :
+// c'est ce qui permet de grouper dans une même requête les fichiers de
+// PLUSIEURS articles et de savoir ensuite lesquels reviennent à qui (voir
+// fetchAndStoreWikiArticleImagesBatch). `normalized` remappe le titre
+// renvoyé vers celui demandé, comme dans fetchExtractsByTitles.
+//
+// Cet appel reste en ligne même quand l'index local est disponible : les
+// dimensions vivent dans la table `image` de commonswiki (18 Go de dump à
+// elles seules), hors de proportion pour ce qu'on en tire. Il donne aussi
+// l'url réelle, ce qui évite de parier sur la reconstruction MD5 pour des
+// fichiers hébergés localement plutôt que sur Commons.
+async function resolveImageInfoByTitle(fileTitles) {
+  const infoByTitle = new Map();
+  for (let i = 0; i < fileTitles.length; i += 50) {
+    const batch = fileTitles.slice(i, i + 50);
+    let data;
+    try {
+      data = await wikipediaApi({
+        action: "query",
+        titles: batch.join("|"),
+        prop: "imageinfo",
+        iiprop: "url|size",
+      });
+    } catch (e) {
+      logWarn("Erreur imageinfo Wikipédia:", e.message);
+      continue;
+    }
+    const originalTitle = new Map(batch.map((t) => [t, t]));
+    for (const n of data.query?.normalized || []) originalTitle.set(n.to, n.from);
+    for (const p of Object.values(data.query?.pages || {})) {
+      const info = p.imageinfo?.[0];
+      if (!info?.url || info.width < MIN_IMAGE_WIDTH) continue;
+      infoByTitle.set(originalTitle.get(p.title) ?? p.title, info);
+    }
+  }
+  return infoByTitle;
 }
 
-// warmLoop "Articles Wikipédia (images)" — 1 article à la fois, en tâche de
-// fond (voir refresh.js), même profil que fetchAndStoreMovieImages.
-export async function fetchAndStoreWikiArticleImages(article) {
-  const fileTitles = await articleImageTitles(article.id);
-  const infos = (await resolveImageInfo(fileTitles)).slice(0, MAX_IMAGES_PER_ARTICLE);
-  db.replaceWikiArticleImages(
-    article.id,
-    infos.map((info) => ({
-      url: info.url,
-      vote_count: 1,
-      aspect_ratio: info.width / info.height,
-    })),
-  );
+// plafond de CANDIDATS soumis à l'API par entité — il faut de la marge
+// au-dessus de MAX_IMAGES_PER_ARTICLE : le filtre de largeur
+// (MIN_IMAGE_WIDTH) n'est connu qu'après la réponse, donc une partie des
+// candidats sera écartée.
+const MAX_IMAGE_CANDIDATES = 20;
+
+// candidats images d'une entité : depuis l'index local si disponible (0
+// requête), sinon via l'API comme avant. Le filtrage icônes est le même dans
+// les deux cas et, avec l'index, il s'applique AVANT tout appel réseau —
+// c'est lui qui fait chuter le volume soumis à resolveImageInfoByTitle.
+async function imageCandidateTitles(fetchFromApi, pageid) {
+  const titles = pageid != null && frwikiIndexReady()
+    ? imageTitlesFromIndex(pageid)
+    : await fetchFromApi();
+  return titles
+    .filter((t) => !ICON_EXT_RE.test(t) && !ICON_NAME_RE.test(t))
+    .slice(0, MAX_IMAGE_CANDIDATES);
+}
+
+function imageRowsFrom(infos) {
+  return infos.map((info) => ({
+    url: info.url,
+    vote_count: 1,
+    aspect_ratio: info.width / info.height,
+  }));
+}
+
+// warmLoop "Articles Wikipédia (images)" — par PAQUETS d'articles (voir
+// fetchAndStoreBatch/batchSize dans refresh.js), plus 1 par 1 comme les
+// autres warmLoops : c'était le plus gros consommateur de requêtes de tout
+// le projet (2 par article, ~11 400 pour un pool de 5 700), et donc la vraie
+// cause du throttling à 15s côté Wikimedia. Découvrir les fichiers via
+// l'index local supprime la 1re requête, grouper les titres de tout le lot
+// dans des appels imageinfo de 50 divise la 2e — au total ~85% de trafic en
+// moins vers api.php, à données identiques.
+export async function fetchAndStoreWikiArticleImagesBatch(articles) {
+  const titlesByArticle = new Map();
+  const allTitles = new Set(); // dédoublonne les fichiers partagés par plusieurs articles
+  for (const article of articles) {
+    const titles = await imageCandidateTitles(
+      () => articleImageTitles(article.id),
+      article.id,
+    );
+    titlesByArticle.set(article.id, titles);
+    for (const t of titles) allTitles.add(t);
+  }
+  const infoByTitle = await resolveImageInfoByTitle([...allTitles]);
+  for (const article of articles) {
+    const infos = (titlesByArticle.get(article.id) || [])
+      .map((t) => infoByTitle.get(t))
+      .filter(Boolean)
+      .slice(0, MAX_IMAGES_PER_ARTICLE);
+    db.replaceWikiArticleImages(article.id, imageRowsFrom(infos));
+  }
 }
 
 // même requête qu'articleImageTitles, mais par TITRE plutôt que par pageid —
@@ -799,25 +918,43 @@ async function articleImageTitlesByTitle(title) {
 // moins qu'un acteur TMDb (plusieurs profils, voir fetchAndStorePersonImages)
 // pour remplir un questionType "image" à plusieurs frames. On va chercher
 // d'autres photos sur son article Wikipédia FR déjà résolu (person.wiki_title),
-// même mécanique que fetchAndStoreWikiArticleImages ci-dessus. Le portrait
-// déjà en base est réinjecté en tête : replacePersonImages fait un
-// DELETE+INSERT, l'omettre le ferait disparaître si cet appel ne trouve rien
-// de plus.
-export async function fetchAndStorePersonWikiPhotos(person) {
-  const fileTitles = await articleImageTitlesByTitle(person.wiki_title);
-  const infos = (await resolveImageInfo(fileTitles)).slice(0, MAX_IMAGES_PER_ARTICLE);
-  const images = infos.map((info) => ({
-    url: info.url,
-    vote_count: 1,
-    aspect_ratio: info.width / info.height,
-  }));
-  if (person.portrait_image_url) {
-    images.unshift({
-      url: person.portrait_image_url,
-      vote_count: 1,
-      aspect_ratio: 1,
-    });
+// même mécanique que fetchAndStoreWikiArticleImagesBatch ci-dessus.
+//
+// batché comme fetchAndStoreWikiArticleImagesBatch ci-dessus, et pour la
+// même raison : ce warmLoop-ci tape la MÊME file sérialisée vers
+// fr.wikipedia.org que les articles, à 2 requêtes par personne. L'index
+// local résout person.wiki_title en pageid (pageIdFromTitle), ce qui évite
+// aussi la résolution de redirection que faisait articleImageTitlesByTitle.
+export async function fetchAndStorePersonWikiPhotosBatch(persons) {
+  const titlesByPerson = new Map();
+  const allTitles = new Set();
+  for (const person of persons) {
+    const pageid = frwikiIndexReady() ? pageIdFromTitle(person.wiki_title) : null;
+    const titles = await imageCandidateTitles(
+      () => articleImageTitlesByTitle(person.wiki_title),
+      pageid,
+    );
+    titlesByPerson.set(person.id, titles);
+    for (const t of titles) allTitles.add(t);
   }
-  db.replacePersonImages(person.id, images);
-  db.markPersonPhotosChecked(person.id);
+  const infoByTitle = await resolveImageInfoByTitle([...allTitles]);
+  for (const person of persons) {
+    const infos = (titlesByPerson.get(person.id) || [])
+      .map((t) => infoByTitle.get(t))
+      .filter(Boolean)
+      .slice(0, MAX_IMAGES_PER_ARTICLE);
+    const images = imageRowsFrom(infos);
+    // le portrait déjà en base est réinjecté en tête : replacePersonImages
+    // fait un DELETE+INSERT, l'omettre le ferait disparaître si cet appel ne
+    // trouve rien de plus.
+    if (person.portrait_image_url) {
+      images.unshift({
+        url: person.portrait_image_url,
+        vote_count: 1,
+        aspect_ratio: 1,
+      });
+    }
+    db.replacePersonImages(person.id, images);
+    db.markPersonPhotosChecked(person.id);
+  }
 }

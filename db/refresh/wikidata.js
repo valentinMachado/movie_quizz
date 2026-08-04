@@ -3,14 +3,12 @@ import * as db from "../index.js";
 import { logWarn, logInfo } from "./log.js";
 import {
   PAINTING_GENRES,
-  PAINTING_COUNTRIES,
-  PAINTING_ERAS,
-  PAINTING_QUERY_LIMIT,
   PERSON_ROLE_QUERY_LIMIT,
   PERSON_ROLE_COUNTRIES,
   PERSON_ROLE_ERAS,
   PERSON_ROLES,
   CATEGORY_FETCH_CONCURRENCY,
+  DEMONYMS,
 } from "./config.js";
 import {
   mapWithConcurrency,
@@ -19,22 +17,54 @@ import {
   storeTertilePopularityTiers,
 } from "./util.js";
 import { fetchExtractsByTitles } from "./wikipedia.js";
+import {
+  ensureFrwikiIndex,
+  ensureMultistreamIndex,
+  ensurePageviewIndex,
+  extractsFromDump,
+  frenchTitlesByQid,
+  pageIdFromTitle,
+  pageviewsByTitle,
+} from "./frwiki-dump.js";
+
+// Résumés par TITRE, depuis le dump multistream quand il est disponible —
+// c'était le second gros consommateur d'api.php après wiki_article (un lot de
+// 20 titres toutes les ~18 s pour 1 138 peintres, 1 122 politiciens…). Le dump
+// est indexé par pageid, d'où la traduction titre -> pageid en local. Repli
+// sur l'API si l'index n'est pas là (dump désactivé, première construction en
+// échec) : ce chemin-là n'a pas de raison de perdre des personnes.
+async function extractsForTitles(titles) {
+  if (!(await ensureFrwikiIndex()) || !(await ensureMultistreamIndex())) {
+    return await fetchExtractsByTitles(titles);
+  }
+  const titleByPageId = new Map();
+  for (const title of titles) {
+    const pageid = pageIdFromTitle(title);
+    if (pageid != null) titleByPageId.set(pageid, title);
+  }
+  const byPageId = await extractsFromDump([...titleByPageId.keys()]);
+  const out = new Map();
+  for (const [pageid, extract] of byPageId) out.set(titleByPageId.get(pageid), extract);
+  return out;
+}
 
 // peintures — Wikidata (query.wikidata.org), gratuit, sans clé, couvre
 // toutes les collections (pas un seul musée). On devine le PEINTRE (title =
 // nom du créateur, stocké comme `person` source=wikidata), pas le tableau.
 // Images servies depuis Wikimedia Commons (upload.wikimedia.org).
 //
-// Chaque catégorie interroge Wikidata sur UN SEUL axe (genre OU pays OU
-// époque OU popularité) : combiner plusieurs filtres dans la même requête
-// s'est révélé lent/instable à l'usage (timeouts 502/504) ; requêtes à un
-// seul filtre toujours rapides (< 2s).
-//
-// Q3305213 = peinture (instance of). P170 = créateur. P18 = image. P135 =
-// mouvement artistique. P27 = pays de citoyenneté (appliqué au créateur).
-// P571 = date de création. wikibase:sitelinks = nombre d'éditions Wikipédia
-// ayant un article sur l'œuvre, utilisé comme substitut de popularité.
-// (genres/pays/époques en dur dans config.json)
+// Le peintre est DÉCOUVERT exactement comme un politicien/athlète (voir
+// PAINTER_ROLE/fetchPainterEntities plus bas, par-dessus
+// fetchPersonRoleEntities) : popularité/pays/époque DE LA PERSONNE (P106
+// direct, sitelinks, P27, P569), pas des caractéristiques d'un tableau —
+// vérifié en direct sur query.wikidata.org, aucun timeout à LIMIT 100 (voir
+// commentaire sur PERSON_ROLE_QUERY_LIMIT dans config.js). Seul le mouvement
+// artistique (P135, "genre" du type `painter`) reste une requête dédiée
+// (paintingMovementsSparql ci-dessous), directement sur la fiche du peintre.
+// Les TABLEAUX eux-mêmes (Q3305213 = peinture (instance of), P170 =
+// créateur) restent une étape 2 séparée, une fois le peintre déjà connu —
+// voir fetchPainterArtworksFromWikidata/fetchAndStorePainterArtworks plus
+// bas, inchangés.
 
 // Wikidata (peintures) : endpoint public, pas de clé, mais renvoie parfois
 // des 429/502/504 même sur des requêtes simples — sérialisé + retry.
@@ -84,66 +114,6 @@ export async function wikidataQuery(url) {
   }
 }
 
-// une source de peintres par axe (popularité / genre / pays / époque) —
-// fusionnées dans un seul pool en sortie, voir fetchPainterEntities.
-function paintingSourceFilters() {
-  const filters = [{ kind: "popular" }];
-  for (const g of PAINTING_GENRES) filters.push({ kind: "genre", qid: g.qid });
-  for (const c of PAINTING_COUNTRIES)
-    filters.push({ kind: "country", qid: c.qid });
-  for (const e of PAINTING_ERAS)
-    filters.push({ kind: "era", code: e.code, gte: e.gte, lte: e.lte });
-  return filters;
-}
-
-// pas de SERVICE wikibase:label ici : sur les requêtes par plage de dates, le
-// combiner au label service fait timeout (observé empiriquement). Les noms
-// des créateurs sont résolus après coup, en un seul appel groupé (voir
-// resolveWikidataLabels).
-function paintingSparql(filter, limit) {
-  let extra = "";
-  if (filter.kind === "popular") {
-    extra = "?item wikibase:sitelinks ?sl. FILTER(?sl >= 15)";
-  } else if (filter.kind === "genre") {
-    extra = `?item wdt:P135 wd:${filter.qid}.`;
-  } else if (filter.kind === "country") {
-    extra = `?creator wdt:P27 wd:${filter.qid}.`;
-  } else if (filter.kind === "era") {
-    extra = `?item wdt:P571 ?inception. FILTER(YEAR(?inception) >= ${filter.gte} && YEAR(?inception) <= ${filter.lte})`;
-  }
-  return (
-    "SELECT ?item ?creator ?image ?portrait WHERE { " +
-    "?item wdt:P31 wd:Q3305213; wdt:P170 ?creator; wdt:P18 ?image. " +
-    "OPTIONAL { ?creator wdt:P18 ?portrait. } " +
-    `${extra} ` +
-    `} LIMIT ${limit}`
-  );
-}
-
-// filtre "country" spécifiquement : un simple LIMIT sur les TABLEAUX favorise
-// mécaniquement les 1-2 peintres les plus prolifiques sur Commons. On
-// récupère donc d'abord les créateurs DISTINCTS, puis une image par créateur
-// via VALUES.
-function paintingCountryCreatorsSparql(qid, limit) {
-  return (
-    "SELECT DISTINCT ?creator WHERE { " +
-    `?creator wdt:P27 wd:${qid}. ` +
-    "?item wdt:P31 wd:Q3305213; wdt:P170 ?creator; wdt:P18 ?image. " +
-    `} LIMIT ${limit}`
-  );
-}
-
-function paintingCreatorImagesSparql(creatorQids) {
-  const values = creatorQids.map((qid) => `wd:${qid}`).join(" ");
-  return (
-    "SELECT ?creator (SAMPLE(?image) AS ?image) (SAMPLE(?portrait) AS ?portrait) WHERE { " +
-    `VALUES ?creator { ${values} } ` +
-    "?item wdt:P31 wd:Q3305213; wdt:P170 ?creator; wdt:P18 ?image. " +
-    "OPTIONAL { ?creator wdt:P18 ?portrait. } " +
-    "} GROUP BY ?creator"
-  );
-}
-
 // résout les labels (français, repli anglais) d'une liste de QID en un seul
 // aller-retour groupé — l'API accepte jusqu'à 50 ids par appel.
 async function resolveWikidataLabels(qids) {
@@ -158,32 +128,6 @@ async function resolveWikidataLabels(qids) {
     }
   }
   return labels;
-}
-
-async function fetchPaintingFilterBindings(filter) {
-  if (filter.kind === "country") {
-    const creatorsData = await wikidataQuery(
-      `https://query.wikidata.org/sparql?query=${encodeURIComponent(
-        paintingCountryCreatorsSparql(filter.qid, PAINTING_QUERY_LIMIT),
-      )}`,
-    );
-    const creatorQids = (creatorsData.results?.bindings || [])
-      .map((b) => b.creator?.value?.split("/").pop())
-      .filter((qid) => qid && /^Q\d+$/.test(qid));
-    if (!creatorQids.length) return [];
-    const data = await wikidataQuery(
-      `https://query.wikidata.org/sparql?query=${encodeURIComponent(
-        paintingCreatorImagesSparql(creatorQids),
-      )}`,
-    );
-    return data.results?.bindings || [];
-  }
-  const data = await wikidataQuery(
-    `https://query.wikidata.org/sparql?query=${encodeURIComponent(
-      paintingSparql(filter, PAINTING_QUERY_LIMIT),
-    )}`,
-  );
-  return data.results?.bindings || [];
 }
 
 // les liens Special:FilePath renvoyés par Wikidata redirigent vers le vrai
@@ -208,173 +152,145 @@ export function commonsThumbUrl(specialFilePathUrl, width = 1280) {
   return `https://upload.wikimedia.org/wikipedia/commons/thumb/${dir}/${encoded}/${thumbName}`;
 }
 
-// upserte les peintres trouvés comme `person` (source wikidata) et remplace
-// le pool "painter" — le tableau complet d'un peintre n'est récupéré qu'en
-// tâche de fond, voir le warmLoop "Peintres (tableaux)". Chaque axe
-// (popularité/genre/pays/époque) interroge Wikidata séparément (voir
-// paintingSparql : combiner plusieurs filtres dans la même requête timeout),
-// mais tous les résultats sont fusionnés dans un seul pool avant d'écrire en
-// base — un axe qui échoue (timeout Wikidata) ne doit pas faire perdre les
-// autres.
-export async function fetchPainterEntities() {
-  const byCreator = new Map(); // creatorQid -> { image, portrait }
-  // un peintre peut apparaître dans plusieurs filtres d'un même groupe (ex. à
-  // la fois impressionnisme et post-impressionnisme) — réutilise le même
-  // tracking multi-groupe que fetchTmdbListPool/fetchIgdbListPool (tagFilter),
-  // ici alimenté directement par filter.kind plutôt que par une source de
-  // crawl séparée (l'info est déjà dans le filtre Wikidata qui a matché, pas
-  // d'appel réseau supplémentaire).
-  const filterTagsByCreator = new Map();
-  const paintingFilters = paintingSourceFilters();
-  let paintingFiltersDone = 0;
-  const paintingStartTs = Date.now();
-  await mapWithConcurrency(
-    paintingFilters,
-    CATEGORY_FETCH_CONCURRENCY,
-    async (filter) => {
-      let bindings;
-      try {
-        bindings = await fetchPaintingFilterBindings(filter);
-      } catch (e) {
-        logWarn(`Erreur peintures (filtre ${filter.kind}):`, e.message);
-        return;
-      } finally {
-        paintingFiltersDone++;
-        // Wikidata est sérialisé à ~1 requête/800ms (voir wikidataQuery) : ce
-        // crawl peut prendre plusieurs minutes en silence sans ce repère.
-        logInfo(
-          `painter : filtre ${paintingFiltersDone}/${paintingFilters.length} (${filter.kind}) — ${byCreator.size} peintres cumulés (${((Date.now() - paintingStartTs) / 1000).toFixed(1)}s)`,
-        );
-      }
-      for (const b of bindings) {
-        const creatorQid = b.creator?.value?.split("/").pop();
-        const image = b.image?.value;
-        if (!creatorQid || !/^Q\d+$/.test(creatorQid) || !image) continue;
-        if (!byCreator.has(creatorQid)) {
-          byCreator.set(creatorQid, {
-            image,
-            portrait: b.portrait?.value || null,
-          });
-        } else if (!byCreator.get(creatorQid).portrait && b.portrait?.value) {
-          byCreator.get(creatorQid).portrait = b.portrait.value;
-        }
-        if (filter.kind === "genre")
-          tagFilter(filterTagsByCreator, creatorQid, "genre", filter.qid);
-        else if (filter.kind === "country")
-          tagFilter(filterTagsByCreator, creatorQid, "geographie", filter.qid);
-        else if (filter.kind === "era")
-          tagFilter(filterTagsByCreator, creatorQid, "decennie", filter.code);
-      }
-    },
+// peintre = un rôle "person" Wikidata comme un autre (voir
+// fetchPersonRoleEntities plus bas) — volontairement PAS dans
+// config.json's personRoles.roles (donc pas bouclé par
+// fetchAllPersonRoleEntities) : le peintre garde son propre point d'entrée
+// TYPES.painter.fetchEntities (refresh.js), avec sa propre cadence de
+// fraîcheur et son propre pool `type_item`, distincts de "person". Seuil de
+// popularité identique à politicien/athlète, vérifié en direct sur
+// query.wikidata.org (aucun timeout à LIMIT 100, voir commentaire sur
+// PERSON_ROLE_QUERY_LIMIT dans config.js).
+const PAINTER_ROLE = {
+  code: "painter",
+  label: "Peintre",
+  occupationQid: "Q1028181",
+  popularSitelinksMin: 20,
+};
+
+// mouvement artistique (P135) directement sur la fiche du PEINTRE (pas du
+// tableau, contrairement à l'ancienne découverte par tableau) — multi-valué,
+// on garde tous les mouvements connus qui matchent un QID de PAINTING_GENRES
+// (les autres, hors de cette liste, sont ignorés comme n'importe quel code
+// hors config, voir ex. SUPERHERO_RACES). Même schéma batch/300 que
+// fetchPositionsHeld ci-dessous.
+function paintingMovementsSparql(qids) {
+  const values = qids.map((qid) => `wd:${qid}`).join(" ");
+  return (
+    "SELECT ?item ?movement WHERE { " +
+    `VALUES ?item { ${values} } ` +
+    "?item wdt:P135 ?movement. " +
+    "}"
   );
-  if (byCreator.size === 0) {
+}
+
+async function fetchPaintingMovements(qids) {
+  const knownQids = new Set(PAINTING_GENRES.map((g) => g.qid));
+  const codeByQid = new Map(PAINTING_GENRES.map((g) => [g.qid, g.code]));
+  const movements = new Map(); // qid peintre -> Set<code de mouvement>
+  for (let i = 0; i < qids.length; i += 300) {
+    const batch = qids.slice(i, i + 300);
+    try {
+      const data = await wikidataQuery(
+        `https://query.wikidata.org/sparql?query=${encodeURIComponent(paintingMovementsSparql(batch))}`,
+      );
+      for (const b of data.results?.bindings || []) {
+        const qid = b.item?.value?.split("/").pop();
+        const movementQid = b.movement?.value?.split("/").pop();
+        if (!qid || !movementQid || !knownQids.has(movementQid)) continue;
+        if (!movements.has(qid)) movements.set(qid, new Set());
+        movements.get(qid).add(codeByQid.get(movementQid));
+      }
+    } catch (e) {
+      logWarn("Erreur mouvements artistiques Wikidata:", e.message);
+    }
+  }
+  return movements;
+}
+
+// découverte du peintre déléguée à fetchPersonRoleEntities (même mécanisme
+// que politicien/athlète : popularité/pays/époque DE LA PERSONNE, pas d'un
+// tableau) — cette fonction ne fait plus qu'ajouter ce qui est propre au
+// type `painter` : son propre pool `type_item`, le mouvement artistique
+// (genre), et la réplication des tags geographie/decennie/popularité déjà
+// calculés génériquement. Le tableau complet d'un peintre reste récupéré en
+// tâche de fond, voir le warmLoop "Peintres (tableaux)" (inchangé).
+export async function fetchPainterEntities() {
+  const result = await fetchPersonRoleEntities(PAINTER_ROLE);
+  if (!result) {
     db.replaceTypeItems("painter", []);
     return;
   }
-
-  const labels = await resolveWikidataLabels([...byCreator.keys()]);
-  const sitelinks = await fetchWikidataSitelinks([...byCreator.keys()]);
-  // P569, jour connu uniquement (voir fetchBirthDates) — homogénéise le pool
-  // "person" : un peintre peut désormais apparaître dans le quiz du jour au
-  // même titre qu'un acteur/réalisateur TMDb, au lieu d'en être exclu de
-  // fait faute de date exploitable (voir getPersonsByBirthMonthDay).
-  const birthDates = await fetchBirthDates([...byCreator.keys()]);
-  const items = []; // { id, creatorQid, portraitThumbUrl } — forme attendue par storeFilterGroup
-  for (const [creatorQid, info] of byCreator) {
-    const creator = labels.get(creatorQid);
-    if (!creator) continue;
-    const rawPortrait = info.portrait || info.image;
-    const portraitThumbUrl = rawPortrait ? commonsThumbUrl(rawPortrait) : null;
-    const personId = db.upsertPerson({
-      source: "wikidata",
-      externalId: creatorQid,
-      name: creator,
-      // portrait du peintre lui-même sur l'écran réponse (pas un tableau de
-      // plus) ; repli sur un tableau si aucun portrait n'est connu — URL déjà
-      // convertie en thumbnail final, prête à servir telle quelle.
-      portraitImageUrl: portraitThumbUrl,
-      popularity: sitelinks.get(creatorQid) ?? null,
-    });
-    // placeOfBirth/biography non connus par cette voie (P19/résumé non
-    // résolus ici pour un peintre) — null, jamais écrasés grâce au COALESCE
-    // de setPersonBirthday sur `summary`.
-    db.setPersonBirthday(personId, birthDates.get(creatorQid) ?? null, null, null);
-    items.push({ id: personId, creatorQid, portraitThumbUrl });
-  }
+  const { items, filterTagsByItem, notoriety } = result;
   db.replaceTypeItems(
     "painter",
     items.map((i) => i.id),
   );
 
-  // le peintre rejoint AUSSI le pool "person" (rôle "painter") — une
-  // mécanique de devinette différente et complémentaire du pool "painter"
-  // ci-dessus : ici on devine à partir de SA photo/portrait (comme un
-  // acteur), là-bas à partir d'un de ses tableaux. Additif (voir
-  // db.addTypeItems) : "person" est aussi alimenté par fetchPersonEntities
-  // et le warmLoop réalisateurs, sans connaissance mutuelle.
-  db.addTypeItems(
-    "person",
-    items.map((i) => i.id),
-  );
-  db.upsertFilters("person", "role", [{ code: "painter", name: "Peintre" }]);
-  db.addEntityFilters(
-    "person",
-    "role",
-    items.map((i) => ({ entityId: i.id, codes: ["painter"] })),
-  );
-  // person_image : seule source d'images pour la devinette "person" (voir
-  // getBackdropsForItem côté server.js) — réutilise l'URL déjà résolue
-  // ci-dessus, aucun appel réseau supplémentaire. Un peintre sans portrait
-  // connu n'a simplement aucune image ici et sera exclu du quiz pour ce
-  // rôle, comme n'importe quelle autre entité sans image.
-  for (const item of items) {
-    if (!item.portraitThumbUrl) continue;
-    db.replacePersonImages(item.id, [
-      {
-        url: item.portraitThumbUrl,
-        iso_639_1: null,
-        vote_count: 1,
-        aspect_ratio: 1,
-      },
-    ]);
-  }
-
+  const movements = await fetchPaintingMovements(items.map((i) => i.qid));
   // storeFilterGroup attend filterTagsByItemId keyed par item.id (personId),
-  // pas par creatorQid (l'id Wikidata provisoire) — reprojection ici plutôt
-  // que de complexifier storeFilterGroup pour ce seul appelant.
+  // pas par qid — reprojection ici plutôt que de complexifier storeFilterGroup
+  // pour ce seul appelant (voir même reprojection dans fetchPersonRoleEntities).
   const filterTagsByPersonId = new Map();
   for (const item of items) {
-    const tags = filterTagsByCreator.get(item.creatorQid);
-    if (tags) filterTagsByPersonId.set(item.id, tags);
+    const tags = new Map(filterTagsByItem.get(item.qid) ?? []);
+    const genre = movements.get(item.qid);
+    if (genre) tags.set("genre", genre);
+    filterTagsByPersonId.set(item.id, tags);
   }
-  storeFilterGroup(
-    "painter",
-    "genre",
-    Object.fromEntries(PAINTING_GENRES.map((g) => [g.qid, { label: g.label }])),
-    items,
-    filterTagsByPersonId,
-  );
   storeFilterGroup(
     "painter",
     "geographie",
-    Object.fromEntries(
-      PAINTING_COUNTRIES.map((c) => [c.qid, { label: c.label }]),
-    ),
+    Object.fromEntries(PERSON_ROLE_COUNTRIES.map((c) => [c.code, { label: c.label }])),
     items,
     filterTagsByPersonId,
   );
   storeFilterGroup(
     "painter",
     "decennie",
-    Object.fromEntries(PAINTING_ERAS.map((e) => [e.code, { label: e.label }])),
+    Object.fromEntries(PERSON_ROLE_ERAS.map((e) => [e.code, { label: e.label }])),
     items,
     filterTagsByPersonId,
   );
+  storeFilterGroup(
+    "painter",
+    "genre",
+    Object.fromEntries(PAINTING_GENRES.map((g) => [g.code, { label: g.label }])),
+    items,
+    filterTagsByPersonId,
+  );
+  // même mécanique tertile que pour "person" dans fetchPersonRoleEntities
+  // (notoriété du PEINTRE, déjà calculée là-bas) — un peintre est une
+  // personne comme une autre, pas de logique de popularité à part.
+  // Recalculé ensuite sur les seuls peintres ayant des œuvres, voir
+  // syncPainterPopularityTiers : ici les tableaux ne sont pas encore récupérés.
   storeTertilePopularityTiers(
     "painter",
-    items.map((i) => ({
-      entityId: i.id,
-      value: sitelinks.get(i.creatorQid) ?? null,
+    items.map((i) => ({ entityId: i.id, value: notoriety.get(i.qid) ?? null })),
+  );
+}
+
+// Tertiles recalculés sur les SEULS vrais peintres. Sans ce filtre, Freddie
+// Mercury, Serge Gainsbourg ou George W. Bush — très consultés, et sans le
+// moindre tableau connu de Wikidata — écrasent les peintres réels : mesuré 135
+// "populaire" pour seulement 35 "obscur" sur les 263 peintres ayant au moins 3
+// œuvres. Une personne sous le seuil reçoit `null`, donc AUCUN palier : elle
+// est de toute façon écartée du quiz (voir PAINTER_MIN_ARTWORKS).
+//
+// Ici et pas dans fetchPainterEntities parce que les œuvres arrivent APRÈS le
+// crawl, via le warmLoop "Peintres (tableaux)" : au moment où le pool se
+// construit, on ne sait pas encore qui a des tableaux. Purement local, aucun
+// appel réseau — appelé au démarrage puis toutes les heures par
+// syncDerivedPersonFilters, ce qui le fait converger à mesure que le warmLoop
+// remplit la table `painting`.
+export function syncPainterPopularityTiers() {
+  const counts = db.painterArtworkCounts();
+  storeTertilePopularityTiers(
+    "painter",
+    db.getPainterPool().map((p) => ({
+      entityId: p.id,
+      value:
+        (counts.get(p.id) ?? 0) >= db.PAINTER_MIN_ARTWORKS ? p.popularity : null,
     })),
   );
 }
@@ -567,7 +483,19 @@ function frenchWikipediaTitlesSparql(qids) {
   );
 }
 
+// L'index local porte le même lien QID <-> article français que ce SPARQL
+// (page_props), simplement rangé dans l'autre sens : quand il est là, on ne
+// sort pas du disque. Vérifié sur 800 personnes en base, 800 titres
+// identiques. Le SPARQL reste le chemin quand l'index est absent.
 async function resolveFrenchWikipediaTitles(qids) {
+  if (await ensureFrwikiIndex()) {
+    const byQid = frenchTitlesByQid(qids);
+    return new Map([...byQid].map(([qid, { title }]) => [qid, title]));
+  }
+  return await resolveFrenchWikipediaTitlesSparql(qids);
+}
+
+async function resolveFrenchWikipediaTitlesSparql(qids) {
   const titles = new Map(); // qid -> titre
   for (let i = 0; i < qids.length; i += 300) {
     const batch = qids.slice(i, i + 300);
@@ -625,6 +553,47 @@ async function fetchPositionsHeld(qids) {
   return positions;
 }
 
+// métier précis (P106) — une personne a souvent PLUSIEURS occupations, dont
+// celle utilisée pour la découvrir (role.occupationQid, ex. Q2066131
+// "athlète" pour le rôle "athlete") : on ignore cette dernière et on garde le
+// premier libellé restant, plus précis (ex. "joueur de tennis"), affiché "si
+// présent" au reveal — voir materializePersonRows côté server.js. Même
+// schéma batch/300 que positionHeldSparql ci-dessus.
+function specificOccupationsSparql(qids) {
+  const values = qids.map((qid) => `wd:${qid}`).join(" ");
+  return (
+    "SELECT ?item ?occupation ?occupationLabel WHERE { " +
+    `VALUES ?item { ${values} } ` +
+    "?item wdt:P106 ?occupation. " +
+    "?occupation rdfs:label ?occupationLabel. " +
+    'FILTER(LANG(?occupationLabel) = "fr") ' +
+    "}"
+  );
+}
+
+async function fetchSpecificOccupations(qids, excludeQid) {
+  const occupations = new Map(); // qid -> premier libellé "spécifique" rencontré
+  for (let i = 0; i < qids.length; i += 300) {
+    const batch = qids.slice(i, i + 300);
+    try {
+      const data = await wikidataQuery(
+        `https://query.wikidata.org/sparql?query=${encodeURIComponent(specificOccupationsSparql(batch))}`,
+      );
+      for (const b of data.results?.bindings || []) {
+        const qid = b.item?.value?.split("/").pop();
+        const occupationQid = b.occupation?.value?.split("/").pop();
+        const label = b.occupationLabel?.value;
+        if (!qid || !occupationQid || !label || occupationQid === excludeQid)
+          continue;
+        if (!occupations.has(qid)) occupations.set(qid, label);
+      }
+    } catch (e) {
+      logWarn("Erreur métier précis Wikidata:", e.message);
+    }
+  }
+  return occupations;
+}
+
 // peuple le pool "person" (additif, voir db.addTypeItems) avec un rôle donné
 // — même principe multi-source que fetchPersonEntities (acteurs)/le warmLoop
 // réalisateurs/fetchPainterEntities : chacun ne connaît que sa propre
@@ -666,23 +635,54 @@ export async function fetchPersonRoleEntities(role) {
         tagFilter(filterTagsByItem, qid, "decennie", filter.code);
     }
   });
-  if (byItem.size === 0) return;
+  if (byItem.size === 0) return null;
 
   const qids = [...byItem.keys()];
   const labels = await resolveWikidataLabels(qids);
   const sitelinks = await fetchWikidataSitelinks(qids);
   // résumé (extrait Wikipédia FR, pour une future questionType "résumé" —
   // non matérialisée ici, voir materializePersonRow côté server.js) + poste
-  // occupé (P39, affiché "si présent" au reveal) : toujours calculés pour
-  // TOUT rôle person-Wikidata, pas seulement "politicien" — un rôle futur
-  // (scientifique...) en profite gratuitement, sans code supplémentaire.
+  // occupé (P39) + métier précis (P106, hors classe générique du rôle) :
+  // toujours calculés pour TOUT rôle person-Wikidata, pas seulement
+  // "politicien" — un rôle futur (scientifique...) en profite gratuitement,
+  // sans code supplémentaire. Les deux sont affichés "si présents" au reveal
+  // — voir materializePersonRows côté server.js.
   const frTitles = await resolveFrenchWikipediaTitles(qids);
-  const extractsByTitle = await fetchExtractsByTitles([...new Set(frTitles.values())]);
+  const extractsByTitle = await extractsForTitles([...new Set(frTitles.values())]);
+
+  // NOTORIÉTÉ — consultations de l'article FRANÇAIS quand l'index local des
+  // dumps est disponible, sitelinks (nombre de langues ayant un article) en
+  // repli. Les sitelinks restent indispensables à la DÉCOUVERTE (c'est
+  // popularSitelinksMin qui borne la requête SPARQL plus haut), mais ils
+  // mesurent une notoriété encyclopédique mondiale : ils enterraient des
+  // peintres connus en France et faute traduits (Yan Pei-Ming #996, Raymond-
+  // Émile Waydelich #1098) tout en propulsant des inconnus ici à forte
+  // couverture (un humoriste brésilien #145, un politicien kazakh #271).
+  //
+  // Une personne sans article français vaut 0, pas "inconnu" : pour un quiz
+  // francophone, aucun article en français signifie que personne ne la
+  // devinera (décision explicite de l'utilisateur, 2026-08-04).
+  // ensureFrwikiIndex et pas frwikiIndexReady : on est dans un fetchEntities,
+  // et refreshTypes lance les types en parallèle — attendre que wiki_article
+  // ait ouvert l'index reviendrait à tirer à pile ou face entre pageviews et
+  // repli sitelinks selon qui démarre en premier. L'appel est mutualisé, il ne
+  // provoque pas un second téléchargement.
+  const usePageviews =
+    (await ensureFrwikiIndex()) && (await ensurePageviewIndex());
+  const viewsByTitle = usePageviews
+    ? pageviewsByTitle([...new Set(frTitles.values())])
+    : null;
+  const notorietyOf = (qid) => {
+    if (!usePageviews) return sitelinks.get(qid) ?? null;
+    const title = frTitles.get(qid);
+    return title ? (viewsByTitle.get(title) ?? 0) : 0;
+  };
   const positions = await fetchPositionsHeld(qids);
-  // P569, jour connu uniquement (voir fetchBirthDates) — même traitement que
-  // fetchPainterEntities : homogénéise le pool "person" en donnant à tout
-  // rôle Wikidata (politicien, athlète, un futur rôle...) une chance
-  // d'apparaître dans le quiz du jour comme un acteur/réalisateur TMDb.
+  const specificOccupations = await fetchSpecificOccupations(qids, role.occupationQid);
+  // P569, jour connu uniquement (voir fetchBirthDates) — homogénéise le pool
+  // "person" en donnant à tout rôle Wikidata (politicien, athlète, peintre,
+  // un futur rôle...) une chance d'apparaître dans le quiz du jour comme un
+  // acteur/réalisateur TMDb.
   const birthDates = await fetchBirthDates(qids);
   const items = []; // { id, qid } — forme attendue par storeFilterGroup
   for (const [qid, image] of byItem) {
@@ -690,14 +690,20 @@ export async function fetchPersonRoleEntities(role) {
     if (!name) continue;
     const portraitThumbUrl = commonsThumbUrl(image);
     const frTitle = frTitles.get(qid);
+    // nationalité affichée au reveal (voir materializePersonRows côté
+    // server.js) : premier code "geographie" déjà résolu ci-dessus (P27),
+    // converti en démonyme FR — aucune requête de plus.
+    const geoCode = [...(filterTagsByItem.get(qid)?.get("geographie") ?? [])][0];
     const personId = db.upsertPerson({
       source: "wikidata",
       externalId: qid,
       name,
       portraitImageUrl: portraitThumbUrl,
-      popularity: sitelinks.get(qid) ?? null,
+      popularity: notorietyOf(qid),
       summary: frTitle ? (extractsByTitle.get(frTitle) ?? null) : null,
       positionHeld: positions.get(qid) ?? null,
+      specificOccupation: specificOccupations.get(qid) ?? null,
+      nationality: DEMONYMS[geoCode] ?? null,
       wikiTitle: frTitle || null,
     });
     // placeOfBirth non résolu ici (P27 = citoyenneté, pas P19 = lieu de
@@ -714,7 +720,7 @@ export async function fetchPersonRoleEntities(role) {
       },
     ]);
   }
-  if (items.length === 0) return;
+  if (items.length === 0) return null;
 
   db.addTypeItems(
     "person",
@@ -750,15 +756,24 @@ export async function fetchPersonRoleEntities(role) {
     filterTagsByPersonId,
   );
   // pas de source "person_popular" pour un rôle Wikidata (contrairement aux
-  // acteurs, voir fetchPersonEntities) : tertiles directs sur sitelinks,
+  // acteurs, voir fetchPersonEntities) : tertiles directs sur la notoriété,
   // même mécanique que storeTertilePopularityTiers("painter", ...)
   // ci-dessus — seuls les items DE CE RÔLE sont touchés (voir storeFilterGroup
   // plus haut pour la même portée par entityId), les tags "liste" d'un
   // acteur/painter/autre rôle restent intacts.
   storeTertilePopularityTiers(
     "person",
-    items.map((i) => ({ entityId: i.id, value: sitelinks.get(i.qid) ?? null })),
+    items.map((i) => ({ entityId: i.id, value: notorietyOf(i.qid) })),
   );
+
+  // `notoriety` réutilisé par fetchPainterEntities (ci-dessus) pour ne pas
+  // recalculer ce qui vient de l'être — fetchAllPersonRoleEntities ci-dessous
+  // ignore cette valeur de retour, aucun impact pour politicien/athlète.
+  return {
+    items,
+    filterTagsByItem,
+    notoriety: new Map(items.map((i) => [i.qid, notorietyOf(i.qid)])),
+  };
 }
 
 // appelé depuis refresh.js dans le cadre du fetchEntities du type "person" —

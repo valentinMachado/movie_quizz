@@ -29,6 +29,22 @@ export function upsertWikiArticles(rows) {
   tx(rows);
 }
 
+// valeur brute de notoriété (pageviews cumulées sur 3 mois, voir
+// fetchAllPageviews dans refresh/wikipedia.js) — écrite APRÈS
+// upsertWikiArticles, la popularité arrivant volontairement après l'ouverture
+// du pool. Stockée EN PLUS des tranches obscur/niche/populaire du groupe
+// "liste" : une tranche ne permet ni de trier, ni de comparer deux articles
+// entre eux. Même colonne `popularity` que movie/tv_show/game/person (qui y
+// mettent respectivement la popularité TMDb/IGDB et les sitelinks Wikidata),
+// pour que le concept reste unique quel que soit le type et sa source.
+export function setWikiArticlePopularities(entries) {
+  const stmt = db.prepare("UPDATE wiki_article SET popularity = ? WHERE id = ?");
+  const tx = db.transaction((rows) => {
+    for (const e of rows) stmt.run(e.value, e.entityId);
+  });
+  tx(entries);
+}
+
 export function getWikiArticle(id) {
   return db.prepare("SELECT * FROM wiki_article WHERE id = ?").get(id) || null;
 }

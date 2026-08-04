@@ -31,6 +31,26 @@ function questionTypeLabel(m) {
   return `${baseLabel} ${info.icon || ""} ${info.label || qt}`.trim();
 }
 
+function capitalize(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// sous-titre du reveal "person" (voir drawReveal) : qui est cette personne,
+// au-delà de son seul nom — priorité au plus précis connu (voir
+// materializePersonRows côté server.js) :
+// 1. positionHeld (ex. "Président de la République française") — inclut déjà
+//    la nationalité, rien à ajouter.
+// 2. specificOccupation + nationality (ex. "Joueur de tennis espagnol").
+// 3. roleLabel + nationality (ex. "Réalisateur français", "Peintre espagnol").
+// Un acteur/réalisateur (source TMDb) n'a jamais positionHeld/
+// specificOccupation, retombe donc toujours sur le cas 3.
+function personSubtitle(m) {
+  if (m.positionHeld) return capitalize(m.positionHeld);
+  const base = m.specificOccupation || m.roleLabel;
+  if (!base) return m.nationality ? capitalize(m.nationality) : null;
+  return capitalize(m.nationality ? `${base} ${m.nationality}` : base);
+}
+
 // gâteau au-dessus du badge "reason" (voir drawReveal/drawMusicReveal/
 // drawFlagReveal), uniquement pour les items anniversaire du quiz du jour
 // (m.isAnniversary, voir server.js) — pas pour un item "tendance". Aligné à
@@ -199,6 +219,18 @@ function drawReveal(m, itemIdx, withinMs) {
       canvas.height - 24 * RS,
     );
     ctx.restore();
+  } else if (m.type === "person") {
+    const subtitle = personSubtitle(m);
+    if (subtitle) {
+      ctx.save();
+      ctx.font = gameFont(600, 22);
+      ctx.fillStyle = "#c9bfe8";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 8 * RS;
+      ctx.fillText(subtitle, canvas.width / 2, canvas.height - 24 * RS);
+      ctx.restore();
+    }
   }
 
   drawBadge(

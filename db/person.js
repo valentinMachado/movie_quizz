@@ -5,10 +5,12 @@ import { replaceImages, getImages, imagesFetchedAt } from "./images.js";
 
 // upsert par (source, external_id) : crée ou met à jour nom/images, ne touche
 // jamais birthday/place_of_birth/paintings (gérés séparément, TTL propre).
-// summary/positionHeld : résumé Wikipédia FR + poste occupé (P39), connus
-// uniquement des rôles "person" Wikidata (voir fetchPersonRoleEntities) —
-// restent null pour un acteur/réalisateur TMDb, comme portraitImageUrl reste
-// null pour eux.
+// summary/positionHeld/specificOccupation : résumé Wikipédia FR + poste
+// occupé (P39) + métier précis (P106), connus uniquement des rôles "person"
+// Wikidata (voir fetchPersonRoleEntities) — restent null pour un acteur/
+// réalisateur TMDb, comme portraitImageUrl reste null pour eux. nationality
+// (démonyme FR) est la seule des 4 posée par les DEUX sources (TMDb via
+// setPersonBirthday, Wikidata ici).
 export function upsertPerson({
   source,
   externalId,
@@ -18,12 +20,14 @@ export function upsertPerson({
   popularity = null,
   summary = null,
   positionHeld = null,
+  specificOccupation = null,
+  nationality = null,
   wikiTitle = null,
 }) {
   const now = Date.now();
   db.prepare(
-    `INSERT INTO person (source, external_id, name, profile_image_url, portrait_image_url, popularity, summary, position_held, wiki_title, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO person (source, external_id, name, profile_image_url, portrait_image_url, popularity, summary, position_held, specific_occupation, nationality, wiki_title, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source, external_id) DO UPDATE SET
        name = excluded.name,
        profile_image_url = COALESCE(excluded.profile_image_url, person.profile_image_url),
@@ -31,6 +35,8 @@ export function upsertPerson({
        popularity = COALESCE(excluded.popularity, person.popularity),
        summary = COALESCE(excluded.summary, person.summary),
        position_held = COALESCE(excluded.position_held, person.position_held),
+       specific_occupation = COALESCE(excluded.specific_occupation, person.specific_occupation),
+       nationality = COALESCE(excluded.nationality, person.nationality),
        wiki_title = COALESCE(excluded.wiki_title, person.wiki_title),
        updated_at = excluded.updated_at`,
   ).run(
@@ -42,6 +48,8 @@ export function upsertPerson({
     popularity,
     summary,
     positionHeld,
+    specificOccupation,
+    nationality,
     wikiTitle,
     now,
   );
@@ -122,6 +130,19 @@ export function getPainterArtworks(painterId) {
     .map((r) => r.image_url);
 }
 
+// nombre d'œuvres connues par peintre, en une requête — sert à distinguer un
+// vrai peintre d'une personne dont Wikidata liste « peintre » parmi les
+// occupations sans lui connaître le moindre tableau (voir
+// PAINTER_MIN_ARTWORKS dans typeItem.js).
+export function painterArtworkCounts() {
+  return new Map(
+    db
+      .prepare("SELECT painter_id, COUNT(*) AS n FROM painting GROUP BY painter_id")
+      .all()
+      .map((r) => [r.painter_id, r.n]),
+  );
+}
+
 // portrait Wikidata unique (voir fetchPersonRoleEntities/fetchPainterEntities)
 // : trop peu pour bien remplir un questionType "image" à plusieurs frames,
 // contrairement à un acteur TMDb (plusieurs profils, voir "Personnes TMDb (images)"
@@ -149,15 +170,18 @@ export function personNeedsBirthday(person) {
 // quand même pour ne pas retenter cette personne avant le TTL. biography est
 // souvent vide en fr-FR (TMDb n'a pas toujours de traduction) : COALESCE
 // pour ne jamais écraser un summary déjà là (ex. Wikidata pour un rôle
-// "person", voir upsertPerson) par un vide.
-export function setPersonBirthday(personId, birthday, placeOfBirth, biography) {
+// "person", voir upsertPerson) par un vide. nationality (démonyme FR, dérivé
+// de placeOfBirth côté appelant — voir fetchAndStorePersonDetails dans
+// refresh/tmdb.js) même COALESCE, pour la même raison.
+export function setPersonBirthday(personId, birthday, placeOfBirth, biography, nationality) {
   db.prepare(
-    `UPDATE person SET birthday = ?, place_of_birth = ?, summary = COALESCE(?, summary), birthday_checked_at = ?
+    `UPDATE person SET birthday = ?, place_of_birth = ?, summary = COALESCE(?, summary), nationality = COALESCE(?, nationality), birthday_checked_at = ?
      WHERE id = ?`,
   ).run(
     birthday || null,
     placeOfBirth || null,
     biography || null,
+    nationality || null,
     Date.now(),
     personId,
   );
