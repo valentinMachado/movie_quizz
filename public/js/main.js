@@ -1,4 +1,9 @@
-import { CFG, SUMMARY_SPEEDS, AUDIO_SPEEDS } from "./config.js";
+import {
+  CFG,
+  SUMMARY_SPEEDS,
+  AUDIO_SPEEDS,
+  TYPE_BASE_LABELS,
+} from "./config.js";
 import { state, currentSummarySpeed, currentAudioSpeed } from "./state.js";
 import {
   answersEl,
@@ -12,6 +17,14 @@ import {
   downloadLink,
   flagSecNumber,
   flagSecRange,
+  mapSecNumber,
+  mapSecRange,
+  leaderSecNumber,
+  leaderSecRange,
+  showLeaderNameCheckbox,
+  statesmanSecNumber,
+  statesmanSecRange,
+  showCountryNameCheckbox,
   imageSecNumber,
   imageSecRange,
   imagesPerItemNumber,
@@ -22,22 +35,54 @@ import {
   stage,
   summaryPerItemNumber,
   summaryPerItemRange,
+  maxSummaryLenNumber,
+  maxSummaryLenRange,
 } from "./dom.js";
 import {
   addSeenIds,
   clearSeenIds,
   currentCount,
   currentFlagSec,
+  currentMapSec,
+  currentLeaderSec,
+  currentStatesmanSec,
   currentImageSec,
   currentImagesPerItem,
   currentRevealSec,
   currentSummaryPerItem,
+  currentMaxSummaryLen,
   getSeenIds,
   saveSettings,
   updateDurationHint,
 } from "./settings.js";
 import { buildSelections, loadFilters, renderChips } from "./filters.js";
-import { refreshStats, setProgress, setStatus } from "./status.js";
+import {
+  completePhases,
+  haltPhases,
+  refreshStats,
+  resetPhases,
+  setPhase,
+  setProgress,
+  setStatus,
+} from "./status.js";
+import { celebrate } from "./confetti.js";
+
+// l'encodeur (renderFast) signale seulement QUAND la lecture devient sûre ;
+// la façon de le montrer vit ici : le lecteur rebondit, les confettis
+// marquent le coup, et le bouton play natif reste le seul contrôle.
+function signalPreviewReady() {
+  const video = stage.querySelector("video");
+  // rien à signaler à qui a déjà lancé la lecture de son côté : ni un
+  // rebond du lecteur, ni des confettis par-dessus une vidéo en cours
+  if (!video || !video.paused) return;
+  video.classList.add("preview-pop");
+  video.addEventListener(
+    "animationend",
+    () => video.classList.remove("preview-pop"),
+    { once: true },
+  );
+  celebrate();
+}
 import { resetStage, setStagePlaceholder } from "./render/stage.js";
 import { loadImage, preloadAll } from "./preload.js";
 import {
@@ -65,8 +110,12 @@ const DAILY_QUIZ_PARAMS = {
   revealSec: 4,
   audioSpeed: "normal",
   flagSec: 5,
+  mapSec: 8,
+  leaderSec: 5,
+  statesmanSec: 5,
   summarySpeed: "normal",
   summaryPerItem: 2,
+  maxSummaryLen: 1000,
 };
 
 async function generateQuiz(daily = false) {
@@ -76,8 +125,11 @@ async function generateQuiz(daily = false) {
   resultRow.classList.remove("show");
   answersEl.classList.remove("show");
   state.answersRevealed = false;
+  btnToggleAnswers.textContent = "Voir la liste des réponses";
   resetStage();
   setProgress(0);
+  resetPhases();
+  setPhase("fetch");
 
   // démarré en parallèle (pas attendu tout de suite) pour chevaucher
   // avec la récupération du lot et le préchargement des images
@@ -97,6 +149,16 @@ async function generateQuiz(daily = false) {
       ? AUDIO_SPEEDS.find((s) => s.key === DAILY_QUIZ_PARAMS.audioSpeed)
       : currentAudioSpeed();
     const flagSec = daily ? DAILY_QUIZ_PARAMS.flagSec : currentFlagSec();
+    const mapSec = daily ? DAILY_QUIZ_PARAMS.mapSec : currentMapSec();
+    const leaderSec = daily ? DAILY_QUIZ_PARAMS.leaderSec : currentLeaderSec();
+    const statesmanSec = daily
+      ? DAILY_QUIZ_PARAMS.statesmanSec
+      : currentStatesmanSec();
+    // quiz du jour : toujours affiché, déterministe (même raison que les
+    // autres DAILY_QUIZ_PARAMS ci-dessus — indépendant de ce qu'un visiteur
+    // a pu laisser coché de son côté).
+    const showLeaderName = daily ? true : state.showLeaderName;
+    const showCountryName = daily ? true : state.showCountryName;
     const summarySecPerWord = daily
       ? SUMMARY_SPEEDS.find((s) => s.key === DAILY_QUIZ_PARAMS.summarySpeed)
           .secPerWord
@@ -104,6 +166,9 @@ async function generateQuiz(daily = false) {
     const summaryPerItem = daily
       ? DAILY_QUIZ_PARAMS.summaryPerItem
       : Math.min(5, Math.max(1, currentSummaryPerItem()));
+    const maxSummaryLen = daily
+      ? DAILY_QUIZ_PARAMS.maxSummaryLen
+      : Math.min(1000, Math.max(100, currentMaxSummaryLen()));
 
     let res;
     if (daily) {
@@ -114,7 +179,7 @@ async function generateQuiz(daily = false) {
       res = await fetch("/api/quiz-daily", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagesPerItem, summaryPerItem }),
+        body: JSON.stringify({ imagesPerItem, summaryPerItem, maxSummaryLen }),
       });
     } else {
       const count = Math.min(50, Math.max(1, currentCount()));
@@ -132,6 +197,7 @@ async function generateQuiz(daily = false) {
           count,
           imagesPerItem,
           summaryPerItem,
+          maxSummaryLen,
           exclude,
         }),
       });
@@ -149,8 +215,14 @@ async function generateQuiz(daily = false) {
       );
     }
 
+    setPhase("preload");
     setStagePlaceholder("Préchargement des images et extraits audio…");
-    state.items = await preloadAll(data.items, { audioSpeed, revealSec });
+    state.items = await preloadAll(data.items, {
+      audioSpeed,
+      revealSec,
+      showLeaderName,
+      showCountryName,
+    });
     if (!daily) addSeenIds(data.items.map((m) => m.id));
     const failedCount = data.items.length - state.items.length;
     if (failedCount > 0) {
@@ -182,15 +254,22 @@ async function generateQuiz(daily = false) {
         const guessDurSec =
           m.type === "country" && m.questionType === "flag"
             ? flagSec
-            : m.questionType === "summary"
-              ? m.type === "director"
-                ? m.overviews.reduce(
-                    (sum, ov) =>
-                      sum + summaryDurationMs(ov, summarySecPerWord) / 1000,
-                    0,
-                  )
-                : summaryDurationMs(m.overview, summarySecPerWord) / 1000
-              : m.backdropImgs.length * imageSec;
+            : m.type === "country" && m.questionType === "map"
+              ? mapSec
+              : m.type === "country" && m.questionType === "leader"
+                ? leaderSec
+                : m.type === "statesman"
+                  ? statesmanSec
+                  : m.questionType === "summary"
+                    ? m.type === "director"
+                      ? m.overviews.reduce(
+                          (sum, ov) =>
+                            sum +
+                            summaryDurationMs(ov, summarySecPerWord) / 1000,
+                          0,
+                        )
+                      : summaryDurationMs(m.overview, summarySecPerWord) / 1000
+                    : m.backdropImgs.length * imageSec;
         m.guessAudioBuffer = applyGuessingVolumeAndFadeOut(
           loopBufferToDuration(guessingSrc, guessDurSec),
         );
@@ -206,7 +285,10 @@ async function generateQuiz(daily = false) {
       revealSec * 1000,
       CFG.splashMs,
       flagSec * 1000,
+      mapSec * 1000,
       summarySecPerWord,
+      leaderSec * 1000,
+      statesmanSec * 1000,
     );
     state.timeline = built.timeline;
     state.totalDurationMs = built.total;
@@ -225,6 +307,7 @@ async function generateQuiz(daily = false) {
         "err",
       );
     }
+    setPhase("render");
     setProgress(0);
 
     // renderFast() attache déjà son <video> dès le début du rendu et
@@ -235,7 +318,7 @@ async function generateQuiz(daily = false) {
     // rapide, sinon ça détruit le <video> en cours de lecture que
     // renderFast() vient de reprendre après le rendu.
     const { blob, ext } = supportsFastEncode
-      ? await renderFast()
+      ? await renderFast({ onPreviewReady: signalPreviewReady })
       : await renderRealtime();
 
     if (!supportsFastEncode) {
@@ -244,6 +327,9 @@ async function generateQuiz(daily = false) {
       video.src = URL.createObjectURL(blob);
       video.controls = true;
       stage.appendChild(video);
+      // le repli temps réel ne produit son blob qu'à la toute fin : il n'y
+      // a pas d'aperçu anticipé possible, la vidéo devient jouable ici
+      celebrate();
     }
 
     downloadLink.href = URL.createObjectURL(blob);
@@ -253,11 +339,13 @@ async function generateQuiz(daily = false) {
       "Vidéo générée — prête à être visionnée (plein écran natif du lecteur).",
     );
     setProgress(100);
+    completePhases();
     refreshStats();
   } catch (e) {
     console.error(e);
     setStatus("Erreur : " + e.message, "err");
     setStagePlaceholder("Erreur pendant la génération.");
+    haltPhases();
   } finally {
     btnGenerate.disabled = false;
     btnGenerateDaily.disabled = false;
@@ -321,6 +409,44 @@ flagSecNumber.addEventListener("input", () => {
   updateDurationHint();
   saveSettings();
 });
+mapSecRange.addEventListener("input", () => {
+  mapSecNumber.value = mapSecRange.value;
+  updateDurationHint();
+  saveSettings();
+});
+mapSecNumber.addEventListener("input", () => {
+  mapSecRange.value = mapSecNumber.value;
+  updateDurationHint();
+  saveSettings();
+});
+leaderSecRange.addEventListener("input", () => {
+  leaderSecNumber.value = leaderSecRange.value;
+  updateDurationHint();
+  saveSettings();
+});
+leaderSecNumber.addEventListener("input", () => {
+  leaderSecRange.value = leaderSecNumber.value;
+  updateDurationHint();
+  saveSettings();
+});
+showLeaderNameCheckbox.addEventListener("change", () => {
+  state.showLeaderName = showLeaderNameCheckbox.checked;
+  saveSettings();
+});
+statesmanSecRange.addEventListener("input", () => {
+  statesmanSecNumber.value = statesmanSecRange.value;
+  updateDurationHint();
+  saveSettings();
+});
+statesmanSecNumber.addEventListener("input", () => {
+  statesmanSecRange.value = statesmanSecNumber.value;
+  updateDurationHint();
+  saveSettings();
+});
+showCountryNameCheckbox.addEventListener("change", () => {
+  state.showCountryName = showCountryNameCheckbox.checked;
+  saveSettings();
+});
 summaryPerItemRange.addEventListener("input", () => {
   summaryPerItemNumber.value = summaryPerItemRange.value;
   updateDurationHint();
@@ -331,12 +457,25 @@ summaryPerItemNumber.addEventListener("input", () => {
   updateDurationHint();
   saveSettings();
 });
+maxSummaryLenRange.addEventListener("input", () => {
+  maxSummaryLenNumber.value = maxSummaryLenRange.value;
+  saveSettings();
+});
+maxSummaryLenNumber.addEventListener("input", () => {
+  maxSummaryLenRange.value = maxSummaryLenNumber.value;
+  saveSettings();
+});
 filterSearch.addEventListener("input", () => {
   state.filterSearch = filterSearch.value;
   renderChips();
 });
 
-btnGenerate.addEventListener("click", () => generateQuiz(false));
+// le bouton vit dans la barre d'action fixe en bas : l'écran de rendu
+// peut très bien être hors champ au moment du clic, on l'y ramène
+btnGenerate.addEventListener("click", () => {
+  stage.scrollIntoView({ behavior: "smooth", block: "start" });
+  generateQuiz(false);
+});
 function startDailyQuiz() {
   stage.scrollIntoView({ behavior: "smooth", block: "start" });
   generateQuiz(true);
@@ -350,17 +489,78 @@ btnGenerateDailyFloat.addEventListener("click", startDailyQuiz);
 new IntersectionObserver(([entry]) => {
   btnGenerateDailyFloat.classList.toggle("show", !entry.isIntersecting);
 }).observe(btnGenerateDaily);
+// mot ajouté à la recherche web d'une réponse, quand le titre seul est trop
+// ambigu pour tomber sur la bonne fiche ("Ambre" vs "Ambre pokémon"). Vide
+// pour les types dont le titre se suffit : nom de personne, titre d'article
+// Wikipédia, ou morceau déjà préfixé de son artiste (voir db/refresh/music.js).
+const SEARCH_HINT = {
+  movie: "film",
+  tv: "série",
+  game: "jeu vidéo",
+  country: "pays",
+  painter: "peintre",
+  director: "réalisateur",
+  actor: "acteur",
+  pokemon: "pokémon",
+  superhero: "super-héros",
+};
+
+function answerSearchUrl(item) {
+  const q = [item.title, SEARCH_HINT[item.type]].filter(Boolean).join(" ");
+  return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+}
+
+// construit en DOM plutôt qu'en innerHTML : les titres viennent de sources
+// externes (TMDb/Wikipédia/…), textContent évite d'avoir à les échapper
+function buildAnswerRow(item, index) {
+  const row = document.createElement("a");
+  row.className = "answer-row";
+  row.href = answerSearchUrl(item);
+  row.target = "_blank";
+  row.rel = "noopener noreferrer";
+  row.title = `Chercher « ${item.title} » sur le web`;
+
+  const num = document.createElement("span");
+  num.className = "answer-num";
+  num.textContent = `${index + 1}.`;
+
+  // state.items sort de preloadAll, pas de /api/quiz-batch : il n'y a pas
+  // d'URL dedans, mais posterImg — l'image déjà décodée qui a servi à
+  // l'écran de réponse. On la clone (plutôt que de recréer une <img> depuis
+  // son .src) pour garder son crossOrigin et donc taper la même entrée de
+  // cache, sans requête supplémentaire.
+  const thumb = item.posterImg.cloneNode();
+  thumb.className = "answer-thumb";
+  thumb.alt = "";
+
+  const title = document.createElement("span");
+  title.className = "answer-title";
+  title.textContent = item.title;
+
+  // ce qu'on devinait, dans les mots de l'étape "Quoi deviner" (en-tête du
+  // groupe de chips) : la forme de la question (photo/résumé/…) se lit déjà
+  // sur la vignette, c'est le type qui manquait.
+  const mode = document.createElement("span");
+  mode.className = "answer-mode";
+  mode.textContent = TYPE_BASE_LABELS[item.type] || item.type;
+
+  const go = document.createElement("span");
+  go.className = "answer-go";
+  go.textContent = "↗";
+
+  row.append(num, thumb, title, mode, go);
+  return row;
+}
+
 btnToggleAnswers.addEventListener("click", () => {
   state.answersRevealed = !state.answersRevealed;
   if (state.answersRevealed) {
-    answersEl.innerHTML = state.items
-      .map((m, i) => `<span>${i + 1}. ${m.title}</span>`)
-      .join("<br>");
+    answersEl.replaceChildren(...state.items.map(buildAnswerRow));
     answersEl.classList.add("show");
-    btnToggleAnswers.textContent = "Masquer la liste des titres";
+    btnToggleAnswers.textContent = "Masquer la liste des réponses";
   } else {
     answersEl.classList.remove("show");
-    btnToggleAnswers.textContent = "Voir la liste des titres";
+    btnToggleAnswers.textContent = "Voir la liste des réponses";
   }
 });
 

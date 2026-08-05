@@ -62,6 +62,10 @@ export const TYPE_BASE_LABELS = {
   game: "🎮 Jeux vidéo",
   music: "🎵 Musique",
   country: "🌍 Pays",
+  // sens inverse de country:leader — on y devine un chef d'État (une
+  // personne), indice = pays (drapeau + nom), voir materializeStatesmanRows
+  // côté serveur.
+  statesman: "🏛️ Chefs d'État",
   painter: "🎨 Peintres",
   director: "🎥 Réalisateurs",
   // deviner l'acteur à partir des affiches/résumés de SES films (movie_cast)
@@ -95,6 +99,15 @@ export const QUESTION_TYPE_DETAILS = {
   summary: { icon: "📖", label: "Résumé" },
   flag: { icon: "🚩", label: "Drapeau" },
   audio: { icon: "🎧", label: "Extrait audio" },
+  map: { icon: "🗺️", label: "Carte" },
+  // indice = portrait du chef d'État, réponse = le pays (type "country").
+  leader: { icon: "🏛️", label: "Chef d'État" },
+  // indice = drapeau + nom du pays, réponse = le chef d'État — type
+  // "statesman" à part (TYPE_BASE_LABELS ci-dessus le nomme déjà "Chefs
+  // d'État", donc ce libellé de chip décrit l'INDICE, comme flag/map/leader,
+  // pas de collision possible avec "leader" puisqu'ils vivent dans deux
+  // boîtes de type différentes désormais.
+  statesman: { icon: "🚩", label: "Drapeau" },
 };
 
 // surcharge de libellé pour certains (type, questionType) où le mot
@@ -107,6 +120,7 @@ export const QUESTION_TYPE_DETAILS = {
 const QUESTION_TYPE_LABEL_OVERRIDES = {
   painter: { image: "Tableau" },
   director: { image: "Filmographie", summary: "Filmographie" },
+  actor: { image: "Filmographie", summary: "Filmographie" },
   pokemon: { audio: "Cri" },
 };
 

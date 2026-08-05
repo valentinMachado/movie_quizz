@@ -19,6 +19,7 @@ import {
   drawSideThumbnails,
 } from "./chrome.js";
 import { drawSplash } from "./splash.js";
+import { WORLD_BBOX } from "./map.js";
 
 // libellé "type + questionType" d'un item (même format que
 // splashTypeLabels), affiché en coin de l'écran de devinette pour
@@ -167,6 +168,291 @@ function drawGuess(m, seg, withinMs) {
   });
   drawFrameBorder();
 }
+// questionType "map" (country, voir render/map.js) : zoom continu depuis
+// la vue "monde" (WORLD_BBOX) jusqu'à la bbox du pays cible, rendu 100%
+// vectoriel (polygones remplis, aucune image ni texte) — le pays cible est
+// surligné, jamais un point isolé, donc jamais "dans l'eau" (voir
+// render/map.js pour pourquoi cette version a remplacé les tuiles OSM).
+// Écran réponse : drawFlagReveal (réutilisé tel quel, pas de fonction
+// dédiée) — drapeau + capitale.
+// marge autour du pays cible, en fraction de sa largeur/hauteur — plus
+// grand = zoom max moins serré (davantage de contexte visible autour du
+// pays une fois arrivé).
+const MAP_TARGET_MARGIN = 0.9;
+// le zoom se termine à cette fraction de seg.dur — le reste est une pause
+// sur la vue stabilisée, le temps de faire "briller" le pays trouvé (voir
+// glowT dans drawMapGuess) plutôt que d'enchaîner tout de suite sur la
+// réponse.
+const MAP_ZOOM_FRACTION = 0.55;
+const MAP_GLOW_FADE_MS = 500;
+// cyan/violet alternés pour les AUTRES pays (mêmes teintes que le reste du
+// site, voir chrome.js) — un seul ton plat les rendait indistincts les uns
+// des autres ; le jaune/ambre est réservé au pays cible (voir
+// MAP_TARGET_FILL) pour rester le seul repère de contraste.
+const MAP_LAND_FILLS = ["rgba(79,209,232,0.16)", "rgba(157,92,230,0.16)"];
+const MAP_LAND_STROKE = "rgba(233,228,222,0.22)";
+const MAP_TARGET_FILL_LIGHT = "#f5c26b";
+const MAP_TARGET_FILL = "#e8a33d";
+const MAP_TARGET_STROKE = "#ede8de";
+const MAP_TARGET_SHADOW = "rgba(232,163,61,0.85)";
+
+function mapLandAlpha(glowT) {
+  // légèrement plus discret une fois le zoom terminé (glowT > 0) : accentue
+  // le contraste avec le pays cible qui, lui, s'éclaire à ce moment-là.
+  return lerp(1, 0.55, glowT);
+}
+
+function mapTargetGradient(x0, y0, x1, y1) {
+  const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+  grad.addColorStop(0, MAP_TARGET_FILL_LIGHT);
+  grad.addColorStop(1, MAP_TARGET_FILL);
+  return grad;
+}
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function lerpBBox(a, b, t) {
+  return [
+    lerp(a[0], b[0], t),
+    lerp(a[1], b[1], t),
+    lerp(a[2], b[2], t),
+    lerp(a[3], b[3], t),
+  ];
+}
+
+// évite une bbox de largeur/hauteur nulle (pays réduit à un point à cette
+// résolution) avant d'y ajouter une marge.
+function paddedBBox(bbox, marginRatio) {
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+  const w = maxLon - minLon || 1;
+  const h = maxLat - minLat || 1;
+  const mx = w * marginRatio,
+    my = h * marginRatio;
+  return [minLon - mx, minLat - my, maxLon + mx, maxLat + my];
+}
+
+// projection équirectangulaire simple, recalculée à chaque frame depuis la
+// bbox de vue COURANTE (interpolée, voir drawMapGuess) — "contain" (le plus
+// PETIT des deux ratios) : garantit que tout le pays reste visible, quitte
+// à laisser une bande vide sur les côtés. Essayé "cover" (le plus grand des
+// deux) d'abord : pour un pays très haut/étroit (Chili, Vietnam, Norvège),
+// l'échelle verticale explosait et rognait l'essentiel du pays hors-champ.
+function projectLonLat(lon, lat, viewBBox, imgX, imgY, imgW, imgH) {
+  const [minLon, minLat, maxLon, maxLat] = viewBBox;
+  const vw = maxLon - minLon,
+    vh = maxLat - minLat;
+  const scale = Math.min(imgW / vw, imgH / vh);
+  const drawW = vw * scale,
+    drawH = vh * scale;
+  const offsetX = imgX + (imgW - drawW) / 2,
+    offsetY = imgY + (imgH - drawH) / 2;
+  return [
+    offsetX + (lon - minLon) * scale,
+    offsetY + (maxLat - lat) * scale, // nord en haut
+  ];
+}
+
+// dessine une liste de pays (chacun un tableau de polygones, chacun un
+// tableau d'anneaux) en un seul chemin — "evenodd" gère nativement les
+// trous (2e anneau et suivants) sans avoir à connaître leur sens de
+// parcours, peu fiable dans un jeu de données vectorielles quelconque.
+function drawCountryPolygons(
+  countriesList,
+  viewBBox,
+  imgX,
+  imgY,
+  imgW,
+  imgH,
+  fillStyle,
+  strokeStyle,
+) {
+  ctx.beginPath();
+  for (const polygons of countriesList) {
+    for (const rings of polygons) {
+      for (const ring of rings) {
+        ring.forEach(([lon, lat], i) => {
+          const [x, y] = projectLonLat(
+            lon,
+            lat,
+            viewBBox,
+            imgX,
+            imgY,
+            imgW,
+            imgH,
+          );
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+      }
+    }
+  }
+  if (fillStyle) {
+    ctx.fillStyle = fillStyle;
+    ctx.fill("evenodd");
+  }
+  if (strokeStyle) {
+    ctx.strokeStyle = strokeStyle;
+    ctx.stroke();
+  }
+}
+
+// mêmes pays que drawCountryPolygons, mais un remplissage PAR PAYS (cyan/
+// violet alternés, voir MAP_LAND_FILLS) plutôt qu'une seule teinte plate
+// pour tous — sinon les "autres pays" se fondent en une masse uniforme,
+// aucun repère visuel entre eux pendant le zoom.
+function drawCountriesVaried(
+  countriesList,
+  viewBBox,
+  imgX,
+  imgY,
+  imgW,
+  imgH,
+  fills,
+  strokeStyle,
+) {
+  countriesList.forEach((polygons, i) => {
+    drawCountryPolygons(
+      [polygons],
+      viewBBox,
+      imgX,
+      imgY,
+      imgW,
+      imgH,
+      fills[i % fills.length],
+      strokeStyle,
+    );
+  });
+}
+
+function drawMapGuess(m, seg, withinMs) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#151220";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const pad = 22 * RS;
+  const imgX = pad,
+    imgY = pad,
+    imgW = canvas.width - pad * 2,
+    imgH = canvas.height - pad * 2,
+    radius = 16 * RS;
+
+  const zoomDur = seg.dur * MAP_ZOOM_FRACTION;
+  const t = Math.min(1, withinMs / zoomDur);
+  const eased = easeInOutCubic(t);
+  const targetBBox = paddedBBox(m.mapTarget.bbox, MAP_TARGET_MARGIN);
+  const viewBBox = lerpBBox(WORLD_BBOX, targetBBox, eased);
+
+  // 0 pendant tout le zoom, monte à 1 en fondu une fois la vue stabilisée
+  // (pause finale) : pilote le halo + l'éclat du pays trouvé.
+  const glowT = Math.max(
+    0,
+    Math.min(1, (withinMs - zoomDur) / MAP_GLOW_FADE_MS),
+  );
+
+  ctx.save();
+  roundedRectPath(imgX, imgY, imgW, imgH, radius);
+  ctx.clip();
+  ctx.save();
+  ctx.globalAlpha = mapLandAlpha(glowT);
+  drawCountriesVaried(
+    m.mapOthers,
+    viewBBox,
+    imgX,
+    imgY,
+    imgW,
+    imgH,
+    MAP_LAND_FILLS,
+    MAP_LAND_STROKE,
+  );
+  ctx.restore();
+
+  // halo derrière le pays cible (sous son propre remplissage) : invisible
+  // pendant le zoom, apparaît en fondu une fois la vue arrêtée dessus.
+  if (glowT > 0) {
+    const [bMinLon, bMinLat, bMaxLon, bMaxLat] = m.mapTarget.bbox;
+    const [ccx, ccy] = projectLonLat(
+      (bMinLon + bMaxLon) / 2,
+      (bMinLat + bMaxLat) / 2,
+      viewBBox,
+      imgX,
+      imgY,
+      imgW,
+      imgH,
+    );
+    ctx.save();
+    ctx.globalAlpha = glowT;
+    drawGlowBurst(ccx, ccy, withinMs, 340);
+    ctx.restore();
+  }
+
+  const [tx0, ty0] = projectLonLat(
+    targetBBox[0],
+    targetBBox[1],
+    viewBBox,
+    imgX,
+    imgY,
+    imgW,
+    imgH,
+  );
+  const [tx1, ty1] = projectLonLat(
+    targetBBox[2],
+    targetBBox[3],
+    viewBBox,
+    imgX,
+    imgY,
+    imgW,
+    imgH,
+  );
+  ctx.save();
+  // éclat collé à la forme du pays (en plus du halo ci-dessus) : grossit
+  // une fois le zoom terminé, pour qu'il ressorte nettement des autres.
+  ctx.shadowColor = MAP_TARGET_SHADOW;
+  ctx.shadowBlur = (6 + glowT * 26) * RS;
+  drawCountryPolygons(
+    [m.mapTarget.polygons],
+    viewBBox,
+    imgX,
+    imgY,
+    imgW,
+    imgH,
+    mapTargetGradient(tx0, ty0, tx1, ty1),
+    MAP_TARGET_STROKE,
+  );
+  ctx.restore();
+  ctx.restore();
+
+  ctx.save();
+  roundedRectPath(imgX, imgY, imgW, imgH, radius);
+  ctx.lineWidth = 2.5 * RS;
+  ctx.strokeStyle = "rgba(157,92,230,0.5)";
+  ctx.stroke();
+  ctx.restore();
+
+  drawGameProgress(withinMs / seg.dur, canvas.width);
+
+  drawBadge(
+    `N° ${seg.itemIdx + 1} / ${state.items.length}`,
+    50 * RS,
+    canvas.height - 58 * RS,
+  );
+  drawBadge(
+    questionTypeLabel(m),
+    canvas.width - 50 * RS,
+    canvas.height - 58 * RS,
+    {
+      align: "right",
+    },
+  );
+  drawFrameBorder();
+}
+
 function drawReveal(m, itemIdx, withinMs) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGameBackdrop();
@@ -342,8 +628,10 @@ function drawMusicReveal(m, itemIdx, withinMs) {
 
 // drapeau centré, coins arrondis + halo, identique en devinette et en
 // réponse (contrairement aux autres types) : c'est le principe même de
-// cette catégorie, voir fetchFlagCategory côté serveur
-function drawFlagBox(m, withinMs) {
+// cette catégorie, voir fetchFlagCategory côté serveur. `img` explicite
+// (pas juste m.posterImg) : réutilisé par drawLeaderReveal avec m.flagImg,
+// distinct du portrait affiché en devinette pour ce mode.
+function drawFlagBox(img, withinMs) {
   const boxW = 420 * RS,
     boxH = 300 * RS;
   const cx = canvas.width / 2;
@@ -351,8 +639,8 @@ function drawFlagBox(m, withinMs) {
 
   drawGlowBurst(cx, cy, withinMs, 300);
 
-  if (m.posterImg) {
-    const ir = m.posterImg.width / m.posterImg.height;
+  if (img) {
+    const ir = img.width / img.height;
     let dw, dh;
     if (ir > boxW / boxH) {
       dw = boxW;
@@ -363,7 +651,7 @@ function drawFlagBox(m, withinMs) {
     }
     const dx = cx - dw / 2;
     const dy = cy - dh / 2;
-    drawFramedImage(m.posterImg, dx, dy, dw, dh, 12 * RS);
+    drawFramedImage(img, dx, dy, dw, dh, 12 * RS);
   }
 }
 
@@ -372,7 +660,7 @@ function drawFlagGuess(m, seg, withinMs) {
   drawGameBackdrop();
   drawGameParticles(withinMs);
 
-  drawFlagBox(m, withinMs);
+  drawFlagBox(m.posterImg, withinMs);
 
   drawGameProgress(withinMs / seg.dur, canvas.width);
 
@@ -395,7 +683,7 @@ function drawFlagReveal(m, itemIdx, withinMs) {
   drawGameBackdrop();
   drawGameParticles(withinMs);
 
-  drawFlagBox(m, withinMs);
+  drawFlagBox(m.posterImg, withinMs);
 
   drawRevealBanner(canvas.width / 2, 62 * RS);
 
@@ -412,6 +700,188 @@ function drawFlagReveal(m, itemIdx, withinMs) {
     canvas.width / 2,
     canvas.height - 55 * RS,
   );
+  ctx.restore();
+
+  drawBadge(
+    `N° ${itemIdx + 1} / ${state.items.length}`,
+    50 * RS,
+    canvas.height - 58 * RS,
+  );
+  if (m.reason) {
+    drawBadge(m.reason, canvas.width - 50 * RS, canvas.height - 58 * RS, {
+      align: "right",
+    });
+    if (m.isAnniversary)
+      drawAnniversaryCake(canvas.width - 50 * RS, canvas.height - 58 * RS);
+  }
+  drawFrameBorder();
+}
+
+// portrait du chef d'État centré (ratio ~3:4, contrairement au ratio large
+// du drapeau) — `img` explicite (pas juste m.posterImg, voir drawFlagBox
+// pour la même raison) : réutilisé par drawLeaderGuess (m.posterImg, le
+// chef d'État est l'indice) ET drawStatesmanReveal (m.leaderPortraitImg, le
+// chef d'État est cette fois la réponse).
+function drawLeaderBox(img, withinMs) {
+  const boxW = 300 * RS,
+    boxH = 400 * RS;
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2 - 10 * RS;
+
+  drawGlowBurst(cx, cy, withinMs, 300);
+
+  if (img) {
+    const ir = img.width / img.height;
+    let dw, dh;
+    if (ir > boxW / boxH) {
+      dw = boxW;
+      dh = boxW / ir;
+    } else {
+      dh = boxH;
+      dw = boxH * ir;
+    }
+    const dx = cx - dw / 2;
+    const dy = cy - dh / 2;
+    drawFramedImage(img, dx, dy, dw, dh, 12 * RS);
+  }
+}
+
+function drawLeaderGuess(m, seg, withinMs) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGameBackdrop();
+  drawGameParticles(withinMs);
+
+  drawLeaderBox(m.posterImg, withinMs);
+
+  // case "Afficher le nom" (voir settings.js/index.html) : gouverne
+  // uniquement cette légende pendant la devinette — le reveal, lui, montre
+  // toujours m.leaderName (voir drawLeaderReveal).
+  if (m.showLeaderName && m.leaderName) {
+    ctx.save();
+    ctx.font = gameFont(600, 24);
+    ctx.fillStyle = "#ede8de";
+    ctx.textAlign = "center";
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 8 * RS;
+    ctx.fillText(m.leaderName, canvas.width / 2, canvas.height - 55 * RS);
+    ctx.restore();
+  }
+
+  drawGameProgress(withinMs / seg.dur, canvas.width);
+
+  drawBadge(
+    `N° ${seg.itemIdx + 1} / ${state.items.length}`,
+    50 * RS,
+    canvas.height - 58 * RS,
+  );
+  drawBadge(
+    questionTypeLabel(m),
+    canvas.width - 50 * RS,
+    canvas.height - 58 * RS,
+    { align: "right" },
+  );
+  drawFrameBorder();
+}
+
+function drawLeaderReveal(m, itemIdx, withinMs) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGameBackdrop();
+  drawGameParticles(withinMs);
+
+  // écran réponse "classique pays" : le drapeau (m.flagImg), pas le
+  // portrait affiché en devinette (voir drawLeaderGuess/drawFlagBox).
+  drawFlagBox(m.flagImg, withinMs);
+
+  drawRevealBanner(canvas.width / 2, 62 * RS);
+
+  ctx.save();
+  ctx.font = gameFont(700, 32);
+  ctx.fillStyle = "#ede8de";
+  ctx.textAlign = "center";
+  ctx.fillText(m.title, canvas.width / 2, canvas.height - 86 * RS);
+
+  ctx.font = gameFont(600, 24);
+  ctx.fillStyle = "#e8a33d";
+  ctx.fillText(
+    `Chef d'État : ${m.leaderName}`,
+    canvas.width / 2,
+    canvas.height - 55 * RS,
+  );
+  ctx.restore();
+
+  drawBadge(
+    `N° ${itemIdx + 1} / ${state.items.length}`,
+    50 * RS,
+    canvas.height - 58 * RS,
+  );
+  if (m.reason) {
+    drawBadge(m.reason, canvas.width - 50 * RS, canvas.height - 58 * RS, {
+      align: "right",
+    });
+    if (m.isAnniversary)
+      drawAnniversaryCake(canvas.width - 50 * RS, canvas.height - 58 * RS);
+  }
+  drawFrameBorder();
+}
+
+// sens inverse de "leader" : indice = drapeau + nom du pays (m.posterImg,
+// même drapeau que flag/map), réponse = le chef d'État (m.title) — reveal :
+// son portrait (m.leaderPortraitImg) + son intitulé (m.leaderTitle, si
+// connu, voir countryLeaderFromDump).
+function drawStatesmanGuess(m, seg, withinMs) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGameBackdrop();
+  drawGameParticles(withinMs);
+
+  drawFlagBox(m.posterImg, withinMs);
+
+  if (m.showCountryName && m.countryName) {
+    ctx.save();
+    ctx.font = gameFont(600, 24);
+    ctx.fillStyle = "#ede8de";
+    ctx.textAlign = "center";
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 8 * RS;
+    ctx.fillText(m.countryName, canvas.width / 2, canvas.height - 55 * RS);
+    ctx.restore();
+  }
+
+  drawGameProgress(withinMs / seg.dur, canvas.width);
+
+  drawBadge(
+    `N° ${seg.itemIdx + 1} / ${state.items.length}`,
+    50 * RS,
+    canvas.height - 58 * RS,
+  );
+  drawBadge(
+    questionTypeLabel(m),
+    canvas.width - 50 * RS,
+    canvas.height - 58 * RS,
+    { align: "right" },
+  );
+  drawFrameBorder();
+}
+
+function drawStatesmanReveal(m, itemIdx, withinMs) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGameBackdrop();
+  drawGameParticles(withinMs);
+
+  drawLeaderBox(m.leaderPortraitImg, withinMs);
+
+  drawRevealBanner(canvas.width / 2, 62 * RS);
+
+  ctx.save();
+  ctx.font = gameFont(700, 32);
+  ctx.fillStyle = "#ede8de";
+  ctx.textAlign = "center";
+  ctx.fillText(m.title, canvas.width / 2, canvas.height - 86 * RS);
+
+  if (m.leaderTitle) {
+    ctx.font = gameFont(600, 24);
+    ctx.fillStyle = "#e8a33d";
+    ctx.fillText(m.leaderTitle, canvas.width / 2, canvas.height - 55 * RS);
+  }
   ctx.restore();
 
   drawBadge(
@@ -492,7 +962,8 @@ function drawSummaryGuess(m, seg, withinMs) {
     // (shadowBlur). Décalage constant, sans incidence sur la dernière
     // ligne (qui reste dans la zone visible à p=1, voir zoneH).
     const ascentPad =
-      (ctx.measureText(lines[0]).actualBoundingBoxAscent || lineHeight * 0.8) + 6 * RS;
+      (ctx.measureText(lines[0]).actualBoundingBoxAscent || lineHeight * 0.8) +
+      6 * RS;
     startY = topMargin + ascentPad - scrollRange * p;
     ctx.beginPath();
     ctx.rect(0, topMargin, canvas.width, zoneH);
@@ -542,6 +1013,13 @@ export function drawSegment(seg, withinMs) {
     drawMusicReveal(m, seg.itemIdx, withinMs);
   else if (seg.type === "flag-guess") drawFlagGuess(m, seg, withinMs);
   else if (seg.type === "flag-reveal") drawFlagReveal(m, seg.itemIdx, withinMs);
+  else if (seg.type === "leader-guess") drawLeaderGuess(m, seg, withinMs);
+  else if (seg.type === "leader-reveal")
+    drawLeaderReveal(m, seg.itemIdx, withinMs);
+  else if (seg.type === "statesman-guess") drawStatesmanGuess(m, seg, withinMs);
+  else if (seg.type === "statesman-reveal")
+    drawStatesmanReveal(m, seg.itemIdx, withinMs);
+  else if (seg.type === "map-guess") drawMapGuess(m, seg, withinMs);
   else if (seg.type === "summary-guess") drawSummaryGuess(m, seg, withinMs);
   else drawReveal(m, seg.itemIdx, withinMs);
 }

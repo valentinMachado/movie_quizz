@@ -318,7 +318,7 @@ function wikidataSitelinksSparql(qids) {
 // clause VALUES) — via wikidataQuery, déjà sérialisé/retry (voir plus haut).
 // Générique sur n'importe quel QID (peintre, politicien...), pas seulement
 // des créateurs de peintures — voir fetchPersonRoleEntities.
-async function fetchWikidataSitelinks(qids) {
+export async function fetchWikidataSitelinks(qids) {
   const sitelinks = new Map();
   for (let i = 0; i < qids.length; i += 300) {
     const batch = qids.slice(i, i + 300);
@@ -381,6 +381,59 @@ async function fetchBirthDates(qids) {
     }
   }
   return dates;
+}
+
+// sexe/genre (P21) — deux usages : désambiguïser les libellés d'occupation/
+// poste ci-dessous (specificOccupation/positionHeld, voir degenderLabel),
+// ET alimenter le filtre "gender" (person/painter/statesman, voir
+// syncGenderFilters dans util.js). Seuls Q6581097 (masculin) et Q6581072
+// (féminin) sont reconnus précisément ; toute autre valeur EXPLICITE (non-
+// binaire, intersexe...) devient "non_binary" — un P21 absent reste `null`
+// (jamais confondu avec un P21 non-binaire explicite).
+function wikidataGendersSparql(qids) {
+  const values = qids.map((qid) => `wd:${qid}`).join(" ");
+  return (
+    "SELECT ?item ?gender WHERE { " +
+    `VALUES ?item { ${values} } ` +
+    "?item wdt:P21 ?gender. " +
+    "}"
+  );
+}
+
+export async function fetchGenders(qids) {
+  const genders = new Map(); // qid -> "male" | "female" | "non_binary"
+  for (let i = 0; i < qids.length; i += 300) {
+    const batch = qids.slice(i, i + 300);
+    try {
+      const data = await wikidataQuery(
+        `https://query.wikidata.org/sparql?query=${encodeURIComponent(wikidataGendersSparql(batch))}`,
+      );
+      for (const b of data.results?.bindings || []) {
+        const qid = b.item?.value?.split("/").pop();
+        const genderQid = b.gender?.value?.split("/").pop();
+        if (!qid || !genderQid || genders.has(qid)) continue;
+        if (genderQid === "Q6581097") genders.set(qid, "male");
+        else if (genderQid === "Q6581072") genders.set(qid, "female");
+        else genders.set(qid, "non_binary");
+      }
+    } catch (e) {
+      logWarn("Erreur genre Wikidata:", e.message);
+    }
+  }
+  return genders;
+}
+
+// "acteur ou actrice" -> "actrice"/"acteur" selon `gender` — coupe sur le
+// PREMIER " ou " seulement (un libellé sans double genre, ex. "romancier",
+// n'en contient jamais et ressort inchangé). `gender` absent/non reconnu :
+// garde la forme masculine (1re moitié), déjà la forme utilisée telle
+// quelle avant ce correctif — jamais une régression, seulement une
+// amélioration quand le genre est connu.
+function degenderLabel(label, gender) {
+  if (!label) return label;
+  const i = label.indexOf(" ou ");
+  if (i === -1) return label;
+  return gender === "female" ? label.slice(i + 4) : label.slice(0, i);
 }
 
 // tous les tableaux d'UN peintre (appelé uniquement par le warmLoop
@@ -679,6 +732,7 @@ export async function fetchPersonRoleEntities(role) {
   };
   const positions = await fetchPositionsHeld(qids);
   const specificOccupations = await fetchSpecificOccupations(qids, role.occupationQid);
+  const genders = await fetchGenders(qids);
   // P569, jour connu uniquement (voir fetchBirthDates) — homogénéise le pool
   // "person" en donnant à tout rôle Wikidata (politicien, athlète, peintre,
   // un futur rôle...) une chance d'apparaître dans le quiz du jour comme un
@@ -701,10 +755,12 @@ export async function fetchPersonRoleEntities(role) {
       portraitImageUrl: portraitThumbUrl,
       popularity: notorietyOf(qid),
       summary: frTitle ? (extractsByTitle.get(frTitle) ?? null) : null,
-      positionHeld: positions.get(qid) ?? null,
-      specificOccupation: specificOccupations.get(qid) ?? null,
+      positionHeld: degenderLabel(positions.get(qid), genders.get(qid)) ?? null,
+      specificOccupation:
+        degenderLabel(specificOccupations.get(qid), genders.get(qid)) ?? null,
       nationality: DEMONYMS[geoCode] ?? null,
       wikiTitle: frTitle || null,
+      gender: genders.get(qid) ?? null,
     });
     // placeOfBirth non résolu ici (P27 = citoyenneté, pas P19 = lieu de
     // naissance) — null, biography aussi null : jamais écrasés grâce au

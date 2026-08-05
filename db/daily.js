@@ -53,6 +53,22 @@ export function getMusicTracksByReleaseMonthDay(month, day) {
 // de rôle attaché (`role`) — voulu, pour que dailyPersonAnniversaryBucket
 // (voir server.js) puisse retenir 1 anniversaire par rôle plutôt qu'un seul
 // toutes personnes confondues.
+// wiki_article (catégorie "histoire" uniquement — voir
+// fetchEventDates/storeWikiArticleEventDates dans refresh/wikipedia.js) : pas
+// de rôle contrairement à getPersonsByBirthMonthDay, un article n'a qu'une
+// seule date d'événement possible.
+export function getWikiArticlesByEventMonthDay(month, day) {
+  return db
+    .prepare(
+      `SELECT t.* FROM wiki_article t
+       JOIN type_item ti ON ti.entity_id = t.id AND ti.type = 'wiki_article'
+       WHERE t.event_date IS NOT NULL
+         AND substr(t.event_date, 6, 2) = ?
+         AND substr(t.event_date, 9, 2) = ?`,
+    )
+    .all(month, day);
+}
+
 export function getPersonsByBirthMonthDay(type, month, day) {
   return db
     .prepare(

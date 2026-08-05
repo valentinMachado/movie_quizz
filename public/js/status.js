@@ -4,6 +4,9 @@ import {
   statsLine,
   statusEl,
   progressBar,
+  progressPct,
+  phasesEl,
+  phaseEls,
 } from "./dom.js";
 
 export async function refreshStats() {
@@ -32,4 +35,41 @@ export function setStatus(text, cls) {
 }
 export function setProgress(pct) {
   progressBar.style.width = pct + "%";
+  progressPct.textContent = Math.round(pct) + " %";
+}
+
+// jalons de génération. La barre de progression seule balaie 0→100 deux
+// fois (préchargement puis encodage, voir preload.js/encode.js) : sans ces
+// trois repères, impossible de savoir laquelle des deux passes est en
+// cours. L'ordre ci-dessous est celui de generateQuiz (main.js).
+const PHASE_ORDER = ["fetch", "preload", "render"];
+
+export function resetPhases() {
+  phasesEl.classList.add("show");
+  for (const key of PHASE_ORDER) {
+    phaseEls[key].classList.remove("active", "done");
+  }
+  progressPct.textContent = "";
+}
+
+export function setPhase(key) {
+  const idx = PHASE_ORDER.indexOf(key);
+  PHASE_ORDER.forEach((k, i) => {
+    phaseEls[k].classList.toggle("done", i < idx);
+    phaseEls[k].classList.toggle("active", i === idx);
+  });
+}
+
+// génération interrompue : on fige le jalon en cours plutôt que de le
+// laisser pulser indéfiniment, tout en gardant visible où ça s'est arrêté
+export function haltPhases() {
+  for (const key of PHASE_ORDER) phaseEls[key].classList.remove("active");
+}
+
+// fin de parcours : tout coché, plus rien d'"actif" qui clignote
+export function completePhases() {
+  for (const key of PHASE_ORDER) {
+    phaseEls[key].classList.remove("active");
+    phaseEls[key].classList.add("done");
+  }
 }

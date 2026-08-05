@@ -22,6 +22,9 @@ import {
   chipsAudioSpeed,
   groupAudioParams,
   groupFlagParams,
+  groupMapParams,
+  groupLeaderParams,
+  groupStatesmanParams,
   groupSummaryParams,
   groupSummaryPerItemParams,
   groupImageParams,
@@ -29,6 +32,11 @@ import {
   countNumber,
   countCapNote,
   btnGenerate,
+  poolCount,
+  typeCountBadge,
+  typeEmptyWarning,
+  filterCountBadge,
+  actionbar,
 } from "./dom.js";
 import {
   applySavedSettings,
@@ -94,16 +102,22 @@ export function makeChip(innerHTML, active, onActivate, extraClass) {
 }
 
 // affiche/masque les réglages qui ne s'appliquent pas aux combinaisons
-// actives. tout "*:audio" (musique ET cri Pokémon), "country:flag" et tout
+// actives. tout "*:audio" (musique ET cri Pokémon), "country:flag",
+// "country:map", "country:leader", "statesman:statesman" et tout
 // "*:summary" ont chacun leur propre durée dédiée (pas images/titre ni
 // temps/image) — nommés explicitement ici : cette durée dédiée est une
 // spécificité de ces modes, pas quelque chose de générique à tout
-// questionType (voir aussi totalDurationSec)
+// questionType (voir aussi totalDurationSec). flag/map/leader/statesman ont
+// chacun leur PROPRE réglage (groupFlagParams/groupMapParams/
+// groupLeaderParams/groupStatesmanParams) — pas mutualisés.
 export function updateSettingsVisibility() {
   const hasAudio = [...state.activeQuestionTypes].some((k) =>
     k.endsWith(":audio"),
   );
   const hasFlag = state.activeQuestionTypes.has("country:flag");
+  const hasMap = state.activeQuestionTypes.has("country:map");
+  const hasLeader = state.activeQuestionTypes.has("country:leader");
+  const hasStatesman = state.activeQuestionTypes.has("statesman:statesman");
   const hasSummary = [...state.activeQuestionTypes].some((k) =>
     k.endsWith(":summary"),
   );
@@ -113,10 +127,19 @@ export function updateSettingsVisibility() {
   // statique) — d'où un contrôle de visibilité dédié, distinct de hasSummary.
   const hasDirectorSummary = state.activeQuestionTypes.has("director:summary");
   const hasStandard = [...state.activeQuestionTypes].some(
-    (k) => !k.endsWith(":audio") && k !== "country:flag" && !k.endsWith(":summary"),
+    (k) =>
+      !k.endsWith(":audio") &&
+      k !== "country:flag" &&
+      k !== "country:map" &&
+      k !== "country:leader" &&
+      k !== "statesman:statesman" &&
+      !k.endsWith(":summary"),
   );
   groupAudioParams.style.display = hasAudio ? "" : "none";
   groupFlagParams.style.display = hasFlag ? "" : "none";
+  groupMapParams.style.display = hasMap ? "" : "none";
+  groupLeaderParams.style.display = hasLeader ? "" : "none";
+  groupStatesmanParams.style.display = hasStatesman ? "" : "none";
   groupSummaryParams.style.display = hasSummary ? "" : "none";
   groupSummaryPerItemParams.style.display = hasDirectorSummary ? "" : "none";
   groupImageParams.style.display = hasStandard ? "" : "none";
@@ -175,12 +198,6 @@ export async function loadFilters() {
   await updatePoolSize();
 }
 
-// total de chips actifs dans la rangée "Type" — sert à garantir qu'au
-// moins un chip reste actif, quel qu'il soit
-export function totalActiveTypeCount() {
-  return state.activeQuestionTypes.size;
-}
-
 // suite commune à tout changement de sélection dans la rangée "Type"
 // (type simple ou combinaison country) : re-rendu, purge des filtres
 // devenus invalides, rafraîchissement de la taille de pool, sauvegarde.
@@ -220,8 +237,21 @@ export async function onActiveTypesChanged() {
 // (ex. movie: Photo/Résumé, director: Filmographie), sans changer le
 // modèle de données sous-jacent (toujours des combos indépendants, pas
 // de produit cartésien forcé).
+// la cascade d'entrée des cartes ne doit jouer qu'une fois : cette
+// fonction est rappelée à chaque toggle et reconstruit toute la grille
+let typeCardsIntroDone = false;
+
 export function renderContentTypeChips() {
   chipsContentType.innerHTML = "";
+  if (!typeCardsIntroDone) {
+    typeCardsIntroDone = true;
+    chipsContentType.classList.add("intro");
+    setTimeout(() => chipsContentType.classList.remove("intro"), 1000);
+  }
+  const n = state.activeQuestionTypes.size;
+  typeCountBadge.textContent = n ? `${n} mode${n > 1 ? "s" : ""}` : "aucun";
+  typeCountBadge.classList.toggle("warn", n === 0);
+  typeEmptyWarning.style.display = n === 0 ? "" : "none";
   for (const [type, baseLabel] of Object.entries(TYPE_BASE_LABELS)) {
     const questionTypes = state.questionTypesByType[type] || [];
     if (!questionTypes.length) continue;
@@ -244,8 +274,11 @@ export function renderContentTypeChips() {
         chipLabel,
         state.activeQuestionTypes.has(comboKey),
         async () => {
+          // aucun mode actif est un état valide : on préfère laisser tout
+          // décocher (bien plus simple pour repartir d'une autre
+          // combinaison) et refuser la génération, plutôt que de bloquer
+          // silencieusement le dernier clic — voir updatePoolSize
           if (state.activeQuestionTypes.has(comboKey)) {
-            if (totalActiveTypeCount() === 1) return; // garder au moins un chip actif
             state.activeQuestionTypes.delete(comboKey);
           } else {
             state.activeQuestionTypes.add(comboKey);
@@ -330,6 +363,11 @@ export function renderAudioSpeedChips() {
 }
 
 export function renderChips() {
+  const nSel = state.selectedFilters.size;
+  filterCountBadge.textContent = nSel
+    ? `${nSel} actif${nSel > 1 ? "s" : ""}`
+    : "tout inclus";
+
   const groups = {
     liste: chipsListes,
     decennie: chipsDecades,
@@ -418,7 +456,61 @@ export function renderChips() {
   }
 }
 
+// compteur qui défile de son ancienne valeur vers la nouvelle plutôt que
+// de sauter : c'est la seule mesure qui réagit à chaque clic de filtre,
+// l'animation rend ce lien de cause à effet lisible
+let poolAnimId = 0;
+function animatePoolCount(to) {
+  const from = parseInt(poolCount.textContent.replace(/\D/g, ""), 10) || 0;
+  cancelAnimationFrame(poolAnimId);
+  if (from !== to) {
+    poolCount.classList.remove("up", "down");
+    void poolCount.offsetWidth; // relance l'animation même si la classe est identique
+    poolCount.classList.add(to > from ? "up" : "down");
+  }
+  // rAF ne tourne pas dans un onglet masqué : sans ce raccourci le
+  // compteur resterait figé sur une valeur intermédiaire jusqu'au retour
+  // au premier plan. Idem pour prefers-reduced-motion, que les règles CSS
+  // équivalentes ne peuvent pas couvrir ici (animation pilotée en JS).
+  if (
+    from === to ||
+    document.hidden ||
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    poolCount.textContent = to.toLocaleString("fr-FR");
+    return;
+  }
+  const start = performance.now();
+  const DUR = 420;
+  const tick = (now) => {
+    // borne BASSE indispensable : un now < start (dérive d'horloge, onglet
+    // restauré, temps virtuel) donnerait un t négatif, donc un eased
+    // négatif, et le compteur partirait à l'opposé de sa cible
+    const t = Math.max(0, Math.min(1, (now - start) / DUR));
+    const eased = 1 - Math.pow(1 - t, 3);
+    poolCount.textContent = Math.round(
+      from + (to - from) * eased,
+    ).toLocaleString("fr-FR");
+    if (t < 1) poolAnimId = requestAnimationFrame(tick);
+  };
+  poolAnimId = requestAnimationFrame(tick);
+}
+
 export async function updatePoolSize() {
+  // court-circuit obligatoire : /api/pool-size retombe sur TOUT le
+  // catalogue quand selections[] est vide (voir server.js), il annoncerait
+  // donc des dizaines de milliers de réponses alors que rien n'est coché
+  if (state.activeQuestionTypes.size === 0) {
+    state.currentMaxAvailable = 0;
+    animatePoolCount(0);
+    btnGenerate.disabled = true;
+    countCapNote.textContent = "⚠️ Choisis au moins un type dans « Quoi deviner »";
+    countCapNote.style.display = "block";
+    actionbar.classList.add("warn");
+    updateDurationHint();
+    return;
+  }
+  actionbar.classList.remove("warn");
   try {
     const res = await fetch("/api/pool-size", {
       method: "POST",
@@ -430,6 +522,7 @@ export async function updatePoolSize() {
   } catch {
     state.currentMaxAvailable = 50;
   }
+  animatePoolCount(state.currentMaxAvailable);
   const clampedMax = Math.min(50, state.currentMaxAvailable);
   // en dessous de 5 titres dispo, le plancher habituel (min="5") n'a
   // plus de sens : on aligne min sur max pour figer le curseur sur la
@@ -449,11 +542,11 @@ export async function updatePoolSize() {
   btnGenerate.disabled = clampedMax === 0;
   if (clampedMax === 0) {
     countCapNote.textContent =
-      "Aucun contenu disponible pour cette sélection";
-    countCapNote.style.display = "inline";
+      "⚠️ Aucun contenu disponible pour cette sélection";
+    countCapNote.style.display = "block";
   } else if (clampedMax < 50) {
-    countCapNote.textContent = `Limité à ${clampedMax} (pool des filtres choisis)`;
-    countCapNote.style.display = "inline";
+    countCapNote.textContent = `Limité à ${clampedMax} questions (pool des filtres choisis)`;
+    countCapNote.style.display = "block";
   } else {
     countCapNote.style.display = "none";
   }

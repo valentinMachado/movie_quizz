@@ -47,6 +47,14 @@ export const state = {
   renderFps: 12,
   summarySpeed: "normal",
   audioSpeed: "normal",
+  // questionType "leader" (country) : nom du chef d'État affiché ou pas
+  // pendant la devinette (voir drawLeaderGuess) — le reveal, lui, le montre
+  // toujours, indépendamment de ce réglage.
+  showLeaderName: true,
+  // questionType "statesman" (sens inverse de "leader") : même principe,
+  // mais pour le nom du PAYS affiché pendant la devinette (voir
+  // drawStatesmanGuess).
+  showCountryName: true,
 };
 
 export function currentRenderQuality() {

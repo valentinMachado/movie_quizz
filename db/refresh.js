@@ -13,7 +13,11 @@ import {
   DB_PATH,
   MOVIE_LEAD_CAST_LIMIT,
 } from "./refresh/config.js";
-import { mapWithConcurrency } from "./refresh/util.js";
+import {
+  mapWithConcurrency,
+  syncGenderFilters,
+  syncStatesmanPopularityTiers,
+} from "./refresh/util.js";
 import {
   fetchMovieEntities,
   refreshMovieLists,
@@ -50,6 +54,7 @@ import {
   fetchWikiArticleEntities,
   fetchAndStoreWikiArticleImagesBatch,
   fetchAndStorePersonWikiPhotosBatch,
+  fetchAndStoreCountryLeader,
 } from "./refresh/wikipedia.js";
 import { fetchPokemonEntities } from "./refresh/pokeapi.js";
 import { fetchSuperheroEntities } from "./refresh/superhero.js";
@@ -233,6 +238,20 @@ const TYPES = {
             db.TTL_MS.countryPhoto,
           ),
         fetchAndStore: fetchAndStoreCountryPhotos,
+      },
+      {
+        // TTL courte (countryLeader, ~24h) contrairement au reste des données
+        // pays : contrairement aux photos, l'appartenance change réellement
+        // d'un jour à l'autre (élection, décès...). Voir
+        // fetchAndStoreCountryLeader dans refresh/wikipedia.js.
+        name: "Pays (chef d'État)",
+        collectTargets: () => db.getCountryPool(),
+        needsRefresh: (country) =>
+          !db.isFresh(
+            db.countryLeaderCheckedAt(country.ccn3),
+            db.TTL_MS.countryLeader,
+          ),
+        fetchAndStore: fetchAndStoreCountryLeader,
       },
     ],
   },
@@ -480,6 +499,8 @@ function syncDerivedPersonFilters() {
   syncPersonDerivedPopularityTiers();
   syncPersonDerivedBirthFilters();
   syncPainterPopularityTiers();
+  syncGenderFilters();
+  syncStatesmanPopularityTiers();
 }
 
 syncDerivedPersonFilters();

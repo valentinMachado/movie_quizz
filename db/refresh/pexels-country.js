@@ -1,5 +1,7 @@
 import * as db from "../index.js";
 import { PEXELS_API_KEY } from "./config.js";
+import { logWarn } from "./log.js";
+import { wikidataQuery } from "./wikidata.js";
 
 // pays — liste depuis mledoze/countries (mirroir libre et sans clé des
 // données historiques de REST Countries). Un même pays alimente deux
@@ -18,6 +20,41 @@ async function loadCountryList() {
   const data = await res.json();
   db.cacheSet(cacheKey, data);
   return data;
+}
+
+// population — absente de countries.json (vérifié en direct sur le fichier
+// upstream : le schéma mledoze a "area" mais plus aucun champ "population",
+// contrairement à ce que storeCountryPopulation supposait — cause du filtre
+// "population" qui ne renvoyait jamais rien). Récupérée séparément via
+// Wikidata (P1082, gratuit sans clé), recoupée par ISO 3166-1 alpha-2 (P297)
+// sur le cca2 déjà connu de mledoze. Une seule requête groupée sans VALUES :
+// P297 est une propriété assez rare pour couvrir tous les pays en un aller-
+// retour (~250 résultats), pas besoin du batch/300 par qid utilisé ailleurs
+// dans wikidata.js. wdt:P1082 ne renvoie que les déclarations "truthy"
+// (rang préféré, ou rang normal si aucune préférée) : le premier résultat
+// rencontré par pays suffit, même tolérance que fetchBirthDates/
+// fetchPositionsHeld (pas de notion fiable de "la meilleure" valeur).
+async function fetchCountryPopulations(cca2Codes) {
+  const wanted = new Set(cca2Codes.map((c) => c.toUpperCase()));
+  const sparql =
+    "SELECT ?iso2 ?population WHERE { " +
+    "?country wdt:P297 ?iso2; wdt:P1082 ?population. " +
+    "}";
+  const populations = new Map(); // cca2 -> nombre
+  try {
+    const data = await wikidataQuery(
+      `https://query.wikidata.org/sparql?query=${encodeURIComponent(sparql)}`,
+    );
+    for (const b of data.results?.bindings || []) {
+      const iso2 = b.iso2?.value;
+      const population = b.population?.value;
+      if (!iso2 || !population || !wanted.has(iso2)) continue;
+      if (!populations.has(iso2)) populations.set(iso2, parseInt(population, 10));
+    }
+  } catch (e) {
+    logWarn("Erreur population pays Wikidata:", e.message);
+  }
+  return populations;
 }
 
 // pool plat : tous les pays (hors Antarctique), plus de découpe par
@@ -42,6 +79,10 @@ export async function fetchCountryEntities() {
       subregion: c.subregion || null,
     });
   }
+  const populations = await fetchCountryPopulations(rows.map((r) => r.cca2));
+  for (const r of rows) {
+    if (r.population == null) r.population = populations.get(r.cca2.toUpperCase()) ?? null;
+  }
   db.upsertCountries(rows);
   db.replaceTypeItems(
     "country",
@@ -65,8 +106,10 @@ const CONTINENT_LABELS = {
 // subregion (mledoze, nomenclature UN M49, 24 valeurs) — renommage FR pur
 // pour rester lisible dans un quiz. "Western Asia" -> "Moyen-Orient" est une
 // simplification assumée : la nomenclature UN y range aussi le Caucase
-// (Arménie, Géorgie, Azerbaïdjan) et Chypre.
-const SUBREGION_LABELS = {
+// (Arménie, Géorgie, Azerbaïdjan) et Chypre. Exporté : réutilisé tel quel
+// par storeWikiArticleGeography (wikipedia.js) pour regrouper ses ~190
+// filtres pays en sous-régions, même vocabulaire que "country".
+export const SUBREGION_LABELS = {
   "Northern Africa": "Afrique du Nord",
   "Eastern Africa": "Afrique de l'Est",
   "Middle Africa": "Afrique Centrale",

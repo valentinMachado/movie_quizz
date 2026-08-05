@@ -1462,6 +1462,48 @@ export async function extractsFromDump(pageIds, onProgress) {
   return extracts;
 }
 
+// Chef d'État actuel d'un pays : lit `nom_dirigeant` (1er slot non numéroté
+// de l'infobox pays — ordre de préséance constitutionnelle, donc toujours le
+// chef d'État avant un éventuel chef de gouvernement en nom_dirigeant2) sur
+// le wikitext BRUT de l'article (contrairement à extractsFromDump, qui ne
+// garde que la section 0 rendue en prose). Le wikilien cible est résolu en
+// QID + vignette via l'index local (mêmes tables que qidsByPageIdFromIndex/
+// thumbnailsFromIndex) — aucun appel réseau au-delà du fetch de bloc déjà
+// nécessaire pour l'article pays lui-même. `titre_dirigeant` (champ
+// jumeau) donne l'intitulé du poste, utilisé par le reveal du questionType
+// "statesman" (server.js).
+export async function countryLeaderFromDump(pageId) {
+  const block = indexDb.prepare("SELECT block FROM fw_stream WHERE page_id = ?").get(pageId)?.block;
+  if (block == null) return null;
+  const end = indexDb.prepare("SELECT end_offset FROM fw_block WHERE block = ?").get(block)?.end_offset ?? null;
+  let wikitext;
+  try {
+    const xml = await fetchBlock(block, end);
+    wikitext = wikitextByPage(xml).get(pageId);
+  } catch (e) {
+    logDebug(`Bloc multistream ${block} illisible (chef d'État): ${e.message}`);
+    return null;
+  }
+  if (!wikitext) return null;
+  const infobox = wtf(wikitext).infoboxes()[0];
+  const link = infobox?.get("nom_dirigeant")?.links()?.[0];
+  const leaderPageTitle = link?.page?.();
+  if (!leaderPageTitle) return null;
+  const leaderPageId = pageIdFromTitle(leaderPageTitle);
+  if (leaderPageId == null) return null;
+  const qid = qidsByPageIdFromIndex([leaderPageId]).get(leaderPageId);
+  if (!qid) return null;
+  const portraitThumbUrl = thumbnailsFromIndex([leaderPageId]).get(leaderPageId) ?? null;
+  // intitulé du poste (ex. "Président de la République française") : la
+  // CIBLE du wikilien de titre_dirigeant, pas son texte affiché ("Président
+  // de la République") — l'utilisateur veut la forme complète, qui précise
+  // le pays. Repli sur le texte rendu si le champ n'est pas un wikilien
+  // (certaines monarchies l'écrivent parfois en texte brut).
+  const titreSentence = infobox?.get("titre_dirigeant");
+  const title = titreSentence?.links()?.[0]?.page?.() || titreSentence?.text() || null;
+  return { qid, name: leaderPageTitle, portraitThumbUrl, title };
+}
+
 // Noms alternatifs d'un article : tous les titres qui redirigent vers lui.
 // Remplace `prop=redirects` de l'API, même usage — mieux anonymiser le titre
 // dans le résumé (voir redactTitle côté server.js).

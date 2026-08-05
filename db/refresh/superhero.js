@@ -132,27 +132,30 @@ function popularityScore(hero) {
   return score;
 }
 
-// tertiles du score ci-dessus, ajoutés au groupe "liste" déjà utilisé pour
+// quartiles du score ci-dessus, ajoutés au groupe "liste" déjà utilisé pour
 // l'éditeur (Marvel/DC, voir fetchSuperheroEntities) — replaceEntityFilterSubset
 // (pas replaceEntityFilters) est OBLIGATOIRE ici : un replace classique sur
 // tout le groupe "liste" écraserait les codes marvel/dc posés juste avant
 // (même piège documenté pour storePopularityTiers dans util.js, qui protège
 // pokemon de la même façon). Contrairement à storeTertilePopularityTiers
-// (util.js, réservé aux types où "liste" ne contient QUE ces 3 tranches),
+// (util.js, réservé aux types où "liste" ne contient QUE ces 4 tranches),
 // ce score est toujours défini (jamais null) : chaque héros reçoit
 // systématiquement une tranche, pas de cas "valeur inconnue" à exclure.
-const POPULARITY_TIER_CODES = ["obscur", "niche", "populaire"];
+const POPULARITY_TIER_CODES = ["obscur", "niche", "populaire", "star"];
 
 function storeSuperheroPopularityTiers(rows) {
   const sorted = rows.map((r) => r.popularityScore).sort((a, b) => a - b);
-  const q1 = sorted[Math.floor(sorted.length / 3)];
-  const q2 = sorted[Math.floor((sorted.length * 2) / 3)];
-  const tierFor = (v) => (v <= q1 ? "obscur" : v <= q2 ? "niche" : "populaire");
+  const q1 = sorted[Math.floor(sorted.length / 4)];
+  const q2 = sorted[Math.floor((sorted.length * 2) / 4)];
+  const q3 = sorted[Math.floor((sorted.length * 3) / 4)];
+  const tierFor = (v) =>
+    v <= q1 ? "obscur" : v <= q2 ? "niche" : v <= q3 ? "populaire" : "star";
 
   db.upsertFilters("superhero", "liste", [
     { code: "obscur", name: "Obscur" },
     { code: "niche", name: "Niche" },
     { code: "populaire", name: "Populaire" },
+    { code: "star", name: "Star" },
   ]);
   db.replaceEntityFilterSubset(
     "superhero",

@@ -45,7 +45,10 @@ export function buildTimeline(
   revealMs,
   splashMs,
   flagMs,
+  mapMs,
   summarySecPerWord,
+  leaderMs,
+  statesmanMs,
 ) {
   const tl = [];
   let t = 0;
@@ -89,6 +92,64 @@ export function buildTimeline(
       t += flagMs;
       tl.push({
         type: "flag-reveal",
+        itemIdx: i,
+        start: t,
+        dur: revealMs,
+      });
+      t += revealMs;
+      return;
+    }
+    if (m.type === "country" && m.questionType === "map") {
+      // réglage dédié (mapSec, distinct de flagSec) : zoom continu, voir
+      // render/map.js pour le fond de carte vectoriel. Réponse : flag-reveal
+      // existant, réutilisé tel quel (drapeau + capitale).
+      tl.push({
+        type: "map-guess",
+        itemIdx: i,
+        start: t,
+        dur: mapMs,
+      });
+      t += mapMs;
+      tl.push({
+        type: "flag-reveal",
+        itemIdx: i,
+        start: t,
+        dur: revealMs,
+      });
+      t += revealMs;
+      return;
+    }
+    if (m.type === "country" && m.questionType === "leader") {
+      // réglage dédié (leaderMs, distinct de flagMs/mapMs) : un seul
+      // portrait fixe, pas de cycle d'images — voir drawLeaderGuess/
+      // drawLeaderReveal (render/scenes.js).
+      tl.push({
+        type: "leader-guess",
+        itemIdx: i,
+        start: t,
+        dur: leaderMs,
+      });
+      t += leaderMs;
+      tl.push({
+        type: "leader-reveal",
+        itemIdx: i,
+        start: t,
+        dur: revealMs,
+      });
+      t += revealMs;
+      return;
+    }
+    if (m.type === "statesman") {
+      // sens inverse de "leader" : réglage dédié statesmanMs.
+      tl.push({
+        type: "statesman-guess",
+        itemIdx: i,
+        start: t,
+        dur: statesmanMs,
+      });
+      t += statesmanMs;
+      tl.push({
+        type: "statesman-reveal",
         itemIdx: i,
         start: t,
         dur: revealMs,

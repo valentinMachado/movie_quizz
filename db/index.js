@@ -64,7 +64,13 @@ export {
   gameImagesFetchedAt,
 } from "./game.js";
 
-export { upsertMusicTracks, getMusicTrack } from "./music.js";
+export {
+  upsertMusicTracks,
+  getMusicTrack,
+  getMusicSearchResolutions,
+  setMusicSearchResolution,
+  forgetMusicSearchResolution,
+} from "./music.js";
 
 export { upsertPokemons, getPokemon } from "./pokemon.js";
 
@@ -73,6 +79,7 @@ export { upsertSuperheroes, getSuperhero } from "./superhero.js";
 export {
   upsertWikiArticles,
   setWikiArticlePopularities,
+  setWikiArticleEventDates,
   getWikiArticle,
   replaceWikiArticleImages,
   getWikiArticleImages,
@@ -89,6 +96,10 @@ export {
   anyCountryPhotosStale,
   replaceCountryPhotos,
   getCountryPhotos,
+  countryLeaderCheckedAt,
+  setCountryLeader,
+  getCountryLeaderGenders,
+  getCountryLeaderPopularities,
 } from "./country.js";
 
 export {
@@ -116,6 +127,7 @@ export {
   getGamesByReleaseMonthDay,
   getMusicTracksByReleaseMonthDay,
   getPersonsByBirthMonthDay,
+  getWikiArticlesByEventMonthDay,
 } from "./daily.js";
 
 export { markRefreshed, isRefreshFresh } from "./checkpoint.js";

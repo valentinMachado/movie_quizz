@@ -52,6 +52,7 @@ export function setMovieDirectors(movieId, directors) {
           ? `https://image.tmdb.org/t/p/w500${d.profilePath}`
           : null,
         popularity: d.popularity ?? null,
+        gender: d.gender ?? null,
       });
       link.run(movieId, personId);
       personIds.push(personId);
@@ -86,6 +87,7 @@ export function setMovieCast(movieId, cast) {
           ? `https://image.tmdb.org/t/p/w500${c.profilePath}`
           : null,
         popularity: c.popularity ?? null,
+        gender: c.gender ?? null,
       });
       link.run(movieId, personId, c.order ?? null);
       personIds.push(personId);

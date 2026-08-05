@@ -678,6 +678,11 @@
       { "code": "naturalism", "label": "Naturalisme", "qid": "Q55995" }
     ]
   },
+  "personGenders": [
+    { "code": "male", "label": "Homme" },
+    { "code": "female", "label": "Femme" },
+    { "code": "non_binary", "label": "Non-binaire" }
+  ],
   "personRoles": {
     "queryLimit": 100,
     "countries": [
@@ -710,6 +715,30 @@
         "label": "Sportif",
         "occupationQid": "Q2066131",
         "popularSitelinksMin": 20
+      },
+      {
+        "code": "writer",
+        "label": "Écrivain",
+        "occupationQid": "Q36180",
+        "popularSitelinksMin": 20
+      },
+      {
+        "code": "scientist",
+        "label": "Scientifique",
+        "occupationQid": "Q901",
+        "popularSitelinksMin": 20
+      },
+      {
+        "code": "singer",
+        "label": "Chanteur",
+        "occupationQid": "Q177220",
+        "popularSitelinksMin": 20
+      },
+      {
+        "code": "astronaut",
+        "label": "Astronaute",
+        "occupationQid": "Q11631",
+        "popularSitelinksMin": 10
       }
     ]
   },
@@ -726,12 +755,26 @@
         "category": "Élément chimique"
       },
       { "code": "sciences", "name": "Sciences", "category": "Constellation" },
+      { "code": "sciences", "name": "Sciences", "category": "Minéral" },
+      {
+        "code": "sciences",
+        "name": "Sciences",
+        "category": "Vaisseau spatial"
+      },
       { "code": "geographie", "name": "Géographie", "category": "Fleuve" },
       { "code": "geographie", "name": "Géographie", "category": "Montagne" },
       { "code": "geographie", "name": "Géographie", "category": "Île" },
       { "code": "geographie", "name": "Géographie", "category": "Volcan" },
       { "code": "geographie", "name": "Géographie", "category": "Désert" },
       { "code": "monuments", "name": "Monuments", "category": "Monument" },
+      { "code": "architecture", "name": "Architecture", "category": "Château" },
+      { "code": "architecture", "name": "Architecture", "category": "Pont" },
+      {
+        "code": "architecture",
+        "name": "Architecture",
+        "category": "Gratte-ciel"
+      },
+      { "code": "architecture", "name": "Architecture", "category": "Phare" },
       { "code": "mythologie", "name": "Mythologie", "category": "Divinité" },
       {
         "code": "mythologie",
@@ -779,7 +822,25 @@
         "category": "Amphibien (nom vernaculaire)",
         "depth": 2,
         "looseRedaction": true
-      }
+      },
+      {
+        "code": "musique",
+        "name": "Musique",
+        "category": "Instrument de musique"
+      },
+      { "code": "gastronomie", "name": "Gastronomie", "category": "Fromage" },
+      {
+        "code": "gastronomie",
+        "name": "Gastronomie",
+        "category": "Fruit alimentaire"
+      },
+      {
+        "code": "gastronomie",
+        "name": "Gastronomie",
+        "category": "Plat national"
+      },
+      { "code": "gastronomie", "name": "Gastronomie", "category": "Cocktail" },
+      { "code": "jeux", "name": "Jeux", "category": "Jeu de société" }
     ],
     "decadeBuckets": 5
   },

@@ -10,7 +10,7 @@ function contentTypeLabel() {
     const labels = {
       movie: "FILMS",
       tv: "SÉRIES",
-      person: "ACTEURS",
+      person: "PERSONNES",
       game: "JEUX",
       country: "PAYS",
       painter: "PEINTRES",

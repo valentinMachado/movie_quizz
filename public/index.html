@@ -20,12 +20,18 @@
       :root {
         --bg: #0a0a10;
         --panel: #16151f;
+        /* strate au-dessus de --panel : cartes internes, champs, étapes */
+        --panel-2: #1d1b28;
         --cream: #ede8de;
         --amber: #e8a33d;
         --green: #4c8a5c;
         --muted: #7a7a85;
         --cyan: #4fd1e8;
         --purple: #9d5ce6;
+        --line: rgba(157, 92, 230, 0.18);
+        --line-strong: rgba(157, 92, 230, 0.34);
+        /* hauteur réservée en bas de page pour la barre d'action fixe */
+        --bar-h: 76px;
         --mono:
           ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, Consolas,
           monospace;
@@ -36,6 +42,10 @@
       * {
         box-sizing: border-box;
       }
+
+      /* body en flux normal (pas en flex row) : un flex item ne descend
+         jamais sous sa largeur min-content, ce qui faisait déborder puis
+         rogner toute la mise en page sous ~700px */
       body {
         position: relative;
         margin: 0;
@@ -52,13 +62,10 @@
             transparent 42%
           ),
           radial-gradient(ellipse at 50% -10%, #201c30 0%, var(--bg) 60%);
+        background-attachment: fixed;
         color: var(--cream);
         font-family: var(--sans);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 32px 16px;
-        overflow-x: hidden;
+        padding: 28px 16px calc(var(--bar-h) + 28px);
       }
       body::before {
         content: "";
@@ -76,19 +83,65 @@
         position: relative;
         z-index: 1;
         width: 100%;
-        max-width: 760px;
+        max-width: 820px;
+        margin: 0 auto;
       }
+
+      /* ---------- en-tête ---------- */
+
       .topbar {
-        position: absolute;
-        top: -12px;
-        right: 0;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        min-height: 20px;
+      }
+      .version-badge {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.02);
+        padding: 3px 9px;
+        border-radius: 20px;
+        white-space: nowrap;
+        opacity: 0.75;
+      }
+      .status-led {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: var(--muted);
+        transition:
+          background 0.3s,
+          box-shadow 0.3s;
+      }
+      .status-led.led-red {
+        background: #d9694f;
+        box-shadow: 0 0 6px rgba(217, 105, 79, 0.8);
+      }
+      .status-led.led-green {
+        background: var(--green);
+        box-shadow: 0 0 6px rgba(76, 138, 92, 0.8);
+        animation: led-pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes led-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
       }
       .hero {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 14px;
-        margin: 4px 0 12px;
+        margin: 0 0 10px;
       }
       .hero-logo-wrap {
         position: relative;
@@ -112,7 +165,7 @@
         position: relative;
         z-index: 1;
         display: block;
-        height: 150px;
+        height: clamp(96px, 22vw, 138px);
         width: auto;
         animation: logo-float 4.5s ease-in-out infinite;
         filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.55));
@@ -137,80 +190,30 @@
           transform: scale(1.1);
         }
       }
-      .version-badge {
-        font-family: var(--mono);
-        font-size: 10px;
-        letter-spacing: 0.04em;
-        color: var(--muted);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: rgba(255, 255, 255, 0.02);
-        padding: 3px 9px;
-        border-radius: 20px;
-        white-space: nowrap;
-        opacity: 0.75;
-      }
-      .status-led {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        margin-left: 8px;
-        vertical-align: middle;
-        background: var(--muted);
-        transition:
-          background 0.3s,
-          box-shadow 0.3s;
-      }
-      .status-led.led-red {
-        background: #d9694f;
-        box-shadow: 0 0 6px rgba(217, 105, 79, 0.8);
-      }
-      .status-led.led-green {
-        background: var(--green);
-        box-shadow: 0 0 6px rgba(76, 138, 92, 0.8);
-        animation: led-pulse 2.4s ease-in-out infinite;
-      }
-      @keyframes led-pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.6;
-        }
-      }
-      h1 {
-        font-family: var(--game);
+      .tagline {
         text-align: center;
-        font-size: clamp(30px, 5.5vw, 44px);
-        margin: 0 0 6px;
-        font-weight: 800;
-        letter-spacing: 0.01em;
-        background: linear-gradient(
-          120deg,
-          var(--cream) 30%,
-          var(--cyan) 68%,
-          var(--purple) 100%
-        );
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        -webkit-text-stroke: 1px rgba(0, 0, 0, 0.3);
-        text-shadow:
-          0 3px 0 rgba(0, 0, 0, 0.22),
-          0 10px 24px rgba(79, 209, 232, 0.15);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 18px;
       }
+
+      /* ---------- CTA quiz du jour ---------- */
+
       .daily-cta {
         display: flex;
         justify-content: center;
-        margin: 4px 0 26px;
+        margin: 0 0 26px;
       }
       .btn-daily {
         position: relative;
         display: flex;
         align-items: center;
         gap: 14px;
-        padding: 16px 30px;
+        max-width: 100%;
+        padding: 15px 28px;
         border-radius: 18px;
         border: none;
         cursor: pointer;
@@ -252,6 +255,7 @@
       .btn-daily-icon {
         font-size: 30px;
         line-height: 1;
+        flex-shrink: 0;
         filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
       }
       .btn-daily-text {
@@ -259,6 +263,7 @@
         flex-direction: column;
         align-items: flex-start;
         text-align: left;
+        min-width: 0;
       }
       .btn-daily-title {
         font-family: var(--game);
@@ -282,13 +287,28 @@
           background-position: 100% 50%;
         }
       }
+      @keyframes daily-pulse {
+        0%,
+        100% {
+          box-shadow:
+            0 9px 0 rgba(0, 0, 0, 0.32),
+            0 18px 34px -10px rgba(157, 92, 230, 0.55);
+        }
+        50% {
+          box-shadow:
+            0 9px 0 rgba(0, 0, 0, 0.32),
+            0 20px 44px -6px rgba(79, 209, 232, 0.65);
+        }
+      }
+      /* remonté au-dessus de la barre d'action fixe, qui occupe le bas */
       .btn-daily-float {
         position: fixed;
-        right: 20px;
-        bottom: 20px;
-        z-index: 50;
+        right: 16px;
+        bottom: calc(var(--bar-h) + 14px);
+        z-index: 60;
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 9px;
         padding: 12px 20px;
         border-radius: 999px;
@@ -343,19 +363,6 @@
         font-weight: 800;
         white-space: nowrap;
       }
-      @keyframes daily-pulse {
-        0%,
-        100% {
-          box-shadow:
-            0 9px 0 rgba(0, 0, 0, 0.32),
-            0 18px 34px -10px rgba(157, 92, 230, 0.55);
-        }
-        50% {
-          box-shadow:
-            0 9px 0 rgba(0, 0, 0, 0.32),
-            0 20px 44px -6px rgba(79, 209, 232, 0.65);
-        }
-      }
       @keyframes daily-pulse-float {
         0%,
         100% {
@@ -369,18 +376,12 @@
             0 18px 38px -6px rgba(79, 209, 232, 0.65);
         }
       }
-      .stats-line {
-        text-align: center;
-        font-family: var(--mono);
-        font-size: 10.5px;
-        color: var(--muted);
-        opacity: 0.75;
-        margin: 22px 0 0;
-      }
+
+      /* ---------- carte principale ---------- */
+
       .card {
         position: relative;
         background: var(--panel);
-        border: 1px solid rgba(157, 92, 230, 0.22);
         border-radius: 22px;
         box-shadow:
           0 1px 0 rgba(255, 255, 255, 0.04) inset,
@@ -410,15 +411,539 @@
         -webkit-mask-composite: xor;
         mask-composite: exclude;
         pointer-events: none;
+        z-index: 2;
       }
 
-      .settings {
-        padding: 20px 22px;
-        border-bottom: 1px solid rgba(157, 92, 230, 0.16);
+      /* ---------- écran de rendu ---------- */
+
+      .stage {
+        position: relative;
+        background: #000;
+        aspect-ratio: 16/9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .stage video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        background: #000;
+      }
+      /* tant qu'aucune vidéo n'a été rendue, le 16/9 n'est qu'un grand
+         rectangle noir : on lui donne une texture d'écran en veille.
+         resetStage() ne recrée que #stagePlaceholder, donc tout le décor
+         doit rester en CSS sur le conteneur (pas des enfants ajoutés) */
+      .stage:has(.stage-placeholder) {
+        /* pas de 16/9 tant qu'il n'y a rien à montrer : à 768px ça faisait
+           430px de noir à franchir avant d'atteindre la configuration.
+           Le ratio revient dès que le <video> remplace le placeholder */
+        aspect-ratio: auto;
+        height: clamp(170px, 26vh, 260px);
+        background:
+          radial-gradient(
+            ellipse at 50% 45%,
+            rgba(79, 209, 232, 0.1),
+            transparent 62%
+          ),
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.022) 0px,
+            rgba(255, 255, 255, 0.022) 1px,
+            transparent 1px,
+            transparent 4px
+          ),
+          #08070d;
+      }
+      .stage-placeholder {
+        position: relative;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--muted);
+        text-align: center;
+        padding: 24px;
+        line-height: 1.7;
+        white-space: pre-line;
+        max-width: 90%;
+      }
+      .stage-placeholder::before {
+        content: "▶";
+        display: block;
+        font-size: 30px;
+        color: rgba(79, 209, 232, 0.5);
+        margin-bottom: 12px;
+        animation: idle-blink 2.8s ease-in-out infinite;
+      }
+      @keyframes idle-blink {
+        0%,
+        100% {
+          opacity: 0.35;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.08);
+        }
+      }
+      .progress {
+        height: 4px;
+        background: rgba(157, 92, 230, 0.15);
+      }
+      .progress-bar {
+        position: relative;
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--cyan), var(--amber));
+        transition: width 0.15s;
+        overflow: hidden;
+      }
+      .progress-bar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(255, 255, 255, 0.55) 50%,
+          transparent 100%
+        );
+        transform: translateX(-100%);
+        animation: shimmer 1.4s ease-in-out infinite;
+      }
+      @keyframes shimmer {
+        100% {
+          transform: translateX(100%);
+        }
+      }
+
+      /* jalons de génération : masqués tant qu'aucune génération n'a été
+         lancée (setPhase/resetPhases dans status.js) */
+      .phases {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--line);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .phases.show {
+        display: flex;
+      }
+      .phase {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        opacity: 0.5;
+        transition:
+          color 0.25s,
+          opacity 0.25s;
+      }
+      .phase-dot {
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 1.5px solid currentColor;
+        display: grid;
+        place-items: center;
+        font-style: normal;
+        font-size: 9px;
+        flex-shrink: 0;
+      }
+      .phase-sep {
+        flex: 1 1 10px;
+        min-width: 10px;
+        height: 1px;
+        background: var(--line-strong);
+      }
+      .phase.active {
+        color: var(--cyan);
+        opacity: 1;
+      }
+      .phase.active .phase-dot {
+        animation: phase-pulse 1.3s ease-in-out infinite;
+      }
+      @keyframes phase-pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(79, 209, 232, 0.5);
+        }
+        50% {
+          box-shadow: 0 0 0 5px rgba(79, 209, 232, 0);
+        }
+      }
+      .phase.done {
+        color: var(--green);
+        opacity: 1;
+      }
+      .phase.done .phase-dot::after {
+        content: "✓";
+      }
+      .phase-pct {
+        margin-left: auto;
+        font-weight: 700;
+        color: var(--cyan);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* confettis de fin de rendu — couche fixe au-dessus de tout, retirée
+         par celebrate() après l'animation */
+      .confetti-layer {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 200;
+        overflow: hidden;
+      }
+      .confetti-piece {
+        position: absolute;
+        top: 0;
+        left: var(--x);
+        width: 9px;
+        height: 14px;
+        opacity: 0;
+        animation: confetti-fall var(--dur) linear var(--delay) forwards;
+      }
+      @keyframes confetti-fall {
+        0% {
+          opacity: 1;
+          transform: translate(0, -12vh) rotate(0deg);
+        }
+        100% {
+          opacity: 0;
+          transform: translate(var(--dx), 104vh) rotate(var(--rot));
+        }
+      }
+
+      /* l'aperçu est devenu regardable : le lecteur rebondit pour attirer
+         l'œil vers son propre bouton play, plutôt qu'un bandeau de texte
+         qui répéterait ce que les jalons et le statut disent déjà.
+         Rejoué 2 fois — une seule passe se rate trop facilement. */
+      .stage video.preview-pop {
+        animation: preview-pop 1s cubic-bezier(0.22, 1, 0.36, 1) 2;
+      }
+      @keyframes preview-pop {
+        0% {
+          transform: scale(1);
+        }
+        18% {
+          transform: scale(1.035);
+        }
+        38% {
+          transform: scale(0.992);
+        }
+        58% {
+          transform: scale(1.014);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      .status {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+        line-height: 1.5;
+      }
+      .status.rec {
+        color: var(--green);
+      }
+      .status.rec::before {
+        content: "● ";
+      }
+      .status.err {
+        color: #d9694f;
+      }
+      .result-row {
+        display: none;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(76, 138, 92, 0.07);
+        animation: result-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+      }
+      .result-row.show {
+        display: flex;
+      }
+      @keyframes result-in {
+        0% {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .result-row a {
+        font-family: var(--game);
+        font-weight: 700;
+        font-size: 14px;
+        color: #24160a;
+        text-decoration: none;
+        background: linear-gradient(135deg, var(--amber), #f0c04d);
+        padding: 10px 18px;
+        border-radius: 12px;
+        box-shadow: 0 4px 0 #a5701f;
+        transition:
+          transform 0.12s,
+          box-shadow 0.12s;
+      }
+      .result-row a:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 0 #a5701f;
+      }
+      .result-row a:active {
+        transform: translateY(2px);
+        box-shadow: 0 1px 0 #a5701f;
+      }
+      /* liste des réponses : une ligne = un lien de vérification (recherche
+         web du titre), donc des lignes cliquables espacées plutôt que le
+         bloc de texte mono d'avant */
+      .answers {
+        display: none;
+        padding: 8px 12px 12px;
+        border-bottom: 1px solid var(--line);
+        max-height: 320px;
+        overflow-y: auto;
+        /* la liste garde son propre scroll : arrivé en bout de course, la
+           page derrière ne se met pas à défiler */
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: var(--line-strong) transparent;
+      }
+      .answers.show {
+        display: block;
+      }
+      .answers::-webkit-scrollbar {
+        width: 10px;
+      }
+      .answers::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .answers::-webkit-scrollbar-thumb {
+        background: var(--line-strong);
+        border-radius: 999px;
+        /* bordure de la couleur du fond : "amincit" le pouce sans réduire
+           la zone d'accroche à la souris */
+        border: 3px solid var(--panel);
+      }
+      .answers::-webkit-scrollbar-thumb:hover {
+        background: var(--purple);
+      }
+      .answer-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        color: var(--cream);
+        text-decoration: none;
+        font-size: 14px;
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .answer-row:hover {
+        background: var(--panel-2);
+      }
+      .answer-num {
+        flex: 0 0 auto;
+        min-width: 20px;
+        text-align: right;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+      }
+      /* vignette = le posterUrl déjà chargé pendant le préchargement du quiz
+         (voir preload.js) : c'est un hit de cache, aucune requête en plus.
+         Carrée + cover : le même cadre encaisse une affiche (2:3) comme un
+         drapeau (3:2) sans casser l'alignement des lignes. */
+      .answer-thumb {
+        flex: 0 0 auto;
+        width: 34px;
+        height: 34px;
+        object-fit: cover;
+        border-radius: 7px;
+        background: var(--panel-2);
+      }
+      .answer-title {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* rappelle sous quelle forme la question a été posée (photo / résumé /
+         cri…), l'info que le titre seul ne rend pas */
+      .answer-mode {
+        flex: 0 0 auto;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 3px 8px;
+        white-space: nowrap;
+      }
+      .answer-go {
+        flex: 0 0 auto;
+        font-size: 12px;
+        color: var(--muted);
+        transition: color 0.15s;
+      }
+      .answer-row:hover .answer-go {
+        color: var(--amber);
+      }
+
+      /* ---------- étapes de configuration ---------- */
+
+      .step {
+        border-bottom: 1px solid var(--line);
+      }
+      .step:last-of-type {
+        border-bottom: none;
+      }
+      .step-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 20px;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        transition: background 0.18s;
+      }
+      .step-head::-webkit-details-marker {
+        display: none;
+      }
+      .step-head:hover {
+        background: rgba(157, 92, 230, 0.06);
+      }
+      .step-num {
+        flex-shrink: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-family: var(--game);
+        font-weight: 800;
+        font-size: 13px;
+        color: #14121c;
+        background: linear-gradient(135deg, var(--cyan), var(--purple));
+        box-shadow: 0 0 14px rgba(79, 209, 232, 0.3);
+      }
+      .step-title {
+        font-family: var(--game);
+        font-weight: 700;
+        font-size: 16px;
+        color: var(--cream);
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      /* pastille de résumé : « 3 actifs », « 5 filtres » — permet de voir
+         l'état d'une section repliée sans l'ouvrir */
+      .step-badge {
+        flex-shrink: 0;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        color: var(--cyan);
+        background: rgba(79, 209, 232, 0.12);
+        border: 1px solid rgba(79, 209, 232, 0.3);
+        padding: 3px 10px;
+        border-radius: 20px;
+        white-space: nowrap;
+      }
+      .step-badge:empty {
+        display: none;
+      }
+      .step-badge.warn {
+        color: var(--amber);
+        background: rgba(232, 163, 61, 0.14);
+        border-color: rgba(232, 163, 61, 0.45);
+        animation: badge-warn 1.8s ease-in-out infinite;
+      }
+      @keyframes badge-warn {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(232, 163, 61, 0);
+        }
+        50% {
+          box-shadow: 0 0 0 4px rgba(232, 163, 61, 0.18);
+        }
+      }
+
+      /* bandeau d'alerte quand plus aucun type n'est coché */
+      .empty-warning {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(232, 163, 61, 0.45);
+        background: rgba(232, 163, 61, 0.09);
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.5;
+        animation: warn-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+      }
+      .empty-warning-icon {
+        font-size: 17px;
+        flex-shrink: 0;
+      }
+      @keyframes warn-in {
+        0% {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.97);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      .step-chevron {
+        flex-shrink: 0;
+        color: var(--muted);
+        font-size: 11px;
+        transition: transform 0.22s;
+      }
+      details[open] > .step-head .step-chevron {
+        transform: rotate(180deg);
+      }
+      .step-body {
+        padding: 4px 20px 22px;
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 18px;
+        animation: step-open 0.26s ease;
       }
+      @keyframes step-open {
+        0% {
+          opacity: 0;
+          transform: translateY(-6px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ---------- lignes de réglage ---------- */
+
       .settings-row {
         display: flex;
         align-items: center;
@@ -431,12 +956,13 @@
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--muted);
-        min-width: 110px;
+        min-width: 132px;
       }
       input[type="number"] {
-        width: 62px;
+        width: 64px;
+        flex-shrink: 0;
         background: linear-gradient(180deg, #1e1c2a, #131118);
-        border: 1px solid rgba(157, 92, 230, 0.4);
+        border: 1px solid var(--line-strong);
         color: var(--cyan);
         font-family: var(--mono);
         font-weight: 700;
@@ -461,7 +987,8 @@
       input[type="range"] {
         -webkit-appearance: none;
         appearance: none;
-        flex: 1 1 140px;
+        flex: 1 1 120px;
+        min-width: 0;
         height: 10px;
         border-radius: 20px;
         background: linear-gradient(
@@ -534,9 +1061,13 @@
       }
 
       /* champ de recherche : fond texturé + loupe + halo violet au focus */
+      /* `flex: 1 1 200px` ici : le parent .step-body est en colonne, donc
+         la base de 200px s'appliquerait à la HAUTEUR et décrocherait la
+         loupe (positionnée à top: 50%) sous le champ */
       .search-wrap {
         position: relative;
-        flex: 1 1 200px;
+        flex: 0 0 auto;
+        min-width: 0;
       }
       .search-wrap .search-icon {
         position: absolute;
@@ -558,11 +1089,11 @@
             transparent 9px
           ),
           #131118;
-        border: 1px solid rgba(157, 92, 230, 0.35);
+        border: 1px solid var(--line-strong);
         color: var(--cream);
         font-family: var(--sans);
         font-size: 13px;
-        padding: 9px 12px 9px 32px;
+        padding: 10px 12px 10px 32px;
         border-radius: 10px;
         outline: none;
         transition:
@@ -573,57 +1104,13 @@
         border-color: var(--purple);
         box-shadow: 0 0 0 3px rgba(157, 92, 230, 0.25);
       }
+
+      /* ---------- groupes de puces ---------- */
+
       .chip-group {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-      }
-      /* une boîte distincte par type devinable (Films, Séries, ...),
-         chacune contenant les questionTypes qui lui sont propres (Photo,
-         Résumé, ...) — voir renderContentTypeChips dans filters.js */
-      .type-groups {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: wrap;
         gap: 8px;
-        max-height: 220px;
-        overflow-y: auto;
-        padding: 2px;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(157, 92, 230, 0.5) transparent;
-      }
-      .type-groups::-webkit-scrollbar {
-        width: 5px;
-      }
-      .type-groups::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .type-groups::-webkit-scrollbar-thumb {
-        background: linear-gradient(180deg, var(--cyan), var(--purple));
-        border-radius: 20px;
-      }
-      /* boîte de largeur libre (au contenu), plusieurs par ligne grâce au
-         wrap du parent — pas une colonne pleine largeur comme les groupes
-         de filtres (Listes/Genres/...) plus bas, qui eux n'ont qu'un seul
-         groupe visible à la fois par ligne */
-      .type-group {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding: 8px 10px;
-        border: 1px solid rgba(157, 92, 230, 0.18);
-        border-radius: 12px;
-        background: rgba(157, 92, 230, 0.04);
-      }
-      .type-group .chips {
-        max-height: none;
-        overflow-y: visible;
-      }
-      .type-group-label {
-        font-family: var(--sans);
-        font-weight: 600;
-        font-size: 13px;
-        color: var(--cream);
       }
       .chip-group-label {
         font-family: var(--mono);
@@ -632,38 +1119,23 @@
         text-transform: uppercase;
         color: var(--muted);
       }
+      /* plus de max-height/overflow ici : ça rognait silencieusement une
+         partie des types et des genres, sans aucune affordance de scroll */
       .chips {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        max-height: 150px;
-        overflow-y: auto;
-        padding: 2px;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(157, 92, 230, 0.5) transparent;
-      }
-      .chips::-webkit-scrollbar {
-        width: 5px;
-      }
-      .chips::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .chips::-webkit-scrollbar-thumb {
-        background: linear-gradient(180deg, var(--cyan), var(--purple));
-        border-radius: 20px;
-      }
-      .chips::-webkit-scrollbar-thumb:hover {
-        background: linear-gradient(180deg, var(--purple), var(--cyan));
+        padding: 1px;
       }
       #chipsQuality {
-        justify-content: center;
+        justify-content: flex-start;
       }
       .chip {
         font-family: var(--mono);
         font-size: 12px;
-        padding: 6px 11px;
+        padding: 7px 12px;
         border-radius: 20px;
-        border: 1px solid rgba(157, 92, 230, 0.18);
+        border: 1px solid var(--line);
         background: rgba(157, 92, 230, 0.05);
         color: var(--muted);
         cursor: pointer;
@@ -673,21 +1145,31 @@
           border-color 0.15s,
           color 0.15s,
           background 0.15s,
+          transform 0.12s,
           box-shadow 0.15s;
+      }
+      .chip:hover {
+        border-color: var(--line-strong);
+        color: var(--cream);
+        transform: translateY(-1px);
+      }
+      .chip:active {
+        transform: translateY(1px) scale(0.97);
       }
       .chip.active {
         border-color: var(--amber);
         color: var(--amber);
         background: rgba(232, 163, 61, 0.1);
-        animation: chip-pop 0.2s ease-out;
+        box-shadow: 0 0 12px rgba(232, 163, 61, 0.18);
+        animation: chip-pop 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.5);
       }
       /* badges de type de contenu : plus grands, translucides, halo cyan une fois actifs */
       .chip.chip-type {
         font-family: var(--sans);
         font-weight: 600;
         font-size: 13px;
-        padding: 9px 16px;
-        border-radius: 14px;
+        padding: 9px 14px;
+        border-radius: 12px;
         border: 2px solid rgba(157, 92, 230, 0.25);
         background: rgba(157, 92, 230, 0.08);
       }
@@ -701,7 +1183,10 @@
       }
       @keyframes chip-pop {
         0% {
-          transform: scale(0.92);
+          transform: scale(0.88);
+        }
+        60% {
+          transform: scale(1.06);
         }
         100% {
           transform: scale(1);
@@ -715,77 +1200,212 @@
         opacity: 0.6;
         margin-left: 4px;
       }
-      .duration-hint {
-        font-family: var(--mono);
-        font-size: 11px;
-        color: var(--muted);
-      }
 
-      .stage {
-        position: relative;
-        background: #000;
-        aspect-ratio: 16/9;
+      /* ---------- grille des types de contenu ---------- */
+
+      /* grille auto-ajustée plutôt qu'un flex-wrap dans une boîte de
+         hauteur fixe : les 12 types sont tous visibles, et les colonnes
+         s'adaptent de 1 (mobile) à 3 (desktop) sans media query */
+      .type-groups {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+        gap: 10px;
+      }
+      .type-group {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      }
-      .stage video {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        display: block;
-        background: #000;
-      }
-      .stage-placeholder {
-        font-family: var(--mono);
-        font-size: 13px;
-        color: var(--muted);
-        text-align: center;
-        padding: 24px;
-        line-height: 1.7;
-        white-space: pre-line;
-      }
-
-      .progress {
-        height: 3px;
-        background: rgba(157, 92, 230, 0.15);
-      }
-      .progress-bar {
-        position: relative;
-        height: 100%;
-        width: 0%;
-        background: var(--amber);
-        transition: width 0.15s;
-        overflow: hidden;
-      }
-      .progress-bar::after {
-        content: "";
-        position: absolute;
-        inset: 0;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
         background: linear-gradient(
-          90deg,
-          transparent 0%,
-          rgba(255, 255, 255, 0.55) 50%,
-          transparent 100%
+          160deg,
+          rgba(157, 92, 230, 0.07),
+          rgba(157, 92, 230, 0.02)
         );
-        transform: translateX(-100%);
-        animation: shimmer 1.4s ease-in-out infinite;
+        transition:
+          border-color 0.18s,
+          transform 0.18s,
+          box-shadow 0.18s;
       }
-      @keyframes shimmer {
+      .type-group:hover {
+        border-color: var(--line-strong);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.8);
+      }
+      /* la carte s'allume dès qu'un de ses modes est coché */
+      .type-group:has(.chip.active) {
+        border-color: rgba(79, 209, 232, 0.45);
+        background: linear-gradient(
+          160deg,
+          rgba(79, 209, 232, 0.1),
+          rgba(157, 92, 230, 0.04)
+        );
+      }
+      .type-group-label {
+        font-family: var(--game);
+        font-weight: 700;
+        font-size: 14px;
+        color: var(--cream);
+      }
+      /* entrée en cascade des cartes — uniquement au premier rendu (classe
+         posée puis retirée par renderContentTypeChips) : la grille est
+         reconstruite à chaque clic, rejouer la cascade à chaque fois
+         donnerait un scintillement permanent */
+      .type-groups.intro .type-group {
+        animation: card-in 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.25) backwards;
+      }
+      .type-groups.intro .type-group:nth-child(1) {
+        animation-delay: 0.02s;
+      }
+      .type-groups.intro .type-group:nth-child(2) {
+        animation-delay: 0.06s;
+      }
+      .type-groups.intro .type-group:nth-child(3) {
+        animation-delay: 0.1s;
+      }
+      .type-groups.intro .type-group:nth-child(4) {
+        animation-delay: 0.14s;
+      }
+      .type-groups.intro .type-group:nth-child(5) {
+        animation-delay: 0.18s;
+      }
+      .type-groups.intro .type-group:nth-child(6) {
+        animation-delay: 0.22s;
+      }
+      .type-groups.intro .type-group:nth-child(7) {
+        animation-delay: 0.26s;
+      }
+      .type-groups.intro .type-group:nth-child(8) {
+        animation-delay: 0.3s;
+      }
+      .type-groups.intro .type-group:nth-child(9) {
+        animation-delay: 0.34s;
+      }
+      .type-groups.intro .type-group:nth-child(10) {
+        animation-delay: 0.38s;
+      }
+      .type-groups.intro .type-group:nth-child(11) {
+        animation-delay: 0.42s;
+      }
+      .type-groups.intro .type-group:nth-child(12) {
+        animation-delay: 0.46s;
+      }
+      @keyframes card-in {
+        0% {
+          opacity: 0;
+          transform: translateY(14px) scale(0.96);
+        }
         100% {
-          transform: translateX(100%);
+          opacity: 1;
+          transform: translateY(0) scale(1);
         }
       }
-      .controls {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        align-items: center;
-        justify-content: center;
-        padding: 20px 22px;
-        border-top: 1px solid rgba(157, 92, 230, 0.16);
+
+      /* ---------- barre d'action fixe ---------- */
+
+      /* fixée au viewport plutôt que sticky dans .card : la carte est en
+         overflow:hidden (pour le liseré dégradé), ce qui casserait sticky */
+      .actionbar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 55;
+        background: rgba(14, 13, 20, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-top: 1px solid var(--line-strong);
+        box-shadow: 0 -12px 30px -18px rgba(0, 0, 0, 0.9);
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
       }
+      .actionbar-inner {
+        max-width: 820px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .actionbar-meta {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .pool-line {
+        display: flex;
+        align-items: baseline;
+        gap: 7px;
+        font-family: var(--game);
+        font-weight: 800;
+        font-size: 17px;
+        color: var(--cyan);
+        line-height: 1.1;
+        white-space: nowrap;
+      }
+      .pool-line .pool-unit {
+        font-family: var(--mono);
+        font-weight: 500;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      /* le compteur vire à l'ambre en même temps que le bandeau d'alerte */
+      .actionbar.warn .pool-line {
+        color: var(--amber);
+      }
+      .actionbar.warn .duration-hint {
+        color: var(--amber);
+        opacity: 0.85;
+      }
+      /* flash directionnel à chaque changement de pool : on voit d'un coup
+         d'œil si le dernier filtre a élargi ou rétréci le champ */
+      #poolCount {
+        display: inline-block;
+        transition: color 0.25s;
+      }
+      #poolCount.up {
+        animation: pool-up 0.5s ease-out;
+      }
+      #poolCount.down {
+        animation: pool-down 0.5s ease-out;
+      }
+      @keyframes pool-up {
+        0% {
+          color: var(--green);
+          transform: translateY(3px) scale(1.14);
+        }
+        100% {
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes pool-down {
+        0% {
+          color: var(--amber);
+          transform: translateY(-3px) scale(1.14);
+        }
+        100% {
+          transform: translateY(0) scale(1);
+        }
+      }
+      .duration-hint {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--muted);
+        line-height: 1.45;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .hint {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--amber);
+        line-height: 1.5;
+      }
+
       button {
         font-family: var(--game);
         font-size: 15px;
@@ -823,13 +1443,40 @@
         cursor: not-allowed;
         box-shadow: none;
       }
+      #btnGenerate {
+        flex-shrink: 0;
+      }
+      /* respiration discrète tant que la génération est possible ; coupée
+         au survol pour rendre la main au box-shadow de :hover */
+      #btnGenerate:not(:disabled) {
+        animation: gen-ready 3.2s ease-in-out infinite;
+      }
+      #btnGenerate:not(:disabled):hover,
+      #btnGenerate:not(:disabled):active {
+        animation: none;
+      }
+      @keyframes gen-ready {
+        0%,
+        100% {
+          box-shadow:
+            0 6px 0 #a5701f,
+            0 10px 22px rgba(232, 163, 61, 0.35);
+        }
+        50% {
+          box-shadow:
+            0 6px 0 #a5701f,
+            0 12px 30px rgba(232, 163, 61, 0.6);
+        }
+      }
       button.ghost {
-        background: rgba(157, 92, 230, 0.1);
+        background: rgba(157, 92, 230, 0.12);
         color: var(--cream);
+        font-size: 13px;
+        padding: 10px 18px;
         box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
       }
       button.ghost:hover:not(:disabled) {
-        background: rgba(157, 92, 230, 0.18);
+        background: rgba(157, 92, 230, 0.2);
         transform: translateY(-2px);
         box-shadow: 0 6px 0 rgba(0, 0, 0, 0.3);
       }
@@ -837,61 +1484,84 @@
         transform: translateY(2px) scale(0.98);
         box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
       }
-      .status {
+
+      .stats-line {
+        text-align: center;
         font-family: var(--mono);
-        font-size: 12px;
+        font-size: 10.5px;
         color: var(--muted);
-        padding: 0 20px 18px;
-      }
-      .status.rec {
-        color: var(--green);
-      }
-      .status.rec::before {
-        content: "● ";
-      }
-      .status.err {
-        color: #d9694f;
+        opacity: 0.75;
+        margin: 20px 0 0;
       }
 
-      .result-row {
-        display: none;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-        padding: 0 20px 18px;
+      /* ---------- adaptations petites largeurs ---------- */
+
+      @media (max-width: 620px) {
+        :root {
+          --bar-h: 72px;
+        }
+        body {
+          padding: 20px 12px calc(var(--bar-h) + 24px);
+        }
+        .step-head,
+        .status,
+        .result-row,
+        .answers {
+          padding-left: 15px;
+          padding-right: 15px;
+        }
+        .step-body {
+          padding: 4px 15px 20px;
+        }
+        /* label au-dessus du contrôle : sous ~620px, garder les deux sur la
+           même ligne écrase le slider à quelques pixels */
+        .settings-label {
+          flex: 1 0 100%;
+          min-width: 0;
+        }
+        .settings-row > .settings-label[style*="auto"] {
+          flex: 0 0 auto;
+        }
+        .btn-daily {
+          width: 100%;
+          justify-content: center;
+        }
+        .actionbar-inner {
+          gap: 10px;
+        }
+        .pool-line {
+          font-size: 15px;
+        }
+        .pool-line .pool-unit {
+          font-size: 9px;
+        }
+        #btnGenerate {
+          padding: 12px 18px;
+          font-size: 14px;
+        }
+        /* le bouton flottant mangerait trop de largeur : gâteau seul */
+        .btn-daily-float {
+          width: 52px;
+          height: 52px;
+          padding: 0;
+          gap: 0;
+        }
+        .btn-daily-float-icon {
+          font-size: 25px;
+        }
+        .btn-daily-float-text {
+          display: none;
+        }
       }
-      .result-row.show {
-        display: flex;
-      }
-      .result-row a {
-        font-family: var(--mono);
-        font-size: 12px;
-        color: var(--amber);
-        text-decoration: none;
-        border-bottom: 1px solid var(--amber);
-      }
-      .answers {
-        display: none;
-        font-family: var(--mono);
-        font-size: 12px;
-        color: var(--muted);
-        padding: 0 20px 20px;
-        line-height: 1.8;
-        max-height: 200px;
-        overflow-y: auto;
-      }
-      .answers.show {
-        display: block;
-      }
-      .answers span {
-        color: var(--cream);
-      }
-      .hint {
-        font-family: var(--mono);
-        font-size: 11px;
-        color: var(--muted);
-        margin-top: 8px;
-        line-height: 1.6;
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
       }
     </style>
   </head>
@@ -910,6 +1580,8 @@
           <img src="/logo.png" alt="Guess It" class="hero-logo" />
         </div>
       </div>
+      <p class="tagline">Fabrique ton quiz vidéo</p>
+
       <div class="daily-cta">
         <button id="btnGenerateDaily" class="btn-daily">
           <span class="btn-daily-icon">🎂</span>
@@ -919,280 +1591,17 @@
           </span>
         </button>
       </div>
-      <button id="btnGenerateDailyFloat" class="btn-daily-float">
+      <button
+        id="btnGenerateDailyFloat"
+        class="btn-daily-float"
+        aria-label="Quiz du jour"
+        title="Quiz du jour"
+      >
         <span class="btn-daily-float-icon">🎂</span>
         <span class="btn-daily-float-text">Quiz du jour</span>
       </button>
 
-      <h1>Configure ton quiz</h1>
-
       <div class="card">
-        <div class="settings">
-          <span class="chip-group-label" style="font-size: 13px"
-            >Type de question</span
-          >
-          <div id="chipsContentType" class="type-groups"></div>
-          <div class="chip-group" id="groupImageParams">
-            <span class="chip-group-label">🖼️</span>
-            <div class="settings-row" id="rowImagesPerItem">
-              <label class="settings-label" for="imagesPerItemRange"
-                >Nombre de photos</label
-              >
-              <input
-                type="range"
-                id="imagesPerItemRange"
-                min="1"
-                max="20"
-                step="1"
-                value="3"
-              />
-              <input
-                type="number"
-                id="imagesPerItemNumber"
-                min="1"
-                max="20"
-                value="3"
-              />
-            </div>
-            <div class="settings-row" id="rowImageSec">
-              <label class="settings-label" for="imageSecRange"
-                >Durée par photo</label
-              >
-              <input
-                type="range"
-                id="imageSecRange"
-                min="2"
-                max="10"
-                step="1"
-                value="5"
-              />
-              <input
-                type="number"
-                id="imageSecNumber"
-                min="2"
-                max="10"
-                value="5"
-              /><span class="settings-label" style="min-width: auto">sec</span>
-            </div>
-          </div>
-          <div class="chip-group" id="groupAudioParams">
-            <span class="chip-group-label">🎧</span>
-            <div class="settings-row" id="rowAudioSpeed">
-              <label class="settings-label" id="audioSpeedLabel"
-                >Durée de l'extrait</label
-              >
-              <div
-                id="chipsAudioSpeed"
-                class="chips"
-                role="group"
-                aria-labelledby="audioSpeedLabel"
-              ></div>
-            </div>
-          </div>
-          <div class="chip-group" id="groupFlagParams">
-            <span class="chip-group-label">🚩</span>
-            <div class="settings-row" id="rowFlagSec">
-              <label class="settings-label" for="flagSecRange"
-                >Durée d'affichage</label
-              >
-              <input
-                type="range"
-                id="flagSecRange"
-                min="2"
-                max="10"
-                step="1"
-                value="5"
-              />
-              <input
-                type="number"
-                id="flagSecNumber"
-                min="2"
-                max="10"
-                value="5"
-              /><span class="settings-label" style="min-width: auto">sec</span>
-            </div>
-          </div>
-          <div class="chip-group" id="groupSummaryParams">
-            <span class="chip-group-label">📖</span>
-            <div id="groupSummaryPerItemParams">
-              <div class="settings-row" id="rowSummaryPerItem">
-                <label class="settings-label" for="summaryPerItemRange"
-                  >Nombre de résumés</label
-                >
-                <input
-                  type="range"
-                  id="summaryPerItemRange"
-                  min="1"
-                  max="5"
-                  step="1"
-                  value="2"
-                />
-                <input
-                  type="number"
-                  id="summaryPerItemNumber"
-                  min="1"
-                  max="5"
-                  value="2"
-                />
-              </div>
-            </div>
-            <div class="settings-row" id="rowSummarySpeed">
-              <label class="settings-label" id="summarySpeedLabel"
-                >Vitesse de lecture</label
-              >
-              <div
-                id="chipsSummarySpeed"
-                class="chips"
-                role="group"
-                aria-labelledby="summarySpeedLabel"
-              ></div>
-            </div>
-          </div>
-          <div class="settings-row">
-            <label class="settings-label" for="filterSearch">Rechercher</label>
-            <div class="search-wrap">
-              <span class="search-icon" aria-hidden="true">🔎</span>
-              <input
-                type="text"
-                id="filterSearch"
-                class="search-input"
-                placeholder="Filtrer les catégories..."
-                autocomplete="off"
-              />
-            </div>
-          </div>
-
-          <span class="chip-group-label" style="font-size: 13px"
-            >Filtres — sans sélection, toutes les réponses possibles sont
-            incluses</span
-          >
-          <div class="chip-group">
-            <span class="chip-group-label" id="listesLabel">Listes</span>
-            <div
-              id="chipsListes"
-              class="chips"
-              role="group"
-              aria-labelledby="listesLabel"
-            >
-              <span class="settings-label" style="min-width: auto"
-                >chargement…</span
-              >
-            </div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="decadesLabel">Décennies</span>
-            <div
-              id="chipsDecades"
-              class="chips"
-              role="group"
-              aria-labelledby="decadesLabel"
-            ></div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="genresLabel">Genres</span>
-            <div
-              id="chipsGenres"
-              class="chips"
-              role="group"
-              aria-labelledby="genresLabel"
-            ></div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="geographyLabel">Géographie</span>
-            <div
-              id="chipsGeography"
-              class="chips"
-              role="group"
-              aria-labelledby="geographyLabel"
-            ></div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="rolesLabel">Rôle</span>
-            <div
-              id="chipsRoles"
-              class="chips"
-              role="group"
-              aria-labelledby="rolesLabel"
-            ></div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="populationLabel"
-              >Population</span
-            >
-            <div
-              id="chipsPopulation"
-              class="chips"
-              role="group"
-              aria-labelledby="populationLabel"
-            ></div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="superficieLabel"
-              >Superficie</span
-            >
-            <div
-              id="chipsSuperficie"
-              class="chips"
-              role="group"
-              aria-labelledby="superficieLabel"
-            ></div>
-          </div>
-          <div class="chip-group">
-            <span class="chip-group-label" id="categoriesLabel">Catégorie</span>
-            <div
-              id="chipsCategories"
-              class="chips"
-              role="group"
-              aria-labelledby="categoriesLabel"
-            ></div>
-          </div>
-
-          <div class="settings-row">
-            <label class="settings-label" for="countRange"
-              >Nombre de questions</label
-            >
-            <input
-              type="range"
-              id="countRange"
-              min="5"
-              max="50"
-              step="1"
-              value="10"
-            />
-            <input type="number" id="countNumber" min="5" max="50" value="10" />
-            <span
-              id="countCapNote"
-              class="hint"
-              style="display: none; margin: 0"
-            ></span>
-          </div>
-
-          <div class="settings-row">
-            <label class="settings-label" for="revealSecRange"
-              >Temps réponse</label
-            >
-            <input
-              type="range"
-              id="revealSecRange"
-              min="2"
-              max="15"
-              step="1"
-              value="5"
-            />
-            <input
-              type="number"
-              id="revealSecNumber"
-              min="2"
-              max="15"
-              value="5"
-            /><span class="settings-label" style="min-width: auto">sec</span>
-          </div>
-
-          <div id="durationHint" class="duration-hint" aria-live="polite">
-            Durée estimée : — · max disponible : —
-          </div>
-        </div>
-
         <div class="stage" id="stage">
           <div class="stage-placeholder" id="stagePlaceholder">
             Configure tes réglages puis clique sur « Générer le quizz »
@@ -1202,16 +1611,23 @@
           <div id="progressBar" class="progress-bar"></div>
         </div>
 
-        <div
-          id="chipsQuality"
-          class="chips"
-          role="group"
-          aria-label="Qualité de rendu"
-        ></div>
-
-        <div class="controls">
-          <button id="btnGenerate">Générer le quizz</button>
+        <!-- la barre balaie 0→100 DEUX fois (préchargement puis encodage) :
+             sans ces jalons les deux passes sont indistinguables -->
+        <div id="phases" class="phases">
+          <span class="phase" id="phaseFetch"
+            ><i class="phase-dot"></i>Titres</span
+          >
+          <i class="phase-sep"></i>
+          <span class="phase" id="phasePreload"
+            ><i class="phase-dot"></i>Préchargement</span
+          >
+          <i class="phase-sep"></i>
+          <span class="phase" id="phaseRender"
+            ><i class="phase-dot"></i>Rendu</span
+          >
+          <span class="phase-pct" id="progressPct"></span>
         </div>
+
         <div id="status" class="status" aria-live="polite">
           Récupération des catégories…
         </div>
@@ -1221,12 +1637,479 @@
             >↓ Télécharger la vidéo</a
           >
           <button id="btnToggleAnswers" class="ghost">
-            Voir la liste des titres
+            Voir les réponses
           </button>
         </div>
         <div id="answers" class="answers"></div>
+
+        <!-- étape 1 : ouverte d'emblée, c'est le seul choix obligatoire -->
+        <details class="step" open>
+          <summary class="step-head">
+            <span class="step-num">1</span>
+            <span class="step-title">Quoi deviner</span>
+            <span class="step-badge" id="typeCountBadge"></span>
+            <span class="step-chevron" aria-hidden="true">▼</span>
+          </summary>
+          <div class="step-body">
+            <div id="typeEmptyWarning" class="empty-warning" style="display: none">
+              <span class="empty-warning-icon">⚠️</span>
+              <span
+                >Aucun type sélectionné — coche au moins une carte ci-dessous
+                pour pouvoir générer un quiz.</span
+              >
+            </div>
+            <div id="chipsContentType" class="type-groups"></div>
+          </div>
+        </details>
+
+        <!-- étape 2 : repliée — sans sélection, tout le pool est inclus,
+             donc l'utilisateur peut légitimement ne jamais l'ouvrir -->
+        <details class="step">
+          <summary class="step-head">
+            <span class="step-num">2</span>
+            <span class="step-title">Filtres</span>
+            <span class="step-badge" id="filterCountBadge"></span>
+            <span class="step-chevron" aria-hidden="true">▼</span>
+          </summary>
+          <div class="step-body">
+            <div class="search-wrap">
+              <span class="search-icon" aria-hidden="true">🔎</span>
+              <input
+                type="text"
+                id="filterSearch"
+                class="search-input"
+                placeholder="Rechercher une catégorie…"
+                aria-label="Rechercher une catégorie"
+                autocomplete="off"
+              />
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="listesLabel">Listes</span>
+              <div
+                id="chipsListes"
+                class="chips"
+                role="group"
+                aria-labelledby="listesLabel"
+              >
+                <span class="settings-label" style="min-width: auto"
+                  >chargement…</span
+                >
+              </div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="decadesLabel">Décennies</span>
+              <div
+                id="chipsDecades"
+                class="chips"
+                role="group"
+                aria-labelledby="decadesLabel"
+              ></div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="genresLabel">Genres</span>
+              <div
+                id="chipsGenres"
+                class="chips"
+                role="group"
+                aria-labelledby="genresLabel"
+              ></div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="geographyLabel"
+                >Géographie</span
+              >
+              <div
+                id="chipsGeography"
+                class="chips"
+                role="group"
+                aria-labelledby="geographyLabel"
+              ></div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="rolesLabel">Rôle</span>
+              <div
+                id="chipsRoles"
+                class="chips"
+                role="group"
+                aria-labelledby="rolesLabel"
+              ></div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="populationLabel"
+                >Population</span
+              >
+              <div
+                id="chipsPopulation"
+                class="chips"
+                role="group"
+                aria-labelledby="populationLabel"
+              ></div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="superficieLabel"
+                >Superficie</span
+              >
+              <div
+                id="chipsSuperficie"
+                class="chips"
+                role="group"
+                aria-labelledby="superficieLabel"
+              ></div>
+            </div>
+            <div class="chip-group">
+              <span class="chip-group-label" id="categoriesLabel"
+                >Catégorie</span
+              >
+              <div
+                id="chipsCategories"
+                class="chips"
+                role="group"
+                aria-labelledby="categoriesLabel"
+              ></div>
+            </div>
+          </div>
+        </details>
+
+        <!-- étape 3 : repliée — tout y a un défaut raisonnable -->
+        <details class="step">
+          <summary class="step-head">
+            <span class="step-num">3</span>
+            <span class="step-title">Réglages</span>
+            <span class="step-chevron" aria-hidden="true">▼</span>
+          </summary>
+          <div class="step-body">
+            <div class="chip-group">
+              <span class="chip-group-label">Le quiz</span>
+              <div class="settings-row">
+                <label class="settings-label" for="countRange"
+                  >Nombre de questions</label
+                >
+                <input
+                  type="range"
+                  id="countRange"
+                  min="5"
+                  max="50"
+                  step="1"
+                  value="10"
+                />
+                <input
+                  type="number"
+                  id="countNumber"
+                  min="5"
+                  max="50"
+                  value="10"
+                />
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="revealSecRange"
+                  >Temps réponse</label
+                >
+                <input
+                  type="range"
+                  id="revealSecRange"
+                  min="2"
+                  max="15"
+                  step="1"
+                  value="5"
+                />
+                <input
+                  type="number"
+                  id="revealSecNumber"
+                  min="2"
+                  max="15"
+                  value="5"
+                /><span class="settings-label" style="min-width: auto"
+                  >sec</span
+                >
+              </div>
+              <span
+                id="countCapNote"
+                class="hint"
+                style="display: none"
+              ></span>
+            </div>
+
+            <!-- groupes affichés/masqués selon les modes actifs
+                 (updateSettingsVisibility dans filters.js) -->
+            <div class="chip-group" id="groupImageParams">
+              <span class="chip-group-label">🖼️ Questions en photo</span>
+              <div class="settings-row" id="rowImagesPerItem">
+                <label class="settings-label" for="imagesPerItemRange"
+                  >Nombre de photos</label
+                >
+                <input
+                  type="range"
+                  id="imagesPerItemRange"
+                  min="1"
+                  max="20"
+                  step="1"
+                  value="3"
+                />
+                <input
+                  type="number"
+                  id="imagesPerItemNumber"
+                  min="1"
+                  max="20"
+                  value="3"
+                />
+              </div>
+              <div class="settings-row" id="rowImageSec">
+                <label class="settings-label" for="imageSecRange"
+                  >Durée par photo</label
+                >
+                <input
+                  type="range"
+                  id="imageSecRange"
+                  min="2"
+                  max="10"
+                  step="1"
+                  value="5"
+                />
+                <input
+                  type="number"
+                  id="imageSecNumber"
+                  min="2"
+                  max="10"
+                  value="5"
+                /><span class="settings-label" style="min-width: auto"
+                  >sec</span
+                >
+              </div>
+            </div>
+
+            <div class="chip-group" id="groupAudioParams">
+              <span class="chip-group-label">🎧 Questions en audio</span>
+              <div class="settings-row" id="rowAudioSpeed">
+                <label class="settings-label" id="audioSpeedLabel"
+                  >Durée de l'extrait</label
+                >
+                <div
+                  id="chipsAudioSpeed"
+                  class="chips"
+                  role="group"
+                  aria-labelledby="audioSpeedLabel"
+                ></div>
+              </div>
+            </div>
+
+            <div class="chip-group" id="groupFlagParams">
+              <span class="chip-group-label">🚩 Questions en drapeau</span>
+              <div class="settings-row" id="rowFlagSec">
+                <label class="settings-label" for="flagSecRange"
+                  >Durée d'affichage</label
+                >
+                <input
+                  type="range"
+                  id="flagSecRange"
+                  min="2"
+                  max="10"
+                  step="1"
+                  value="5"
+                />
+                <input
+                  type="number"
+                  id="flagSecNumber"
+                  min="2"
+                  max="10"
+                  value="5"
+                /><span class="settings-label" style="min-width: auto"
+                  >sec</span
+                >
+              </div>
+            </div>
+
+            <div class="chip-group" id="groupMapParams">
+              <span class="chip-group-label">🗺️ Questions en carte</span>
+              <div class="settings-row" id="rowMapSec">
+                <label class="settings-label" for="mapSecRange"
+                  >Durée de zoom</label
+                >
+                <input
+                  type="range"
+                  id="mapSecRange"
+                  min="3"
+                  max="15"
+                  step="1"
+                  value="8"
+                />
+                <input
+                  type="number"
+                  id="mapSecNumber"
+                  min="3"
+                  max="15"
+                  value="8"
+                /><span class="settings-label" style="min-width: auto"
+                  >sec</span
+                >
+              </div>
+            </div>
+
+            <div class="chip-group" id="groupLeaderParams">
+              <span class="chip-group-label"
+                >🏛️ Questions en chef d'État (indice chef d'État)</span
+              >
+              <div class="settings-row" id="rowLeaderSec">
+                <label class="settings-label" for="leaderSecRange"
+                  >Durée d'affichage</label
+                >
+                <input
+                  type="range"
+                  id="leaderSecRange"
+                  min="2"
+                  max="10"
+                  step="1"
+                  value="5"
+                />
+                <input
+                  type="number"
+                  id="leaderSecNumber"
+                  min="2"
+                  max="10"
+                  value="5"
+                /><span class="settings-label" style="min-width: auto"
+                  >sec</span
+                >
+              </div>
+              <div class="settings-row" id="rowShowLeaderName">
+                <label class="settings-label" for="showLeaderNameCheckbox"
+                  >Afficher le nom du chef d'État</label
+                >
+                <input
+                  type="checkbox"
+                  id="showLeaderNameCheckbox"
+                  checked
+                />
+              </div>
+            </div>
+
+            <div class="chip-group" id="groupStatesmanParams">
+              <span class="chip-group-label"
+                >🏛️ Questions en chef d'État (indice pays)</span
+              >
+              <div class="settings-row" id="rowStatesmanSec">
+                <label class="settings-label" for="statesmanSecRange"
+                  >Durée d'affichage</label
+                >
+                <input
+                  type="range"
+                  id="statesmanSecRange"
+                  min="2"
+                  max="10"
+                  step="1"
+                  value="5"
+                />
+                <input
+                  type="number"
+                  id="statesmanSecNumber"
+                  min="2"
+                  max="10"
+                  value="5"
+                /><span class="settings-label" style="min-width: auto"
+                  >sec</span
+                >
+              </div>
+              <div class="settings-row" id="rowShowCountryName">
+                <label class="settings-label" for="showCountryNameCheckbox"
+                  >Afficher le nom du pays</label
+                >
+                <input
+                  type="checkbox"
+                  id="showCountryNameCheckbox"
+                  checked
+                />
+              </div>
+            </div>
+
+            <div class="chip-group" id="groupSummaryParams">
+              <span class="chip-group-label">📖 Questions en résumé</span>
+              <div id="groupSummaryPerItemParams">
+                <div class="settings-row" id="rowSummaryPerItem">
+                  <label class="settings-label" for="summaryPerItemRange"
+                    >Nombre de résumés</label
+                  >
+                  <input
+                    type="range"
+                    id="summaryPerItemRange"
+                    min="1"
+                    max="5"
+                    step="1"
+                    value="2"
+                  />
+                  <input
+                    type="number"
+                    id="summaryPerItemNumber"
+                    min="1"
+                    max="5"
+                    value="2"
+                  />
+                </div>
+              </div>
+              <div class="settings-row" id="rowSummarySpeed">
+                <label class="settings-label" id="summarySpeedLabel"
+                  >Vitesse de lecture</label
+                >
+                <div
+                  id="chipsSummarySpeed"
+                  class="chips"
+                  role="group"
+                  aria-labelledby="summarySpeedLabel"
+                ></div>
+              </div>
+              <div class="settings-row" id="rowMaxSummaryLen">
+                <label class="settings-label" for="maxSummaryLenRange"
+                  >Longueur max</label
+                >
+                <input
+                  type="range"
+                  id="maxSummaryLenRange"
+                  min="100"
+                  max="1000"
+                  step="50"
+                  value="1000"
+                />
+                <input
+                  type="number"
+                  id="maxSummaryLenNumber"
+                  min="100"
+                  max="1000"
+                  value="1000"
+                /><span class="settings-label" style="min-width: auto"
+                  >car.</span
+                >
+              </div>
+            </div>
+
+            <div class="chip-group">
+              <span class="chip-group-label" id="qualityLabel"
+                >Qualité de rendu</span
+              >
+              <div
+                id="chipsQuality"
+                class="chips"
+                role="group"
+                aria-labelledby="qualityLabel"
+              ></div>
+            </div>
+          </div>
+        </details>
       </div>
+
       <p id="statsLine" class="stats-line">Quiz générés au total : —</p>
+    </div>
+
+    <div class="actionbar">
+      <div class="actionbar-inner">
+        <div class="actionbar-meta">
+          <span class="pool-line">
+            <span id="poolCount">—</span>
+            <span class="pool-unit">réponses possibles</span>
+          </span>
+          <span id="durationHint" class="duration-hint" aria-live="polite">
+            Durée estimée : —
+          </span>
+        </div>
+        <button id="btnGenerate">Générer le quizz</button>
+      </div>
     </div>
 
     <script type="module" src="/js/main.js"></script>

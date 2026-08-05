@@ -20,6 +20,7 @@ export const TTL_MS = {
   mediaImage: ONE_MONTH_MS, // backdrops/profils/screenshots (changent quasi jamais)
   painterArtwork: ONE_MONTH_MS,
   countryPhoto: ONE_MONTH_MS,
+  countryLeader: ONE_DAY_MS, // chef d'État actuel (change avec les élections, contrairement au reste des données pays)
   personBirthday: ONE_MONTH_MS, // couvre aussi place_of_birth (même appel TMDb)
   movieDirector: ONE_MONTH_MS,
   directorFilmography: ONE_MONTH_MS,
@@ -80,6 +81,18 @@ CREATE TABLE IF NOT EXISTS music_track (
   poster_url TEXT NOT NULL,
   release_date TEXT,
   updated_at INTEGER NOT NULL
+);
+
+-- résolution "artiste + titre exact" → trackId iTunes, mémorisée entre les
+-- crawls (voir fetchBlindtestTracks) : la config music.blindtestSongs reste la
+-- source de vérité en clair, mais on ne repaie plus une recherche iTunes par
+-- morceau à chaque passe — l'API Search est la seule bridée agressivement
+-- (403), Lookup accepte 150 ids d'un coup. Clé = artiste|titre normalisés,
+-- donc éditer la config invalide d'elle-même l'entrée correspondante.
+CREATE TABLE IF NOT EXISTS music_search_resolution (
+  query_key TEXT PRIMARY KEY,
+  track_id INTEGER NOT NULL,
+  resolved_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS country (
@@ -190,6 +203,7 @@ CREATE TABLE IF NOT EXISTS wiki_article (
   aliases TEXT,
   loose_redaction INTEGER NOT NULL DEFAULT 0,
   popularity REAL,
+  event_date TEXT,
   updated_at INTEGER NOT NULL
 );
 
@@ -373,6 +387,21 @@ function migrate() {
     ["population", "INTEGER"],
     ["area", "REAL"],
     ["subregion", "TEXT"],
+    // chef d'État actuel (questionType "leader") — voir
+    // fetchAndStoreCountryLeader dans refresh/wikipedia.js. leader_person_id
+    // pointe vers une ligne person (role=politician), leader_name/
+    // leader_portrait_url sont dénormalisés ici pour que getCountryPool
+    // (SELECT t.* générique, voir db/typeItem.js) les expose sans jointure.
+    ["leader_person_id", "INTEGER"],
+    ["leader_name", "TEXT"],
+    ["leader_portrait_url", "TEXT"],
+    // intitulé du poste (ex. "Président de la République française",
+    // "Empereur") — cible du wikilien de `titre_dirigeant` dans l'infobox,
+    // voir countryLeaderFromDump (refresh/frwiki-dump.js). Affiché au
+    // reveal du questionType "statesman" (server.js), pas alimenté pour
+    // "leader" (même source, juste inutilisé dans ce sens-là).
+    ["leader_title", "TEXT"],
+    ["leader_checked_at", "INTEGER"],
   ]) {
     if (!countryCols.includes(col)) {
       try {
@@ -411,6 +440,15 @@ function migrate() {
       if (!/duplicate column name/i.test(e.message)) throw e;
     }
   }
+  // date d'événement (bataille/guerre), précision jour uniquement — voir
+  // setWikiArticleEventDates/fetchEventDates dans refresh/wikipedia.js.
+  if (!wikiArticleCols.includes("event_date")) {
+    try {
+      db.exec("ALTER TABLE wiki_article ADD COLUMN event_date TEXT");
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
   // résumé (extrait Wikipédia FR) + poste occupé (P39) + métier précis (P106)
   // — alimentés uniquement pour les rôles "person" via Wikidata (voir
   // fetchPersonRoleEntities dans refresh/wikidata.js), un acteur (source
@@ -443,6 +481,34 @@ function migrate() {
   if (!personColsForPhotos.includes("photos_checked_at")) {
     try {
       db.exec("ALTER TABLE person ADD COLUMN photos_checked_at INTEGER");
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
+  // "male"/"female"/"non_binary" — TMDb (gender 1/2/3, voir fetchPersonEntities/
+  // fetchAndStoreMovieCredits) ou Wikidata (P21, voir fetchPersonRoleEntities/
+  // fetchAndStoreCountryLeader) selon la source. Sert à désambiguïser les
+  // libellés d'occupation/poste au double genre (voir degenderLabel) ET au
+  // filtre "gender" (person/actor/director/painter/statesman, voir
+  // syncGenderFilters dans refresh/util.js).
+  if (!personColsForPhotos.includes("gender")) {
+    try {
+      db.exec("ALTER TABLE person ADD COLUMN gender TEXT");
+    } catch (e) {
+      if (!/duplicate column name/i.test(e.message)) throw e;
+    }
+  }
+  // notoriété musique (voir fetchMusicEntities) : contrairement à TMDb/IGDB,
+  // iTunes ne donne aucun score de popularité — seul signal disponible, le
+  // RANG dans un classement (1-100, position dans le flux RSS déjà
+  // récupéré), converti en valeur croissante (101 - rang) pour rester
+  // comparable au sens de storePopularityTiers (plus haut = plus populaire).
+  // Meilleur rang gardé quand un morceau apparaît dans plusieurs classements
+  // (pays différents).
+  const musicTrackCols = db.prepare("PRAGMA table_info(music_track)").all().map((c) => c.name);
+  if (!musicTrackCols.includes("popularity")) {
+    try {
+      db.exec("ALTER TABLE music_track ADD COLUMN popularity INTEGER");
     } catch (e) {
       if (!/duplicate column name/i.test(e.message)) throw e;
     }

@@ -7,13 +7,53 @@ import {
   MUSIC_BLINDTEST_SONGS,
   CATEGORY_FETCH_CONCURRENCY,
 } from "./config.js";
-import { mapWithConcurrency, tagFilter, storeFilterGroup } from "./util.js";
+import {
+  mapWithConcurrency,
+  tagFilter,
+  storeFilterGroup,
+  storePopularityTiers,
+  popularIdsFrom,
+} from "./util.js";
+
+// throttle global itunes.apple.com — même principe que tmdbGate/igdbGate : une
+// seule requête part toutes les ITUNES_MIN_INTERVAL_MS, quel que soit le
+// nombre d'appelants concurrents. Apple ne documente pas de quota chiffré mais
+// bride l'API Search autour de ~20 appels/minute ; sans gate, les 6 workers de
+// CATEGORY_FETCH_CONCURRENCY partaient en rafale et se prenaient des 403 en
+// continu. Le chart applemarketingtools est un autre hôte, il ne passe pas ici.
+let lastItunesCallTs = 0;
+let itunesGateQueue = Promise.resolve();
+const ITUNES_MIN_INTERVAL_MS = 3000;
+
+function itunesGate() {
+  const turn = itunesGateQueue.then(async () => {
+    const wait = Math.max(0, lastItunesCallTs + ITUNES_MIN_INTERVAL_MS - Date.now());
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastItunesCallTs = Date.now();
+  });
+  itunesGateQueue = turn;
+  return turn;
+}
+
+// 403/429 restants (le gate lisse la cadence moyenne, pas un pic côté Apple) :
+// quelques tentatives avec backoff, en respectant Retry-After s'il est fourni.
+async function itunesFetch(url, attempt = 1) {
+  await itunesGate();
+  const res = await fetch(url);
+  if ((res.status === 403 || res.status === 429) && attempt < 4) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const delay = retryAfter > 0 ? retryAfter * 1000 : ITUNES_MIN_INTERVAL_MS * 2 ** attempt;
+    await new Promise((r) => setTimeout(r, delay));
+    return itunesFetch(url, attempt + 1);
+  }
+  return res;
+}
 
 // genres musique : flux RSS classique iTunes (topsongs?genre=), qui contient
 // déjà l'extrait audio et l'illustration.
 async function fetchMusicGenreTracks(src) {
   const url = `https://itunes.apple.com/${src.country}/rss/topsongs/limit=100/genre=${src.genreId}/json`;
-  const res = await fetch(url);
+  const res = await itunesFetch(url);
   if (!res.ok) throw new Error(`iTunes RSS ${res.status} sur ${url}`);
   const data = await res.json();
   const entries = data.feed?.entry || [];
@@ -62,6 +102,10 @@ function mapItunesSongResult(t) {
   };
 }
 
+// Lookup iTunes accepte une liste d'ids en un seul appel — c'est ce qui rend
+// le cache de résolution des blind-tests rentable (voir fetchBlindtestTracks).
+const ITUNES_LOOKUP_BATCH = 150;
+
 // musique : le flux RSS Apple donne le classement mais pas l'extrait audio —
 // on complète via l'API Lookup iTunes (par lots d'IDs) pour récupérer previewUrl
 async function fetchMusicChartTracks(src) {
@@ -74,10 +118,9 @@ async function fetchMusicChartTracks(src) {
   if (ids.length === 0) return [];
 
   const entries = new Map();
-  const batchSize = 150;
-  for (let i = 0; i < ids.length; i += batchSize) {
-    const batchIds = ids.slice(i, i + batchSize).join(",");
-    const lookupRes = await fetch(
+  for (let i = 0; i < ids.length; i += ITUNES_LOOKUP_BATCH) {
+    const batchIds = ids.slice(i, i + ITUNES_LOOKUP_BATCH).join(",");
+    const lookupRes = await itunesFetch(
       `https://itunes.apple.com/lookup?id=${batchIds}&entity=song`,
     );
     if (!lookupRes.ok) continue;
@@ -106,23 +149,9 @@ function normalizeForMatch(s) {
     .replace(/[̀-ͯ]/g, "");
 }
 
-// l'API Search iTunes échoue par intermittence (403/429) sur environ 15-20%
-// des appels, sans rapport avec la requête précise ni la cadence observée
-// (vérifié manuellement : une requête qui échoue repasse souvent au retry
-// suivant) — quelques tentatives avec backoff suffisent, pas la peine de
-// sérialiser toute la boucle comme wikidataQuery.
-async function fetchWithRetry(url, attempt = 1) {
-  const res = await fetch(url);
-  if ((res.status === 403 || res.status === 429) && attempt < 4) {
-    await new Promise((r) => setTimeout(r, attempt * 1500));
-    return fetchWithRetry(url, attempt + 1);
-  }
-  return res;
-}
-
 async function fetchExactSongByTitle(artist, track) {
   const url = `https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${track}`)}&entity=song&limit=5`;
-  const res = await fetchWithRetry(url);
+  const res = await itunesFetch(url);
   if (!res.ok) throw new Error(`iTunes search ${res.status} sur ${url}`);
   const data = await res.json();
   const results = data.results || [];
@@ -137,9 +166,87 @@ async function fetchExactSongByTitle(artist, track) {
   return match ? mapItunesSongResult(match) : null;
 }
 
+// classiques "blind test" (config.json: music.blindtestSongs) — la config reste
+// une liste d'artiste+titre lisible, sans id à maintenir à la main, mais la
+// résolution vers l'id iTunes est mémorisée en base (music_search_resolution).
+// Les crawls suivants repassent donc par Lookup, groupé par 150, au lieu d'une
+// recherche par morceau : ~340 appels Search deviennent ~3 appels Lookup, et
+// c'est Search qui est la voie bridée (403 en rafale). Une entrée dont le
+// Lookup ne rend plus rien d'exploitable est oubliée et re-cherchée — c'est la
+// seule invalidation nécessaire, la correspondance elle-même ne bouge pas.
+function blindtestKey(song) {
+  return `${normalizeForMatch(song.artist)}|${normalizeForMatch(song.track)}`;
+}
+
+async function fetchBlindtestTracks() {
+  const resolutions = db.getMusicSearchResolutions();
+  const cached = [];
+  const toSearch = [];
+  for (const song of MUSIC_BLINDTEST_SONGS) {
+    const key = blindtestKey(song);
+    const trackId = resolutions.get(key);
+    if (trackId) cached.push({ song, key, trackId });
+    else toSearch.push({ song, key });
+  }
+
+  const rows = [];
+  const okIds = new Set();
+  for (let i = 0; i < cached.length; i += ITUNES_LOOKUP_BATCH) {
+    const batch = cached.slice(i, i + ITUNES_LOOKUP_BATCH);
+    try {
+      const res = await itunesFetch(
+        `https://itunes.apple.com/lookup?id=${batch.map((c) => c.trackId).join(",")}&entity=song`,
+      );
+      if (!res.ok) throw new Error(`iTunes lookup ${res.status}`);
+      const data = await res.json();
+      for (const t of data.results || []) {
+        const row = mapItunesSongResult(t);
+        if (!row) continue;
+        okIds.add(row.id);
+        rows.push(row);
+      }
+    } catch (e) {
+      // échec réseau du lot entier : rien ne dit que ces ids sont morts, on
+      // garde leur résolution et on retentera au prochain crawl plutôt que de
+      // relancer 150 recherches (exactement ce qu'on cherche à éviter ici).
+      logWarn("Erreur lookup blind-test:", e.message);
+      for (const c of batch) okIds.add(c.trackId);
+    }
+  }
+
+  for (const c of cached) {
+    if (okIds.has(c.trackId)) continue;
+    db.forgetMusicSearchResolution(c.key);
+    toSearch.push({ song: c.song, key: c.key });
+  }
+
+  await mapWithConcurrency(
+    toSearch,
+    CATEGORY_FETCH_CONCURRENCY,
+    async ({ song, key }) => {
+      try {
+        const t = await fetchExactSongByTitle(song.artist, song.track);
+        if (!t) return;
+        db.setMusicSearchResolution(key, t.id);
+        rows.push(t);
+      } catch (e) {
+        logWarn(
+          `Erreur blind-test morceau "${song.artist} - ${song.track}":`,
+          e.message,
+        );
+      }
+    },
+  );
+
+  logInfo(
+    `music : ${rows.length}/${MUSIC_BLINDTEST_SONGS.length} blind-tests résolus (${cached.length} depuis le cache, ${toSearch.length} recherche(s) iTunes).`,
+  );
+  return rows;
+}
+
 async function musicGenreSources() {
   try {
-    const genreRes = await fetch(
+    const genreRes = await itunesFetch(
       "https://itunes.apple.com/WebObjects/MZStoreServices.woa/ws/genres?id=34",
     );
     if (!genreRes.ok) throw new Error(`iTunes genres ${genreRes.status}`);
@@ -230,6 +337,13 @@ export async function fetchMusicEntities() {
   // pour ne pas perdre l'appartenance à une liste si le morceau a déjà été vu
   // via une source genre avant sa source "liste" (chart pays).
   const filterTagsByItemId = new Map();
+  // notoriété (voir storeMusicPopularityTiers plus bas) : contrairement à
+  // TMDb/IGDB, iTunes ne donne aucun score — seul signal disponible, le RANG
+  // dans le flux (chart pays OU genre, les deux sont des Top 100 ordonnés).
+  // Un morceau peut apparaître dans plusieurs flux (pays différents, ou
+  // chart pays ET genre) : on garde le MEILLEUR rang rencontré, tous flux
+  // confondus.
+  const bestRank = new Map(); // id -> rang (1 = meilleur)
   await mapWithConcurrency(sources, CATEGORY_FETCH_CONCURRENCY, async (src) => {
     try {
       // flux genre iTunes : homogène, tous les morceaux du flux appartiennent
@@ -245,7 +359,9 @@ export async function fetchMusicEntities() {
       const list = src.genreId
         ? await fetchMusicGenreTracks(src)
         : await fetchMusicChartTracks(src);
-      for (const t of list) {
+      list.forEach((t, i) => {
+        const rank = i + 1;
+        if (!bestRank.has(t.id) || rank < bestRank.get(t.id)) bestRank.set(t.id, rank);
         const genre = t.genre || sourceGenre;
         const existing = tracks.get(t.id);
         if (existing) {
@@ -259,7 +375,7 @@ export async function fetchMusicEntities() {
           tagFilter(filterTagsByItemId, t.id, "liste", "popular");
           tagFilter(filterTagsByItemId, t.id, "geographie", src.country);
         }
-      }
+      });
     } catch (e) {
       logWarn(
         `Erreur source musique (${src.genreId ? `genre ${src.genreId}` : src.country}):`,
@@ -268,35 +384,28 @@ export async function fetchMusicEntities() {
     }
   });
 
-  // classiques "blind test" (config.json: music.blindtestSongs) —
-  // recherchés par titre EXACT à chaque crawl (pas d'id pré-résolu à
-  // maintenir), pour garantir leur présence même quand ils ne sont plus
-  // dans le chart courant d'aucun pays. Tag "liste"/"blindtest" dédié, pas
-  // de geographie (pas issus d'un chart pays).
-  await mapWithConcurrency(
-    MUSIC_BLINDTEST_SONGS,
-    CATEGORY_FETCH_CONCURRENCY,
-    async (song) => {
-      try {
-        const t = await fetchExactSongByTitle(song.artist, song.track);
-        if (!t) return;
-        const existing = tracks.get(t.id);
-        if (existing) {
-          if (!existing.genre && t.genre) existing.genre = t.genre;
-        } else {
-          tracks.set(t.id, t);
-        }
-        tagFilter(filterTagsByItemId, t.id, "liste", "blindtest");
-      } catch (e) {
-        logWarn(
-          `Erreur blind-test morceau "${song.artist} - ${song.track}":`,
-          e.message,
-        );
-      }
-    },
-  );
+  // classiques "blind test" (config.json: music.blindtestSongs) — garantit
+  // leur présence même quand ils ne sont plus dans le chart courant d'aucun
+  // pays. Tag "liste"/"blindtest" dédié, pas de geographie (pas issus d'un
+  // chart pays).
+  for (const t of await fetchBlindtestTracks()) {
+    const existing = tracks.get(t.id);
+    if (existing) {
+      if (!existing.genre && t.genre) existing.genre = t.genre;
+    } else {
+      tracks.set(t.id, t);
+    }
+    tagFilter(filterTagsByItemId, t.id, "liste", "blindtest");
+  }
 
-  const rows = [...tracks.values()];
+  // 101 - rang : reste croissant (plus haut = plus populaire), comme
+  // popularity TMDb/IGDB, pour rester directement utilisable par
+  // storePopularityTiers. Absent de tout flux (ex. blind-test jamais
+  // recharté) -> `null`, comme un film sans popularity connue.
+  const rows = [...tracks.values()].map((t) => ({
+    ...t,
+    popularity: bestRank.has(t.id) ? 101 - bestRank.get(t.id) : null,
+  }));
   db.upsertMusicTracks(rows);
   // avant storeMusicGenres : son pruneUnusedFilters se fie au pool pour
   // décider qu'un code n'est plus porté par personne (voir db.pruneUnusedFilters).
@@ -314,6 +423,11 @@ export async function fetchMusicEntities() {
     filterTagsByItemId,
   );
   storeFilterGroup("music", "geographie", MUSIC_COUNTRY_FILTERS, rows, filterTagsByItemId);
+  storePopularityTiers(
+    "music",
+    rows.map((r) => ({ entityId: r.id, value: r.popularity })),
+    popularIdsFrom(rows, filterTagsByItemId, "popular"),
+  );
 }
 
 // pendant léger de fetchMusicEntities : ne retouche que les listes (Populaire

@@ -93,3 +93,45 @@ export function getCountryPhotos(ccn3) {
     )
     .all(ccn3);
 }
+
+// chef d'État actuel (questionType "leader") — 1:1, dénormalisé directement
+// sur `country` (pas de table à part comme country_photo) : voir
+// fetchAndStoreCountryLeader dans refresh/wikipedia.js.
+export function countryLeaderCheckedAt(ccn3) {
+  return getCountry(ccn3)?.leader_checked_at ?? null;
+}
+
+export function setCountryLeader(ccn3, { personId, name, portraitUrl, title }) {
+  db.prepare(
+    `UPDATE country SET leader_person_id = ?, leader_name = ?, leader_portrait_url = ?, leader_title = ?, leader_checked_at = ?
+     WHERE ccn3 = ?`,
+  ).run(personId, name, portraitUrl, title ?? null, Date.now(), ccn3);
+}
+
+// genre du chef d'État actuel de chaque pays, pour le filtre "gender" du
+// type "statesman" (voir syncGenderFilters dans refresh/util.js) — le chef
+// d'État EST une ligne `person` (voir fetchAndStoreCountryLeader), liée ici
+// via leader_person_id plutôt que dupliquée sur `country`.
+export function getCountryLeaderGenders() {
+  return db
+    .prepare(
+      `SELECT c.ccn3 AS ccn3, p.gender AS gender
+       FROM country c JOIN person p ON p.id = c.leader_person_id
+       WHERE c.leader_person_id IS NOT NULL`,
+    )
+    .all();
+}
+
+// même jointure que getCountryLeaderGenders, popularité (sitelinks, voir
+// fetchAndStoreCountryLeader) à la place du genre — pour le palier obscur/
+// niche/populaire/star du type "statesman" (voir syncStatesmanPopularityTiers
+// dans refresh/util.js).
+export function getCountryLeaderPopularities() {
+  return db
+    .prepare(
+      `SELECT c.ccn3 AS ccn3, p.popularity AS popularity
+       FROM country c JOIN person p ON p.id = c.leader_person_id
+       WHERE c.leader_person_id IS NOT NULL`,
+    )
+    .all();
+}

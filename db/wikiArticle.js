@@ -45,6 +45,18 @@ export function setWikiArticlePopularities(entries) {
   tx(entries);
 }
 
+// date d'événement (bataille/guerre), précision jour uniquement — voir
+// fetchEventDates dans refresh/wikipedia.js. Un article sans date connue au
+// jour près n'apparaît simplement pas dans `entries`, la colonne reste NULL
+// (comme setWikiArticlePopularities pour la notoriété).
+export function setWikiArticleEventDates(entries) {
+  const stmt = db.prepare("UPDATE wiki_article SET event_date = ? WHERE id = ?");
+  const tx = db.transaction((rows) => {
+    for (const e of rows) stmt.run(e.value, e.entityId);
+  });
+  tx(entries);
+}
+
 export function getWikiArticle(id) {
   return db.prepare("SELECT * FROM wiki_article WHERE id = ?").get(id) || null;
 }

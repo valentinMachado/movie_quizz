@@ -20,8 +20,18 @@ import {
   revealSecNumber,
   flagSecRange,
   flagSecNumber,
+  mapSecRange,
+  mapSecNumber,
+  leaderSecRange,
+  leaderSecNumber,
+  showLeaderNameCheckbox,
+  statesmanSecRange,
+  statesmanSecNumber,
+  showCountryNameCheckbox,
   summaryPerItemRange,
   summaryPerItemNumber,
+  maxSummaryLenRange,
+  maxSummaryLenNumber,
   durationHint,
 } from "./dom.js";
 
@@ -43,8 +53,20 @@ export function currentRevealSec() {
 export function currentFlagSec() {
   return parseInt(flagSecNumber.value, 10) || 5;
 }
+export function currentMapSec() {
+  return parseInt(mapSecNumber.value, 10) || 8;
+}
+export function currentLeaderSec() {
+  return parseInt(leaderSecNumber.value, 10) || 5;
+}
+export function currentStatesmanSec() {
+  return parseInt(statesmanSecNumber.value, 10) || 5;
+}
 export function currentSummaryPerItem() {
   return parseInt(summaryPerItemNumber.value, 10) || 1;
+}
+export function currentMaxSummaryLen() {
+  return parseInt(maxSummaryLenNumber.value, 10) || 1000;
 }
 
 export function formatDuration(totalSec) {
@@ -79,6 +101,9 @@ export function totalDurationSec() {
     music: audioSpeed.musicSec + currentRevealSec(),
     cry: audioSpeed.cryCount * (CRY_AVG_SEC + CRY_GAP_SEC) + currentRevealSec(),
     flag: currentFlagSec() + currentRevealSec(),
+    map: currentMapSec() + currentRevealSec(),
+    leader: currentLeaderSec() + currentRevealSec(),
+    statesman: currentStatesmanSec() + currentRevealSec(),
     summary:
       (hasDirectorSummary ? currentSummaryPerItem() : 1) *
         estimateSummarySec(currentSummarySpeed().secPerWord) +
@@ -93,19 +118,33 @@ export function totalDurationSec() {
         ? "cry"
         : comboKey === "country:flag"
           ? "flag"
-          : comboKey.endsWith(":summary")
-            ? "summary"
-            : "standard";
+          : comboKey === "country:map"
+            ? "map"
+            : comboKey === "country:leader"
+              ? "leader"
+              : comboKey === "statesman:statesman"
+                ? "statesman"
+                : comboKey.endsWith(":summary")
+                  ? "summary"
+                  : "standard";
   const activeBuckets = [
     ...new Set([...state.activeQuestionTypes].map(bucketOf)),
   ];
+  // aucun mode coché est un état valide (voir renderContentTypeChips) :
+  // sans ce garde-fou la moyenne ci-dessous divise par 0 et l'indicateur
+  // affiche "NaN min NaN"
+  if (activeBuckets.length === 0) return 0;
   const avgItemSec =
     activeBuckets.reduce((sum, b) => sum + itemSecByBucket[b], 0) /
     activeBuckets.length;
   return currentCount() * avgItemSec;
 }
 export function updateDurationHint() {
-  durationHint.textContent = `Durée estimée : ${formatDuration(totalDurationSec())} · max disponible : ${state.currentMaxAvailable}`;
+  // le "max disponible" a sa propre place dans la barre d'action
+  // (#poolCount, voir updatePoolSize) — pas de doublon ici
+  durationHint.textContent = state.activeQuestionTypes.size
+    ? `Durée estimée : ${formatDuration(totalDurationSec())}`
+    : "Aucun type sélectionné";
 }
 
 export function storageKey() {
@@ -135,9 +174,15 @@ export function saveSettings() {
     imageSec: currentImageSec(),
     revealSec: currentRevealSec(),
     flagSec: currentFlagSec(),
+    mapSec: currentMapSec(),
+    leaderSec: currentLeaderSec(),
+    showLeaderName: state.showLeaderName,
+    statesmanSec: currentStatesmanSec(),
+    showCountryName: state.showCountryName,
     summarySpeed: state.summarySpeed,
     audioSpeed: state.audioSpeed,
     summaryPerItem: currentSummaryPerItem(),
+    maxSummaryLen: currentMaxSummaryLen(),
     renderFps: state.renderFps,
     questionTypes: [...state.activeQuestionTypes],
     filters: [...state.selectedFilters],
@@ -179,12 +224,36 @@ export function applySavedSettings() {
     flagSecNumber.value = s.flagSec;
     flagSecRange.value = s.flagSec;
   }
+  if (s.mapSec) {
+    mapSecNumber.value = s.mapSec;
+    mapSecRange.value = s.mapSec;
+  }
+  if (s.leaderSec) {
+    leaderSecNumber.value = s.leaderSec;
+    leaderSecRange.value = s.leaderSec;
+  }
+  if (typeof s.showLeaderName === "boolean") {
+    state.showLeaderName = s.showLeaderName;
+    showLeaderNameCheckbox.checked = s.showLeaderName;
+  }
+  if (s.statesmanSec) {
+    statesmanSecNumber.value = s.statesmanSec;
+    statesmanSecRange.value = s.statesmanSec;
+  }
+  if (typeof s.showCountryName === "boolean") {
+    state.showCountryName = s.showCountryName;
+    showCountryNameCheckbox.checked = s.showCountryName;
+  }
   if (SUMMARY_SPEEDS.some((sp) => sp.key === s.summarySpeed)) {
     state.summarySpeed = s.summarySpeed;
   }
   if (s.summaryPerItem) {
     summaryPerItemNumber.value = s.summaryPerItem;
     summaryPerItemRange.value = s.summaryPerItem;
+  }
+  if (s.maxSummaryLen) {
+    maxSummaryLenNumber.value = s.maxSummaryLen;
+    maxSummaryLenRange.value = s.maxSummaryLen;
   }
   if (RENDER_QUALITIES.some((q) => q.fps === s.renderFps)) {
     state.renderFps = s.renderFps;

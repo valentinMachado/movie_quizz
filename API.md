@@ -20,10 +20,11 @@ Tout ce dont le client a besoin pour construire son UI de sélection : par type,
     }
   },
   "tv": { "questionTypes": ["image", "summary"], "filters": { "genre": [...], "liste": [...], "decennie": [...], "geographie": [...] } },
-  "person": { "questionTypes": ["image", "summary"], "filters": { "role": [{ "code": "actor", "name": "Acteur" }, { "code": "director", "name": "Réalisateur" }, { "code": "painter", "name": "Peintre" }, { "code": "politician", "name": "Politicien" }, { "code": "athlete", "name": "Sportif" }], "liste": [...], "decennie": [...], "geographie": [...] } },
+  "person": { "questionTypes": ["image", "summary"], "filters": { "role": [{ "code": "actor", "name": "Acteur" }, { "code": "director", "name": "Réalisateur" }, { "code": "painter", "name": "Peintre" }, { "code": "politician", "name": "Politicien" }, { "code": "athlete", "name": "Sportif" }], "gender": [{ "code": "male", "name": "Homme" }, { "code": "female", "name": "Femme" }, { "code": "non_binary", "name": "Non-binaire" }], "liste": [...], "decennie": [...], "geographie": [...] } },
   "game": { "questionTypes": ["image", "summary"], "filters": { "genre": [...], "liste": [...], "decennie": [...] } },
   "music": { "questionTypes": ["audio"], "filters": { "genre": [...], "liste": [...], "decennie": [...], "geographie": [...] } },
-  "country": { "questionTypes": ["image", "flag"], "filters": { "geographie": [...] } },
+  "country": { "questionTypes": ["image", "flag", "map", "leader"], "filters": { "geographie": [...] } },
+  "statesman": { "questionTypes": ["statesman"], "filters": { "geographie": [...] } },
   "painter": { "questionTypes": ["image"], "filters": { "genre": [...], "decennie": [...], "geographie": [...] } },
   "director": { "questionTypes": ["image", "summary"], "filters": { "decennie": [...], "geographie": [...] } },
   "actor": { "questionTypes": ["image", "summary"], "filters": { "billing": [...], "decennie": [...], "geographie": [...] } },
@@ -33,7 +34,7 @@ Tout ce dont le client a besoin pour construire son UI de sélection : par type,
 }
 ```
 
-Les groupes de filtre présents varient par type et évoluent avec le code (pas de liste codée en dur côté client à maintenir, et ce tableau lui-même peut se périmer — se fier à la réponse réelle de cet endpoint, pas à cette doc, pour savoir ce qui est disponible aujourd'hui). Un groupe absent = pas de filtre possible sur cet axe pour ce type. Le groupe `role` sur `person` est le seul qui ne dérive pas d'une source externe standard (genre/décennie/etc.) — voir la section dédiée plus bas.
+Les groupes de filtre présents varient par type et évoluent avec le code (pas de liste codée en dur côté client à maintenir, et ce tableau lui-même peut se périmer — se fier à la réponse réelle de cet endpoint, pas à cette doc, pour savoir ce qui est disponible aujourd'hui). Un groupe absent = pas de filtre possible sur cet axe pour ce type. Les groupes `role` et `gender` sur `person` (le second partagé avec `actor`/`director`/`painter`/`statesman`) sont les seuls qui ne dérivent pas d'une source externe standard (genre/décennie/etc.) — voir les sections dédiées plus bas. `statesman` n'a jamais aucune ligne dans `filter`/`entity_filter` sous son propre nom : ses filtres exposés ici sont ceux de `type: "country"`, réutilisés tels quels côté serveur.
 
 **Règle de combinaison des filtres** (identique partout où `filters` est utilisé, voir `POST /api/quiz-batch`) : OR entre les codes d'un même groupe, AND entre groupes différents. Ex. `{ "liste": ["popular", "trending_day"], "genre": ["28"] }` = (Populaire OU Tendance) ET Action.
 
@@ -79,6 +80,7 @@ Génère un batch de questions.
 - `count` : clampé serveur entre 5 et 50.
 - `imagesPerItem` : clampé serveur entre 1 et 20 — **borne haute**, pas une garantie : un item avec moins d'images disponibles que ça reçoit simplement moins de frames plutôt qu'une répétition (voir table des formes ci-dessous).
 - `summaryPerItem` : clampé serveur entre 1 et 5, même principe que `imagesPerItem` mais pour `director:summary`/`actor:summary` uniquement (seuls type/questionType qui cyclent plusieurs summary) — sans effet sur les autres formes.
+- `maxSummaryLen` : longueur maximale, en caractères, d'un texte tronqué (`overview`/`overviews`) — clampé serveur entre 100 et 1000 (défaut 1000 si absent). Remplace l'ancienne constante fixe non paramétrable (800). S'applique à toute forme `*:summary`.
 - `exclude` : ids à éviter (voir "ids à offset" plus bas) — si pas assez d'items restent disponibles, le serveur ignore `exclude` entièrement pour ce batch et le signale via `recycled: true` plutôt que de renvoyer moins que `count`.
 - `selections` : **requis, au moins une entrée**. Chaque entrée est un bucket indépendant `{type, questionType, filters?}` — c'est ce qui permet des filtres différents pour `movie:image` et `movie:summary` dans la même requête. Deux entrées avec la même paire `type:questionType` (filtres différents) sont fusionnées dans un seul bucket de stratification (leurs pools s'additionnent).
 - 503 si la base n'a encore aucun pool peuplé du tout (`{"error": "..."}`, message affichable tel quel).
@@ -94,6 +96,7 @@ Génère un batch de questions.
   "excludedCount": 2,
   "imagesPerItem": 3,
   "summaryPerItem": 2,
+  "maxSummaryLen": 1000,
   "poolSize": 57,
   "totalGenerated": 1235
 }
@@ -107,12 +110,15 @@ Champs communs à toutes les formes : `id`, `title`, `type`, `questionType`, `po
 | `type:questionType` | champs additionnels |
 |---|---|
 | `movie:image`, `tv:image` | `imageUrls: string[]` ; `director?: string` (movie uniquement, si connu) |
-| `movie:summary`, `tv:summary`, `game:summary`, `person:summary`, `wiki_article:summary`, `pokemon:summary`, `superhero:summary` | `overview: string` (tronqué à 800 caractères, titre/nom — et alias connus pour wiki_article/superhero — masqués) |
+| `movie:summary`, `tv:summary`, `game:summary`, `person:summary`, `wiki_article:summary`, `pokemon:summary`, `superhero:summary` | `overview: string` (tronqué à `maxSummaryLen` caractères — 1000 par défaut, voir `/api/quiz-batch` — titre/nom, et alias connus pour wiki_article/superhero, masqués) |
 | `person:image`, `game:image`, `painter:image`, `wiki_article:image`, `pokemon:image`, `superhero:image` | `imageUrls: string[]` (`pokemon`/`superhero`/`wiki_article` : cycle sur ce qui est réellement connu — 1 seule image pour pokemon/superhero, `imagesPerItem` sans effet sur ces deux-là) ; `person:image` a aussi `positionHeld?: string` (rôle Wikidata avec un poste connu, ex. politicien) |
 | `director:image`, `actor:image` | `imageUrls: string[]` (affiches des films réalisés/joués — pas une photo du réalisateur/acteur, révélée uniquement à l'écran réponse) ; `imageTitles: (string\|null)[]` (titre du film affiché en incrustation sur chaque image de devinette, même index qu'`imageUrls`) |
 | `director:summary`, `actor:summary` | `overviews: string[]` (summary rédigés de plusieurs films réalisés/joués, cyclés comme des frames côté client, un par élément — nom du réalisateur/acteur masqué dans le texte, pas le titre du film) ; `movieTitles: (string\|null)[]` (titre du film source de chaque summary, même index qu'`overviews`) |
 | `country:image` | `imageUrls: string[]` (photos du pays — **pas** le drapeau) |
 | `country:flag` | pas d'`imageUrls` — `posterUrl` **est** l'image à deviner (le drapeau) ; `capital: string` |
+| `country:map` | pas d'`imageUrls` — `posterUrl` sert d'image d'écran réponse (le drapeau, identique à `country:flag`) ; `capital: string` ; `countryCcn3: number` (id naturel du pays, utilisé côté client pour retrouver son tracé sur le fond de carte vectoriel `public/data/world-110m.json`) |
+| `country:leader` | pas d'`imageUrls` — `posterUrl` **est** l'image à deviner (le portrait du chef d'État actuel) ; `leaderName: string` (la réponse) ; `flagUrl: string` (image d'écran réponse, le drapeau du pays) |
+| `statesman:statesman` | pas d'`imageUrls` — `posterUrl` **est** l'image à deviner (le drapeau du pays) ; `title` porte le nom du chef d'État (la réponse) ; `countryName: string` (indice affiché à côté du drapeau) ; `leaderTitle?: string` (intitulé du poste, absent pour certains pays) ; `leaderPortraitUrl: string` (image d'écran réponse) |
 | `music:audio`, `pokemon:audio` | pas d'`imageUrls` — `previewUrl: string` (extrait audio / cri) |
 
 Uniquement via `POST /api/quiz-daily` (jamais en `/api/quiz-batch`) : `reason?: string` (pourquoi cette entité est dans le quiz du jour, ex. `"Tendances du jour (Films)"` ou `"Sorti il y a 7 ans"`) et `isAnniversary?: true` (présent seulement si `reason` reflète un anniversaire de sortie/naissance plutôt qu'une liste "actualité" — le client affiche alors une icône dédiée sur l'écran réponse).
@@ -123,6 +129,8 @@ Uniquement via `POST /api/quiz-daily` (jamais en `/api/quiz-batch`) : `reason?: 
 - `country:image` : `+ 1_000_000_000_000`
 - `painter:image` : `+ 2_000_000_000_000`
 - `country:flag` : `+ 3_000_000_000_000`
+- `country:leader` : `+ 20_000_000_000_000`
+- `statesman` (naturalId = ccn3, même id "brut" que `country`) : `+ 21_000_000_000_000`
 - `movie:summary` : `+ 4_000_000_000_000`
 - `tv:summary` : `+ 5_000_000_000_000`
 - `person:image` pour une entrée source Wikidata (peintre `role:"painter"`, ou tout `personRoles` — politicien, athlète... —, id naturel = QID) : `+ 6_000_000_000_000`
@@ -144,9 +152,9 @@ Génère le "quiz du jour" : contrairement à `/api/quiz-batch`, pas de `selecti
 
 ```json
 // requête
-{ "imagesPerItem": 3, "summaryPerItem": 2 }
+{ "imagesPerItem": 3, "summaryPerItem": 2, "maxSummaryLen": 500 }
 ```
-- `imagesPerItem`/`summaryPerItem` : mêmes bornes et sémantique que `/api/quiz-batch`. Pas de `count` ni de `selections` : ignorés s'ils sont envoyés. En pratique le pool "quiz du jour" ne produit aujourd'hui aucun item `director`/`actor` (les anniversaires n'en construisent pas, voir plus bas), donc `summaryPerItem` n'y a pour l'instant aucun effet observable — accepté quand même pour rester symétrique avec `/api/quiz-batch`.
+- `imagesPerItem`/`summaryPerItem`/`maxSummaryLen` : mêmes bornes et sémantique que `/api/quiz-batch` (`maxSummaryLen` défaut 1000 si absent, comme `/api/quiz-batch`). Pas de `count` ni de `selections` : ignorés s'ils sont envoyés. En pratique le pool "quiz du jour" ne produit aujourd'hui aucun item `director`/`actor` (les anniversaires n'en construisent pas, voir plus bas), donc `summaryPerItem` n'y a pour l'instant aucun effet observable — accepté quand même pour rester symétrique avec `/api/quiz-batch`.
 - 503 si la base n'a encore aucun pool peuplé, ou si aucun contenu n'est disponible pour le jour même (`{"error": "..."}`, message affichable tel quel).
 
 ```json
@@ -159,20 +167,25 @@ Génère le "quiz du jour" : contrairement à `/api/quiz-batch`, pas de `selecti
   "excludedCount": 0,
   "imagesPerItem": 3,
   "summaryPerItem": 2,
+  "maxSummaryLen": 500,
   "totalGenerated": 1235
 }
 ```
 Composition du pool, en deux parts combinées puis mélangées (seed = `date`) :
-- **Anniversaires** : pour movie/game (`release_date`), music (`release_date`), `person` — type multi-source, couvre acteurs/réalisateurs/peintres/tout `personRoles` (`birthday`) —, un item par `type:questionType` disponible pour la date du jour (mois/jour, toutes années confondues) — ex. `movie:image` ET `movie:summary` séparément s'ils existent tous les deux. Un peintre ou une personne d'un rôle Wikidata (politicien, athlète...) n'y figure que si Wikidata connaît sa date de naissance à la précision du **jour** (une précision année/mois seule est délibérément ignorée pour ne pas produire de faux anniversaire le 1er janvier). `reason` = `"Sorti il y a N ans"` / `"Né(e) il y a N ans"`, `isAnniversary: true`.
+- **Anniversaires** : pour movie/game (`release_date`), music (`release_date`), `person` — type multi-source, couvre acteurs/réalisateurs/peintres/tout `personRoles` (`birthday`) —, et `wiki_article` de catégorie "histoire" (bataille/guerre, `event_date`) —, un item par `type:questionType` disponible pour la date du jour (mois/jour, toutes années confondues) — ex. `movie:image` ET `movie:summary` séparément s'ils existent tous les deux. Un peintre ou une personne d'un rôle Wikidata (politicien, athlète...) n'y figure que si Wikidata connaît sa date de naissance à la précision du **jour** (une précision année/mois seule est délibérément ignorée pour ne pas produire de faux anniversaire le 1er janvier) — même contrainte de précision pour la date d'événement d'un article "histoire". `reason` = `"Sorti il y a N ans"` / `"Né(e) il y a N ans"` / `"Survenu il y a N ans"`, `isAnniversary: true`.
 - **Listes du jour** : un item par liste "actualité" à cadence de rafraîchissement courte (`trending_day`/`now_playing` pour movie, `tv_trending_day`/`tv_airing_today` pour tv, `game_recent`, `music_popular_fr`/`music_popular_us`), `questionType` tiré au hasard parmi ceux du type. `reason` = le libellé de la liste (ex. `"Tendances du jour (Films)"`), pas d'`isAnniversary`.
 
 Un jour avec moins de contenu (ex. aucun anniversaire personne) donne simplement un quiz plus court — jamais de repli sur d'autres buckets pour compenser.
 
 ## Groupe de filtre `role` sur `person`
 
-Seul groupe qui n'est pas dérivé d'une source externe standard (genre TMDb, décennie, etc.) — inventé pour ce projet. Codes : `actor`, `director`, `painter`, plus un code par entrée de `config.json`'s `personRoles.roles` (aujourd'hui `politician`, `athlete` — la liste s'étend par config, sans code, voir README) : **se fier à la réponse de `GET /api/catalog` pour la liste réellement active**, pas à cette doc. **Multi-valué** : une même personne peut avoir plusieurs codes (ex. un acteur qui est aussi réalisateur) — les filtres suivent la règle OR intra-groupe habituelle (`role: ["actor","director"]` = acteur OU réalisateur, pas les deux à la fois).
+Codes : `actor`, `director`, `painter`, plus un code par entrée de `config.json`'s `personRoles.roles` (aujourd'hui `politician`, `athlete`, `writer`, `scientist`, `singer`, `astronaut` — la liste s'étend par config, sans code, voir README) : **se fier à la réponse de `GET /api/catalog` pour la liste réellement active**, pas à cette doc. **Multi-valué** : une même personne peut avoir plusieurs codes (ex. un acteur qui est aussi réalisateur) — les filtres suivent la règle OR intra-groupe habituelle (`role: ["actor","director"]` = acteur OU réalisateur, pas les deux à la fois). Un chef d'État découvert via `country:leader`/`statesman` devient aussi une entrée `role: "politician"` ordinaire dans ce pool — pas un mécanisme séparé.
 
 Un peintre peut apparaître dans le quiz de deux façons indépendantes : `type:"painter"` (deviner à partir d'un tableau) et `type:"person", filters:{role:["painter"]}` (deviner à partir de son portrait, comme un acteur) — même personne, deux ids différents (voir offsets ci-dessus), pool d'images différent. Un réalisateur/acteur, pareil : `type:"person", filters:{role:["director"]}`/`role:["actor"]` (deviner à partir de sa photo) et `type:"director"`/`type:"actor"` (deviner à partir des affiches/résumés des films qu'il a réalisés/joués, voir table des formes ci-dessus) — même personne, deux ids différents. Un rôle Wikidata (politicien, athlète...) n'a en revanche qu'une seule façon d'apparaître : `type:"person", filters:{role:["politician"]}` (pas de pool "filmographie" équivalent).
+
+## Groupe de filtre `gender`
+
+Partagé par `person`, `actor`, `director`, `painter`, et `statesman` (toutes des lignes `person` sous le capot, `statesman` via `country.leader_person_id`). Codes : `male`, `female`, `non_binary` — sourcé depuis TMDb (`gender` 1/2/3) ou Wikidata (P21) selon d'où vient la personne. Distinct du groupe `gender` de `superhero`, qui a son propre vocabulaire binaire fixé par superhero-api. Le même signal de genre sert aussi, côté reveal, à accorder au féminin le libellé de rôle affiché pour une personne (`roleLabel`, ex. "Actrice" plutôt que "Acteur") quand une forme féminine existe.
 
 ## Pas encore fait
 

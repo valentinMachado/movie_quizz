@@ -305,6 +305,16 @@ export async function refreshTvLists() {
   storeFilterGroup("tv", "liste", TV_STATIC_LISTS, items, filterTagsByItemId);
 }
 
+// gender TMDb (0=non renseigné, 1=femme, 2=homme, 3=non-binaire) -> notre
+// vocabulaire ("male"/"female"/"non_binary", partagé avec Wikidata — voir
+// fetchGenders dans wikidata.js) — utilisé pour le filtre "gender"
+// (syncGenderFilters, util.js) ET pour désambiguïser au reveal les libellés
+// au double genre d'un rôle Wikidata (voir degenderLabel), mais un acteur/
+// réalisateur TMDb n'a jamais ces libellés-là, seulement le filtre en profite.
+function tmdbGenderCode(gender) {
+  return gender === 1 ? "female" : gender === 2 ? "male" : gender === 3 ? "non_binary" : null;
+}
+
 // pool d'acteurs pour un pays donné : part des films populaires DE ce pays
 // (discover/movie?with_origin_country=XX) plutôt que de filtrer une liste
 // globale par lieu de naissance (mélangerait nationalité et lieu de naissance).
@@ -346,6 +356,7 @@ async function fetchPersonCountryActors(originCountry) {
             name: c.name,
             profileImageUrl: `https://image.tmdb.org/t/p/w500${c.profile_path}`,
             popularity: c.popularity ?? null,
+            gender: tmdbGenderCode(c.gender),
           });
           surrogateIds.add(personId);
         }
@@ -370,6 +381,7 @@ export async function fetchPersonEntities() {
         name: p.name,
         profileImageUrl: `https://image.tmdb.org/t/p/w500${p.profile_path}`,
         popularity: p.popularity ?? null,
+        gender: tmdbGenderCode(p.gender),
       }),
     ),
   );
@@ -571,6 +583,7 @@ export async function fetchAndStoreMovieCredits(movie) {
       name: d.name,
       profilePath: d.profile_path,
       popularity: d.popularity,
+      gender: tmdbGenderCode(d.gender),
     }));
   // top MOVIE_CAST_LIMIT par ordre de billing TMDb (déjà l'ordre du tableau
   // "cast") : au-delà, des rôles trop secondaires pour être devinables à
@@ -585,6 +598,7 @@ export async function fetchAndStoreMovieCredits(movie) {
       profilePath: c.profile_path,
       popularity: c.popularity,
       order: c.order,
+      gender: tmdbGenderCode(c.gender),
     }));
 
   const directorIds = db.setMovieDirectors(movie.id, directors);

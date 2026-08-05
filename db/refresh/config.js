@@ -289,6 +289,11 @@ export const SUPERHERO_ALIGNMENTS = CONFIG.superhero.alignments;
 // l'habitat pokemon absent, ou que publisher hors Marvel/DC).
 export const SUPERHERO_GENDERS = CONFIG.superhero.genders;
 export const SUPERHERO_RACES = CONFIG.superhero.races;
+// filtre "gender" partagé par person/actor/director/painter/statesman (voir
+// syncGenderFilters dans util.js) — distinct de SUPERHERO_GENDERS (vocabulaire
+// superhero-api, binaire only) : celui-ci a un 3e code "non_binary" (Wikidata
+// P21/TMDb gender=3, voir fetchGenders/tmdbGenderCode).
+export const PERSON_GENDERS = CONFIG.personGenders;
 // "decennie" (old school/récent) : année extraite du texte libre
 // biography.firstAppearance (voir extractYear dans superhero.js), bornée par
 // gteYear/ltYear comme painting.eras. "geographie" : biography.placeOfBirth

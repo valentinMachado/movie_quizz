@@ -48,6 +48,16 @@ db.init(DB_PATH);
 const COUNTRY_ID_OFFSET_IMAGE = 1_000_000_000_000;
 const PAINTER_ID_OFFSET = 2_000_000_000_000;
 const COUNTRY_ID_OFFSET_FLAG = 3_000_000_000_000;
+// questionType "leader" (deviner le chef d'État actuel du pays) : même
+// naturalId (ccn3) que "image"/"flag"/"map" pour ce pays, donc son propre
+// offset pour ne pas s'écraser si plusieurs questionTypes "country" sont
+// sélectionnés ensemble (même piège que COUNTRY_ID_OFFSET_FLAG).
+const COUNTRY_ID_OFFSET_LEADER = 20_000_000_000_000;
+// type "statesman" (sens inverse de "leader" : pays affiché, deviner le
+// chef d'État — type top-level à part, pas un questionType de "country",
+// voir materializeStatesmanRows) — même naturalId (ccn3) que "country" pour
+// ce pays, donc son propre offset.
+const COUNTRY_ID_OFFSET_STATESMAN = 21_000_000_000_000;
 const SUMMARY_ID_OFFSET = {
   movie: 4_000_000_000_000,
   tv: 5_000_000_000_000,
@@ -112,14 +122,22 @@ const ACTOR_SUMMARY_ID_OFFSET = 19_000_000_000_000;
 const MIN_SUMMARY_LEN = 30;
 // au-delà, un summary devient trop long à lire/faire défiler dans le temps
 // imparti — surtout les extraits Wikipédia (exintro), souvent bien plus
-// longs qu'un summary TMDb/IGDB typique.
-const MAX_SUMMARY_LEN = 800;
+// longs qu'un summary TMDb/IGDB typique. Borne haute (et défaut) de
+// maxSummaryLen, paramétrable côté client (voir /api/quiz-batch,
+// /api/quiz-daily) — MIN_SUMMARY_TRUNC_LEN reste bien au-dessus de
+// MIN_SUMMARY_LEN (30, seuil de REJET d'un summary trop court) pour ne pas
+// laisser l'utilisateur tronquer un résumé jusqu'à le rendre inutilisable.
+const MIN_SUMMARY_TRUNC_LEN = 100;
+const MAX_SUMMARY_TRUNC_LEN = 1000;
 
 function toPoolId(type, questionType, naturalId) {
   if (type === "country" && questionType === "image")
     return COUNTRY_ID_OFFSET_IMAGE + naturalId;
   if (type === "country" && questionType === "flag")
     return COUNTRY_ID_OFFSET_FLAG + naturalId;
+  if (type === "country" && questionType === "leader")
+    return COUNTRY_ID_OFFSET_LEADER + naturalId;
+  if (type === "statesman") return COUNTRY_ID_OFFSET_STATESMAN + naturalId;
   if (type === "director" && questionType === "summary")
     return DIRECTOR_SUMMARY_ID_OFFSET + naturalId;
   if (type === "wiki_article" && questionType === "summary")
@@ -223,9 +241,7 @@ function redactTitle(text, title, aliases = [], loose = false) {
   // dès qu'on retombe sur une frontière ensuite — sans lui, un titre
   // singulier ne masquerait jamais sa propre forme plurielle dans le texte.
   const wrap = (pattern) =>
-    loose
-      ? pattern
-      : `(?<![\\p{L}\\p{N}])(?:${pattern})s?(?![\\p{L}\\p{N}])`;
+    loose ? pattern : `(?<![\\p{L}\\p{N}])(?:${pattern})s?(?![\\p{L}\\p{N}])`;
   const flags = loose ? "gi" : "giu";
 
   const titlePattern = titleVariants(title).map(escapeRegExp).join("|");
@@ -245,12 +261,14 @@ function redactTitle(text, title, aliases = [], loose = false) {
   return result;
 }
 
-// coupe au dernier mot entier avant MAX_SUMMARY_LEN (pas en plein milieu
-// d'un mot) et marque la coupe par une ellipse — appelé après redactTitle,
-// pas avant : éviter de trancher pile sur "[titre]".
-function truncateOverview(text) {
-  if (text.length <= MAX_SUMMARY_LEN) return text;
-  const cut = text.slice(0, MAX_SUMMARY_LEN);
+// coupe au dernier mot entier avant maxLen (pas en plein milieu d'un mot) et
+// marque la coupe par une ellipse — appelé après redactTitle, pas avant :
+// éviter de trancher pile sur "[titre]". `maxLen` par défaut à
+// MAX_SUMMARY_TRUNC_LEN (borne haute), sinon fourni par l'appelant à partir
+// de maxSummaryLen (voir /api/quiz-batch, /api/quiz-daily).
+function truncateOverview(text, maxLen = MAX_SUMMARY_TRUNC_LEN) {
+  if (text.length <= maxLen) return text;
+  const cut = text.slice(0, maxLen);
   const lastSpace = cut.lastIndexOf(" ");
   return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
 }
@@ -258,7 +276,7 @@ function truncateOverview(text) {
 // movie/tv se matérialisent pareil (poster TMDb + question bonus "summary"
 // si l'overview est assez longue) — seule la source SQLite et le type
 // changent.
-function materializeMovieLikeRows(rows, type, questionType) {
+function materializeMovieLikeRows(rows, type, questionType, maxSummaryLen) {
   const result = [];
   for (const item of rows) {
     const posterUrl = `https://image.tmdb.org/t/p/w500${item.poster_path}`;
@@ -280,6 +298,7 @@ function materializeMovieLikeRows(rows, type, questionType) {
     } else if (questionType === "summary") {
       const overview = truncateOverview(
         redactTitle((item.overview || "").trim(), item.title),
+        maxSummaryLen,
       );
       if (overview.length >= MIN_SUMMARY_LEN) {
         result.push({
@@ -298,7 +317,7 @@ function materializeMovieLikeRows(rows, type, questionType) {
   return result;
 }
 
-function materializeGameRows(rows, questionType) {
+function materializeGameRows(rows, questionType, maxSummaryLen) {
   const result = [];
   for (const g of rows) {
     const posterUrl = `https://images.igdb.com/igdb/image/upload/t_cover_big/${g.cover_image_id}.jpg`;
@@ -313,7 +332,10 @@ function materializeGameRows(rows, questionType) {
         ...(g.isAnniversary ? { isAnniversary: true } : {}),
       });
     } else if (questionType === "summary") {
-      const summary = truncateOverview(redactTitle((g.summary || "").trim(), g.title));
+      const summary = truncateOverview(
+        redactTitle((g.summary || "").trim(), g.title),
+        maxSummaryLen,
+      );
       if (summary.length >= MIN_SUMMARY_LEN) {
         result.push({
           id: toPoolId("game", "summary", g.id),
@@ -369,7 +391,68 @@ function materializeCountryRows(rows, questionType) {
         questionType: "flag",
         posterUrl: flagUrl,
       });
+    } else if (questionType === "map" && c.capital) {
+      result.push({
+        id: toPoolId("country", "map", c.ccn3),
+        title: c.title,
+        capital: c.capital,
+        type: "country",
+        questionType: "map",
+        posterUrl: flagUrl, // écran réponse, identique à "flag"
+        // pays absent du fond de carte vectoriel côté client (petits
+        // territoires non couverts à la résolution 110m) : exclu là-bas,
+        // même principe qu'une image introuvable — voir preload.js.
+        countryCcn3: c.ccn3,
+      });
+    } else if (questionType === "leader" && c.leader_name && c.leader_portrait_url) {
+      // indice = portrait + nom du chef d'État, réponse à deviner = le PAYS
+      // — voir fetchAndStoreCountryLeader (refresh/wikipedia.js) pour
+      // comment leader_name/leader_portrait_url sont alimentés. Comme
+      // flag/map : un seul portrait fixe (pas de cycle d'images), traité
+      // par sa propre scène côté client (drawLeaderGuess/drawLeaderReveal),
+      // pas par le pipeline générique imageUrls/backdrops. Écran réponse
+      // "classique pays" : le drapeau (flagUrl), pas le portrait — celui-ci
+      // ne réapparaît qu'en devinette.
+      result.push({
+        id: toPoolId("country", "leader", c.ccn3),
+        title: c.title,
+        leaderName: c.leader_name,
+        type: "country",
+        questionType: "leader",
+        posterUrl: c.leader_portrait_url,
+        flagUrl,
+      });
     }
+  }
+  return result;
+}
+
+// type top-level à part entière (pas un questionType de "country") : on y
+// DEVINE un chef d'État (une personne), pas un pays — même principe que
+// "director"/"actor" qui sont leurs propres types bien qu'ils tirent leurs
+// lignes de la table `person`. Ici la source est `country` (1:1 avec son
+// chef d'État actuel, voir fetchAndStoreCountryLeader), pas de pool dédié :
+// TYPES.statesman réutilise getCountryPool tel quel (mêmes filtres
+// géographie/région que "country").
+function materializeStatesmanRows(rows) {
+  const result = [];
+  for (const c of rows) {
+    if (!c.leader_name || !c.leader_portrait_url) continue;
+    const flagUrl = `https://flagcdn.com/w320/${c.cca2.toLowerCase()}.png`;
+    // indice = drapeau + nom du pays (nom réglable côté client), réponse à
+    // deviner = le chef d'État. Reveal : portrait + intitulé du poste
+    // (leader_title, absent pour certains pays — voir countryLeaderFromDump
+    // — affiché seulement si présent, pas de repli).
+    result.push({
+      id: toPoolId("statesman", "statesman", c.ccn3),
+      title: c.leader_name,
+      leaderTitle: c.leader_title,
+      countryName: c.title,
+      type: "statesman",
+      questionType: "statesman",
+      posterUrl: flagUrl,
+      leaderPortraitUrl: c.leader_portrait_url,
+    });
   }
   return result;
 }
@@ -381,7 +464,27 @@ function materializeCountryRows(rows, questionType) {
 // un peintre (source wikidata, rôle "painter") n'a jamais de summary, comme
 // un acteur dont TMDb n'a pas de biographie : filtré comme n'importe quel
 // summary trop court (MIN_SUMMARY_LEN).
-function materializePersonRows(rows, questionType) {
+// le nom du groupe "role" (table `filter`) est une catégorie générique
+// partagée par tout le monde (sert aussi de libellé de case à cocher côté
+// filtres) et reste donc toujours à la forme masculine — seul l'affichage
+// PAR PERSONNE au reveal (roleLabel, voir personSubtitle) doit s'accorder
+// au genre de cette personne (p.gender, TMDb ou Wikidata). Formes invariantes
+// en français (Peintre, Scientifique, Astronaute...) n'ont pas besoin
+// d'entrée ici et retombent sur le nom masculin tel quel.
+const FEMALE_ROLE_LABELS = {
+  Acteur: "Actrice",
+  Réalisateur: "Réalisatrice",
+  Politicien: "Politicienne",
+  Sportif: "Sportive",
+  Écrivain: "Écrivaine",
+  Chanteur: "Chanteuse",
+};
+
+function genderRoleLabel(name, gender) {
+  return gender === "female" ? (FEMALE_ROLE_LABELS[name] ?? name) : name;
+}
+
+function materializePersonRows(rows, questionType, maxSummaryLen) {
   // libellés du groupe "role" (Acteur/Réalisateur/Peintre/Politicien/...),
   // affichés au reveal (voir drawReveal/personSubtitle côté client) — batch
   // sur tout `rows` plutôt qu'un getEntityFilters par ligne (N+1) ; nommé
@@ -417,7 +520,12 @@ function materializePersonRows(rows, questionType) {
         : {}),
       ...(p.nationality ? { nationality: p.nationality } : {}),
       ...(roleNames.get(p.id)?.length
-        ? { roleLabel: roleNames.get(p.id).join(", ") }
+        ? {
+            roleLabel: roleNames
+              .get(p.id)
+              .map((name) => genderRoleLabel(name, p.gender))
+              .join(", "),
+          }
         : {}),
     };
     if (questionType === "image") {
@@ -442,6 +550,7 @@ function materializePersonRows(rows, questionType) {
     } else if (questionType === "summary") {
       const overview = truncateOverview(
         redactTitle((p.summary || "").trim(), p.name),
+        maxSummaryLen,
       );
       if (overview.length >= MIN_SUMMARY_LEN) {
         result.push({
@@ -486,7 +595,7 @@ function materializePainterRow(p) {
 // quel (pas de ré-emballage "allowlist" comme pour le mode "image", voir
 // selectItemsWithBackdrops) — le garder aurait fuité un champ interne dans
 // la réponse client.
-function materializeWikiArticleRows(rows, questionType) {
+function materializeWikiArticleRows(rows, questionType, maxSummaryLen) {
   const result = [];
   for (const item of rows) {
     if (!item.thumbnail_url) continue;
@@ -498,6 +607,8 @@ function materializeWikiArticleRows(rows, questionType) {
         questionType: "image",
         posterUrl: item.thumbnail_url,
         wikiArticleId: item.id,
+        ...(item.reason ? { reason: item.reason } : {}),
+        ...(item.isAnniversary ? { isAnniversary: true } : {}),
       });
     } else if (questionType === "summary") {
       let aliases;
@@ -507,7 +618,13 @@ function materializeWikiArticleRows(rows, questionType) {
         aliases = [];
       }
       const overview = truncateOverview(
-        redactTitle((item.extract || "").trim(), item.title, aliases, !!item.loose_redaction),
+        redactTitle(
+          (item.extract || "").trim(),
+          item.title,
+          aliases,
+          !!item.loose_redaction,
+        ),
+        maxSummaryLen,
       );
       if (overview.length >= MIN_SUMMARY_LEN) {
         result.push({
@@ -517,6 +634,8 @@ function materializeWikiArticleRows(rows, questionType) {
           type: "wiki_article",
           questionType: "summary",
           posterUrl: item.thumbnail_url,
+          ...(item.reason ? { reason: item.reason } : {}),
+          ...(item.isAnniversary ? { isAnniversary: true } : {}),
         });
       }
     }
@@ -528,7 +647,7 @@ function materializeWikiArticleRows(rows, questionType) {
 // tirés du même sprite/résumé/cri déjà connus au moment du fetch (pas de
 // warmLoop) — "audio" (cri) exige cry_url, absent pour quelques espèces
 // sans cri connu côté PokeAPI, comme "flag" exige c.capital pour un pays.
-function materializePokemonRows(rows, questionType) {
+function materializePokemonRows(rows, questionType, maxSummaryLen) {
   const result = [];
   for (const p of rows) {
     if (questionType === "image") {
@@ -542,6 +661,7 @@ function materializePokemonRows(rows, questionType) {
     } else if (questionType === "summary") {
       const overview = truncateOverview(
         redactTitle((p.summary || "").trim(), p.name),
+        maxSummaryLen,
       );
       if (overview.length >= MIN_SUMMARY_LEN) {
         result.push({
@@ -572,7 +692,7 @@ function materializePokemonRows(rows, questionType) {
 // fetch (pas de warmLoop, même cas que "pokemon"/"music" ci-dessus) —
 // aliases (vrai nom, alter-ego) masqués du summary comme pour wiki_article,
 // pas de mode "audio" (aucune source sonore dans cette API).
-function materializeSuperheroRows(rows, questionType) {
+function materializeSuperheroRows(rows, questionType, maxSummaryLen) {
   const result = [];
   for (const h of rows) {
     if (questionType === "image") {
@@ -592,6 +712,7 @@ function materializeSuperheroRows(rows, questionType) {
       }
       const overview = truncateOverview(
         redactTitle((h.summary || "").trim(), h.name, aliases),
+        maxSummaryLen,
       );
       if (overview.length >= MIN_SUMMARY_LEN) {
         result.push({
@@ -655,24 +776,26 @@ const TYPES = {
   movie: {
     questionTypes: ["image", "summary"],
     getPool: db.getMoviePool,
-    materialize: (rows, questionType) =>
-      materializeMovieLikeRows(rows, "movie", questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializeMovieLikeRows(rows, "movie", questionType, maxSummaryLen),
   },
   tv: {
     questionTypes: ["image", "summary"],
     getPool: db.getTvShowPool,
-    materialize: (rows, questionType) =>
-      materializeMovieLikeRows(rows, "tv", questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializeMovieLikeRows(rows, "tv", questionType, maxSummaryLen),
   },
   person: {
     questionTypes: ["image", "summary"],
     getPool: db.getPersonPool,
-    materialize: (rows, questionType) => materializePersonRows(rows, questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializePersonRows(rows, questionType, maxSummaryLen),
   },
   game: {
     questionTypes: ["image", "summary"],
     getPool: db.getGamePool,
-    materialize: (rows, questionType) => materializeGameRows(rows, questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializeGameRows(rows, questionType, maxSummaryLen),
   },
   music: {
     questionTypes: ["audio"],
@@ -680,17 +803,28 @@ const TYPES = {
     materialize: (rows) => rows.map(materializeMusicTrackRow),
   },
   country: {
-    questionTypes: ["image", "flag"],
+    questionTypes: ["image", "flag", "map", "leader"],
     getPool: db.getCountryPool,
     materialize: (rows, questionType) =>
       materializeCountryRows(rows, questionType),
+  },
+  // sens inverse de country:leader — on y devine un CHEF D'ÉTAT (une
+  // personne), pas un pays, d'où un type à part plutôt qu'un questionType
+  // de "country" (voir materializeStatesmanRows). Réutilise getCountryPool
+  // tel quel : pas de pool propre, une ligne country EST son chef d'État
+  // actuel (1:1, voir fetchAndStoreCountryLeader).
+  statesman: {
+    questionTypes: ["statesman"],
+    getPool: db.getCountryPool,
+    materialize: (rows) => materializeStatesmanRows(rows),
   },
   painter: {
     questionTypes: ["image"],
     // seuil d'œuvres appliqué ICI et pas dans le pool lui-même : le warmLoop
     // qui récupère les tableaux a besoin de voir tous les peintres, y compris
     // ceux qui n'en ont pas encore (voir PAINTER_MIN_ARTWORKS).
-    getPool: (selections) => db.getPainterPool(selections, db.PAINTER_MIN_ARTWORKS),
+    getPool: (selections) =>
+      db.getPainterPool(selections, db.PAINTER_MIN_ARTWORKS),
     materialize: (rows) => rows.map(materializePainterRow),
   },
   director: {
@@ -708,17 +842,20 @@ const TYPES = {
   wiki_article: {
     questionTypes: ["image", "summary"],
     getPool: db.getWikiArticlePool,
-    materialize: (rows, questionType) => materializeWikiArticleRows(rows, questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializeWikiArticleRows(rows, questionType, maxSummaryLen),
   },
   pokemon: {
     questionTypes: ["image", "summary", "audio"],
     getPool: db.getPokemonPool,
-    materialize: (rows, questionType) => materializePokemonRows(rows, questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializePokemonRows(rows, questionType, maxSummaryLen),
   },
   superhero: {
     questionTypes: ["image", "summary"],
     getPool: db.getSuperheroPool,
-    materialize: (rows, questionType) => materializeSuperheroRows(rows, questionType),
+    materialize: (rows, questionType, maxSummaryLen) =>
+      materializeSuperheroRows(rows, questionType, maxSummaryLen),
   },
 };
 
@@ -759,12 +896,12 @@ function shuffle(arr) {
 // différents (ex. movie:image en "Populaire" et movie:summary en
 // "Années 1990"), c'est tout l'intérêt de ce découpage par entrée plutôt que
 // par type brut.
-function materializeSelection({ type, questionType, filters }) {
+function materializeSelection({ type, questionType, filters }, maxSummaryLen) {
   const cfg = TYPES[type];
   if (!cfg) throw new Error(`type inconnu: "${type}"`);
   if (!cfg.questionTypes.includes(questionType))
     throw new Error(`questionType "${questionType}" invalide pour "${type}"`);
-  return cfg.materialize(cfg.getPool(filters), questionType);
+  return cfg.materialize(cfg.getPool(filters), questionType, maxSummaryLen);
 }
 
 // assemble le pool candidat depuis les sélections du client — dédupliqué par
@@ -772,10 +909,11 @@ function materializeSelection({ type, questionType, filters }) {
 // qui se recoupent) ; matérialisée depuis SQLite à chaque appel (pas de pool
 // en mémoire — la DB est la seule source de vérité, tenue à jour par
 // refresh.js en parallèle).
-function itemsFromSelections(selections) {
+function itemsFromSelections(selections, maxSummaryLen) {
   const merged = new Map();
   for (const selection of selections) {
-    for (const item of materializeSelection(selection)) merged.set(item.id, item);
+    for (const item of materializeSelection(selection, maxSummaryLen))
+      merged.set(item.id, item);
   }
   return [...merged.values()];
 }
@@ -796,7 +934,13 @@ function allTypeQuestionSelections() {
 // quand même atteindre `count`. `shuffleFn` (défaut : `shuffle` non-seedé)
 // permet au quiz du jour de passer un mélange seedé par la date (voir
 // /api/quiz-daily) sans dupliquer cette répartition par bucket.
-function stratifiedSelection(pool, selectionKeys, count, excludeIds, shuffleFn = shuffle) {
+function stratifiedSelection(
+  pool,
+  selectionKeys,
+  count,
+  excludeIds,
+  shuffleFn = shuffle,
+) {
   const n = selectionKeys.length;
   if (n === 0) return [];
 
@@ -981,7 +1125,9 @@ function getBackdropsForItem(item, need) {
   // objets...), contrairement aux backdrops de film (quasi tous 16:9) — un
   // filtre "ratio standard" écarterait à tort la plupart d'entre elles.
   const ratioPool =
-    item.type === "person" || item.type === "wiki_article" || standardRatio.length === 0
+    item.type === "person" ||
+    item.type === "wiki_article" ||
+    standardRatio.length === 0
       ? backdrops
       : standardRatio;
 
@@ -1002,6 +1148,7 @@ async function selectItemsWithBackdrops(
   count,
   imagesPerItem,
   summaryPerItem,
+  maxSummaryLen,
 ) {
   const result = [];
   let excludedCount = 0;
@@ -1029,13 +1176,17 @@ async function selectItemsWithBackdrops(
           // nom DU RÉALISATEUR/DE L'ACTEUR (pas un titre de film,
           // contrairement à materializeMovieLikeRows/materializeGameRows)
           // puisque c'est lui la réponse à deviner ici.
-          const summaries = (m.type === "director"
-            ? db.getDirectorMovieSummaries(m.personId)
-            : db.getActorMovieSummaries(m.personId)
+          const summaries = (
+            m.type === "director"
+              ? db.getDirectorMovieSummaries(m.personId)
+              : db.getActorMovieSummaries(m.personId)
           )
             .map((s) => ({
               title: s.title,
-              overview: truncateOverview(redactTitle((s.overview || "").trim(), m.title)),
+              overview: truncateOverview(
+                redactTitle((s.overview || "").trim(), m.title),
+                maxSummaryLen,
+              ),
             }))
             .filter((s) => s.overview.length >= MIN_SUMMARY_LEN);
           if (summaries.length === 0) return null;
@@ -1115,7 +1266,10 @@ app.get("/api/catalog", (req, res) => {
   for (const [type, cfg] of Object.entries(TYPES)) {
     catalog[type] = {
       questionTypes: cfg.questionTypes,
-      filters: db.getFiltersForType(type),
+      // "statesman" réutilise getCountryPool tel quel (voir TYPES ci-dessus),
+      // donc ses filtres exploitables sont ceux stockés sous type="country",
+      // pas sous "statesman" (qui n'a jamais aucune ligne dans `filter`).
+      filters: db.getFiltersForType(type === "statesman" ? "country" : type),
     };
   }
   res.json(catalog);
@@ -1181,7 +1335,7 @@ const DAILY_TRENDING_CODES = {
 // questionTypes, un seul suffit à représenter "Tendances du jour (Films)"
 // pour la journée. `rng` est réutilisé (fermeture partagée avec le reste du
 // quiz du jour) pour que ce tirage reste stable toute la journée.
-function dailyListPicks(rng) {
+function dailyListPicks(rng, maxSummaryLen) {
   const picked = [];
   for (const [type, codes] of Object.entries(DAILY_TRENDING_CODES)) {
     const cfg = TYPES[type];
@@ -1196,7 +1350,7 @@ function dailyListPicks(rng) {
       // matérialise au moins un item, plutôt que de se limiter au premier.
       let item = null;
       for (const questionType of seededShuffle(cfg.questionTypes, rng)) {
-        const materialized = cfg.materialize(rows, questionType);
+        const materialized = cfg.materialize(rows, questionType, maxSummaryLen);
         if (materialized.length > 0) {
           item = seededShuffle(materialized, rng)[0];
           break;
@@ -1208,7 +1362,7 @@ function dailyListPicks(rng) {
   return picked;
 }
 
-function dailyMovieAnniversaryBucket(month, day) {
+function dailyMovieAnniversaryBucket(month, day, maxSummaryLen) {
   const rows = db.getMoviesByReleaseMonthDay(month, day);
   for (const row of rows) {
     const year = String(row.release_date).slice(0, 4);
@@ -1217,12 +1371,14 @@ function dailyMovieAnniversaryBucket(month, day) {
   }
   const result = [];
   for (const questionType of TYPES.movie.questionTypes) {
-    result.push(...materializeMovieLikeRows(rows, "movie", questionType));
+    result.push(
+      ...materializeMovieLikeRows(rows, "movie", questionType, maxSummaryLen),
+    );
   }
   return result;
 }
 
-function dailyGameAnniversaryBucket(month, day) {
+function dailyGameAnniversaryBucket(month, day, maxSummaryLen) {
   const rows = db.getGamesByReleaseMonthDay(month, day);
   for (const row of rows) {
     const year = String(row.release_date).slice(0, 4);
@@ -1231,7 +1387,7 @@ function dailyGameAnniversaryBucket(month, day) {
   }
   const result = [];
   for (const questionType of TYPES.game.questionTypes) {
-    result.push(...materializeGameRows(rows, questionType));
+    result.push(...materializeGameRows(rows, questionType, maxSummaryLen));
   }
   return result;
 }
@@ -1246,7 +1402,7 @@ function dailyMusicAnniversaryBucket(month, day) {
   return rows.map(materializeMusicTrackRow);
 }
 
-function dailyPersonAnniversaryBucket(month, day) {
+function dailyPersonAnniversaryBucket(month, day, maxSummaryLen) {
   // type "person" (voir TYPES) couvre déjà acteurs/réalisateurs/peintres
   // (rôle multi-valué, voir refresh.js fetchPainterEntities) — pas besoin
   // d'interroger séparément les pools "director"/"painter" en plus. Chaque
@@ -1263,30 +1419,51 @@ function dailyPersonAnniversaryBucket(month, day) {
   }
   const result = [];
   for (const questionType of TYPES.person.questionTypes) {
-    result.push(...materializePersonRows(rows, questionType));
+    result.push(...materializePersonRows(rows, questionType, maxSummaryLen));
+  }
+  return result;
+}
+
+// article Wikipédia "histoire" (bataille/guerre) avec une date d'événement
+// connue au jour près — voir fetchEventDates/storeWikiArticleEventDates dans
+// refresh/wikipedia.js. Pas de rôle (contrairement à person), un seul bucket
+// par questionType suffit.
+function dailyWikiArticleAnniversaryBucket(month, day, maxSummaryLen) {
+  const rows = db.getWikiArticlesByEventMonthDay(month, day);
+  for (const row of rows) {
+    const year = String(row.event_date).slice(0, 4);
+    row.reason = `Survenu ${yearsAgo(year)}`;
+    row.isAnniversary = true;
+  }
+  const result = [];
+  for (const questionType of TYPES.wiki_article.questionTypes) {
+    result.push(
+      ...materializeWikiArticleRows(rows, questionType, maxSummaryLen),
+    );
   }
   return result;
 }
 
 // 1 item par bucket type:questionType (type:questionType:role pour "person",
-// voir plus bas) parmi les 4 sources anniversaire — contrairement à
+// voir plus bas) parmi les 5 sources anniversaire — contrairement à
 // dailyListPicks (1 par liste, questionType au hasard), un anniversaire veut
 // représenter CHAQUE questionType qu'il peut produire (ex. movie:image ET
 // movie:summary séparément, si les deux ont un item ce jour-là), pas un seul
 // tiré au hasard parmi eux.
-function dailyAnniversaryPicks(month, day, rng) {
+function dailyAnniversaryPicks(month, day, rng, maxSummaryLen) {
   const pool = [
-    ...dailyMovieAnniversaryBucket(month, day),
-    ...dailyGameAnniversaryBucket(month, day),
+    ...dailyMovieAnniversaryBucket(month, day, maxSummaryLen),
+    ...dailyGameAnniversaryBucket(month, day, maxSummaryLen),
     ...dailyMusicAnniversaryBucket(month, day),
-    ...dailyPersonAnniversaryBucket(month, day),
+    ...dailyPersonAnniversaryBucket(month, day, maxSummaryLen),
+    ...dailyWikiArticleAnniversaryBucket(month, day, maxSummaryLen),
   ];
   const byBucket = new Map();
   for (const m of pool) {
     // "person" ajoute le rôle (acteur/réalisateur/peintre/...) à la clé — un
     // acteur et un peintre nés le même jour doivent chacun avoir leur chance,
     // pas rivaliser dans le même bucket "person:image" (voir
-    // dailyPersonAnniversaryBucket). Les 3 autres sources n'ont pas de rôle,
+    // dailyPersonAnniversaryBucket). Les 4 autres sources n'ont pas de rôle,
     // `m.role` y est toujours undefined donc la clé reste inchangée pour elles.
     const key = m.role
       ? `${m.type}:${m.questionType}:${m.role}`
@@ -1353,6 +1530,26 @@ app.post("/api/quiz-daily", async (req, res) => {
   const day = String(now.getDate()).padStart(2, "0");
   const dateKey = `${now.getFullYear()}-${month}-${day}`;
 
+  // lu avant de construire `picked` : dailyAnniversaryPicks/dailyListPicks
+  // matérialisent déjà les summary (troncature), donc ont besoin de
+  // maxSummaryLen dès cet appel.
+  const body = req.body || {};
+  const imagesPerItem = Math.min(
+    MAX_IMAGES_PER_ITEM,
+    Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
+  );
+  const summaryPerItem = Math.min(
+    MAX_SUMMARY_PER_ITEM,
+    Math.max(MIN_SUMMARY_PER_ITEM, parseInt(body.summaryPerItem, 10) || 1),
+  );
+  const maxSummaryLen = Math.min(
+    MAX_SUMMARY_TRUNC_LEN,
+    Math.max(
+      MIN_SUMMARY_TRUNC_LEN,
+      parseInt(body.maxSummaryLen, 10) || MAX_SUMMARY_TRUNC_LEN,
+    ),
+  );
+
   // taille figée par construction, pas un total configurable réparti ensuite :
   // 1 item par bucket type:questionType d'anniversaire (movie:image ET
   // movie:summary séparément si les deux existent, voir
@@ -1364,8 +1561,8 @@ app.post("/api/quiz-daily", async (req, res) => {
   // la journée.
   const rng = seededRng(dateKey);
   const picked = [
-    ...dailyAnniversaryPicks(month, day, rng),
-    ...dailyListPicks(rng),
+    ...dailyAnniversaryPicks(month, day, rng, maxSummaryLen),
+    ...dailyListPicks(rng, maxSummaryLen),
   ];
 
   if (picked.length === 0) {
@@ -1374,15 +1571,6 @@ app.post("/api/quiz-daily", async (req, res) => {
     });
   }
 
-  const body = req.body || {};
-  const imagesPerItem = Math.min(
-    MAX_IMAGES_PER_ITEM,
-    Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
-  );
-  const summaryPerItem = Math.min(
-    MAX_SUMMARY_PER_ITEM,
-    Math.max(MIN_SUMMARY_PER_ITEM, parseInt(body.summaryPerItem, 10) || 1),
-  );
   const count = picked.length;
 
   const { items: withImages, excludedCount } = await selectItemsWithBackdrops(
@@ -1390,6 +1578,7 @@ app.post("/api/quiz-daily", async (req, res) => {
     count,
     imagesPerItem,
     summaryPerItem,
+    maxSummaryLen,
   );
 
   res.json({
@@ -1400,6 +1589,7 @@ app.post("/api/quiz-daily", async (req, res) => {
     excludedCount,
     imagesPerItem,
     summaryPerItem,
+    maxSummaryLen,
     totalGenerated: db.recordQuizGenerated(),
   });
 });
@@ -1427,13 +1617,6 @@ app.post("/api/quiz-batch", async (req, res) => {
       .json({ error: "selections requis (au moins une entrée)." });
   }
 
-  let all;
-  try {
-    all = itemsFromSelections(selections);
-  } catch (e) {
-    return res.status(400).json({ error: e.message });
-  }
-
   const imagesPerItem = Math.min(
     MAX_IMAGES_PER_ITEM,
     Math.max(MIN_IMAGES_PER_ITEM, parseInt(body.imagesPerItem, 10) || 1),
@@ -1442,6 +1625,20 @@ app.post("/api/quiz-batch", async (req, res) => {
     MAX_SUMMARY_PER_ITEM,
     Math.max(MIN_SUMMARY_PER_ITEM, parseInt(body.summaryPerItem, 10) || 1),
   );
+  const maxSummaryLen = Math.min(
+    MAX_SUMMARY_TRUNC_LEN,
+    Math.max(
+      MIN_SUMMARY_TRUNC_LEN,
+      parseInt(body.maxSummaryLen, 10) || MAX_SUMMARY_TRUNC_LEN,
+    ),
+  );
+
+  let all;
+  try {
+    all = itemsFromSelections(selections, maxSummaryLen);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
 
   const count = Math.min(
     MAX_COUNT,
@@ -1480,6 +1677,7 @@ app.post("/api/quiz-batch", async (req, res) => {
     count,
     imagesPerItem,
     summaryPerItem,
+    maxSummaryLen,
   );
 
   res.json({
@@ -1490,6 +1688,7 @@ app.post("/api/quiz-batch", async (req, res) => {
     excludedCount,
     imagesPerItem,
     summaryPerItem,
+    maxSummaryLen,
     poolSize: all.length,
     totalGenerated: db.recordQuizGenerated(),
   });

@@ -43,7 +43,18 @@ export const supportsFastEncode =
 // ne peut créer le SourceBuffer qu'à ce moment-là, donc les tout
 // premiers fragments (ftyp/moov) sont mis en file d'attente le temps
 // que le SourceBuffer existe.
-export async function renderFast() {
+// marge exigée sur la vitesse d'encodage avant d'inviter à regarder : à
+// 1.0 pile la lecture suivrait l'encodage au ras, le moindre à-coup (autre
+// onglet, thermique) la ferait caler. 1.25 = 25 % d'avance.
+const PREVIEW_MIN_SPEED = 1.25;
+// pas avant ce nombre d'images : sur un échantillon trop court la mesure
+// est dominée par la mise en route de l'encodeur et n'est pas fiable.
+const PREVIEW_SAMPLE_FRAMES = 90;
+
+// `onPreviewReady` est appelé au plus une fois, quand il devient sûr de
+// proposer la lecture pendant que l'encodage continue — l'encodeur signale
+// l'événement, c'est l'appelant qui décide de l'interface (voir main.js).
+export async function renderFast({ onPreviewReady } = {}) {
   const encodeFrameDurationSec = 1 / state.renderFps;
   const totalEncodeFrames = Math.max(
     1,
@@ -56,6 +67,18 @@ export async function renderFast() {
   stage.innerHTML = "";
   const video = document.createElement("video");
   video.controls = true;
+  // condition NÉCESSAIRE mais pas suffisante pour proposer la lecture :
+  // loadeddata ne garantit qu'une première image décodable, soit une
+  // fraction de seconde en tampon. La décision se prend plus bas, sur la
+  // vitesse d'encodage mesurée.
+  let playable = false;
+  video.addEventListener(
+    "loadeddata",
+    () => {
+      playable = true;
+    },
+    { once: true },
+  );
   video.src = mediaSourceUrl;
   stage.appendChild(video);
 
@@ -256,6 +279,9 @@ export async function renderFast() {
       }
     } else if (
       seg.type === "flag-guess" ||
+      seg.type === "leader-guess" ||
+      seg.type === "statesman-guess" ||
+      seg.type === "map-guess" ||
       seg.type === "summary-guess"
     ) {
       const m = state.items[seg.itemIdx];
@@ -266,6 +292,8 @@ export async function renderFast() {
   }
   audioSource.close();
 
+  const encodeStartTs = performance.now();
+  let previewAnnounced = false;
   for (let i = 0; i < totalEncodeFrames; i++) {
     const elapsedMs = (i / state.renderFps) * 1000;
     const seg = findSegment(elapsedMs);
@@ -278,10 +306,25 @@ export async function renderFast() {
 
     if (i % 90 === 0) {
       setProgress((i / totalEncodeFrames) * 100);
-      setStatus(
-        `Rendu en cours : image ${i}/${totalEncodeFrames}…`,
-        "rec",
-      );
+      setStatus(`Rendu en cours : image ${i}/${totalEncodeFrames}…`, "rec");
+
+      // Peut-on inviter à regarder tout de suite sans risquer un calage ?
+      // On ne le décide pas sur un seuil fixe (le débit d'encodage varie
+      // trop d'une machine à l'autre) mais sur la vitesse RÉELLE mesurée :
+      // encodedSec/realSec > 1 signifie que la vidéo est produite plus vite
+      // qu'elle ne se lit, donc le tampon ne fait que grandir et la lecture
+      // ne rattrapera jamais l'encodage. En dessous, on n'annonce rien du
+      // tout — sur une machine lente l'utilisateur aura simplement le
+      // résultat final, ce qui vaut mieux qu'un aperçu qui se fige.
+      if (!previewAnnounced && playable && i >= PREVIEW_SAMPLE_FRAMES) {
+        const encodedSec = i / state.renderFps;
+        const realSec = (performance.now() - encodeStartTs) / 1000;
+        if (encodedSec / realSec >= PREVIEW_MIN_SPEED) {
+          previewAnnounced = true;
+          onPreviewReady?.();
+        }
+      }
+
       await new Promise((r) => setTimeout(r, 0)); // laisse respirer l'UI/event loop
     }
   }

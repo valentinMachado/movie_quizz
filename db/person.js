@@ -23,11 +23,12 @@ export function upsertPerson({
   specificOccupation = null,
   nationality = null,
   wikiTitle = null,
+  gender = null,
 }) {
   const now = Date.now();
   db.prepare(
-    `INSERT INTO person (source, external_id, name, profile_image_url, portrait_image_url, popularity, summary, position_held, specific_occupation, nationality, wiki_title, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO person (source, external_id, name, profile_image_url, portrait_image_url, popularity, summary, position_held, specific_occupation, nationality, wiki_title, gender, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source, external_id) DO UPDATE SET
        name = excluded.name,
        profile_image_url = COALESCE(excluded.profile_image_url, person.profile_image_url),
@@ -38,6 +39,7 @@ export function upsertPerson({
        specific_occupation = COALESCE(excluded.specific_occupation, person.specific_occupation),
        nationality = COALESCE(excluded.nationality, person.nationality),
        wiki_title = COALESCE(excluded.wiki_title, person.wiki_title),
+       gender = COALESCE(excluded.gender, person.gender),
        updated_at = excluded.updated_at`,
   ).run(
     source,
@@ -51,6 +53,7 @@ export function upsertPerson({
     specificOccupation,
     nationality,
     wikiTitle,
+    gender,
     now,
   );
   return db

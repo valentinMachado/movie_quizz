@@ -10,7 +10,8 @@ import {
   PAGE_FETCH_CONCURRENCY,
 } from "./config.js";
 import { mapWithConcurrency, tagFilter, storeFilterGroup } from "./util.js";
-import { wikidataQuery } from "./wikidata.js";
+import { wikidataQuery, fetchGenders, fetchWikidataSitelinks } from "./wikidata.js";
+import { SUBREGION_LABELS } from "./pexels-country.js";
 import {
   ensureFrwikiIndex,
   ensureMultistreamIndex,
@@ -24,6 +25,7 @@ import {
   qidsByPageIdFromIndex,
   imageTitlesFromIndex,
   pageIdFromTitle,
+  countryLeaderFromDump,
 } from "./frwiki-dump.js";
 
 // articles Wikipédia — API MediaWiki (fr.wikipedia.org/w/api.php), gratuite,
@@ -478,6 +480,10 @@ export async function fetchWikiArticleEntities() {
     ];
     const yearByQid = await fetchEventYears(historyQids);
     storeWikiArticleDecades(historyPageIds, qidByPageid, yearByQid);
+    // date complète (précision jour), pour le quiz du jour — voir
+    // dailyWikiArticleAnniversaryBucket côté server.js.
+    const dateByQid = await fetchEventDates(historyQids);
+    storeWikiArticleEventDates(historyPageIds, qidByPageid, dateByQid);
   }
 
   // géographie : pays associé à l'article (P17 Wikidata), "quand c'est
@@ -547,23 +553,27 @@ async function fetchAllPageviews(items) {
   return views;
 }
 
-// 3 tertiles directs sur la valeur (pas de source "Populaire" séparée à
+// 4 quartiles directs sur la valeur (pas de source "Populaire" séparée à
 // exclure comme movie/tv/game/person, voir storePopularityTiers dans
-// util.js) — même principe que storePainterPopularityTiers dans
-// wikidata.js, recalculé à chaque crawl complet.
+// util.js) — même principe que storeTertilePopularityTiers dans util.js
+// (dont c'est ici une copie autonome, comme superhero.js), recalculé à
+// chaque crawl complet.
 function storeWikiArticlePopularityTiers(entries) {
   const known = entries
     .filter((e) => e.value != null)
     .map((e) => e.value)
     .sort((a, b) => a - b);
   if (known.length === 0) return;
-  const q1 = known[Math.floor(known.length / 3)];
-  const q2 = known[Math.floor((known.length * 2) / 3)];
-  const tierFor = (v) => (v <= q1 ? "obscur" : v <= q2 ? "niche" : "populaire");
+  const q1 = known[Math.floor(known.length / 4)];
+  const q2 = known[Math.floor((known.length * 2) / 4)];
+  const q3 = known[Math.floor((known.length * 3) / 4)];
+  const tierFor = (v) =>
+    v <= q1 ? "obscur" : v <= q2 ? "niche" : v <= q3 ? "populaire" : "star";
   db.upsertFilters("wiki_article", "liste", [
     { code: "obscur", name: "Obscur" },
     { code: "niche", name: "Niche" },
     { code: "populaire", name: "Populaire" },
+    { code: "star", name: "Star" },
   ]);
   db.replaceEntityFilters(
     "wiki_article",
@@ -643,6 +653,70 @@ async function fetchEventYears(qids) {
     }
   }
   return yearByQid;
+}
+
+// même triplet P585 (date ponctuelle) > P580 (date de début) > P571 (date de
+// création) qu'eventYearsSparql ci-dessus, mais date COMPLÈTE + précision
+// (wikibase:timeValue/wikibase:timePrecision) filtrée à >= 11 (jour connu) —
+// même garde-fou que wikidataBirthDatesSparql (refresh/wikidata.js) : une
+// bataille connue seulement "vers 1800" ne doit pas devenir un faux
+// "1er janvier" dans le quiz du jour. eventYearsSparql reste inchangée (elle
+// alimente le filtre "decennie", qui n'a pas besoin de cette précision).
+function eventDatesSparql(qids) {
+  const values = qids.map((qid) => `wd:${qid}`).join(" ");
+  return (
+    "SELECT ?item ?date WHERE { " +
+    `VALUES ?item { ${values} } ` +
+    "OPTIONAL { ?item p:P585/psv:P585 ?n1. } " +
+    "OPTIONAL { ?item p:P580/psv:P580 ?n2. } " +
+    "OPTIONAL { ?item p:P571/psv:P571 ?n3. } " +
+    "BIND(COALESCE(?n1, ?n2, ?n3) AS ?node) " +
+    "FILTER(BOUND(?node)) " +
+    "?node wikibase:timeValue ?date; wikibase:timePrecision ?precision. " +
+    "FILTER(?precision >= 11) " +
+    "}"
+  );
+}
+
+// générique sur les QID "histoire" déjà isolés par l'appelant (historyQids,
+// voir fetchWikiArticleEntities) — même schéma batch/300 que fetchEventYears
+// ci-dessous, via wikidataQuery (déjà sérialisé/retry).
+async function fetchEventDates(qids) {
+  const dates = new Map(); // qid -> date ISO ("YYYY-MM-DDTHH:MM:SSZ")
+  for (let i = 0; i < qids.length; i += 300) {
+    const batch = qids.slice(i, i + 300);
+    try {
+      const data = await wikidataQuery(
+        `https://query.wikidata.org/sparql?query=${encodeURIComponent(eventDatesSparql(batch))}`,
+      );
+      for (const b of data.results?.bindings || []) {
+        const qid = b.item?.value?.split("/").pop();
+        const date = b.date?.value;
+        // dates av. J.-C. (année négative, ex. "-0490-09-12...") écartées :
+        // le format ISO stocké est ensuite lu par substr(...,6,2)/(...,9,2)
+        // (voir getWikiArticlesByEventMonthDay dans db/daily.js, même
+        // hypothèse "YYYY-MM-DD" à largeur fixe que birthday/release_date),
+        // que le signe "-" décalerait.
+        if (qid && date && !date.startsWith("-") && !dates.has(qid))
+          dates.set(qid, date);
+      }
+    } catch (e) {
+      logWarn("Erreur dates d'événement Wikidata (wiki_article):", e.message);
+    }
+  }
+  return dates;
+}
+
+// écrit event_date à partir des QID/dates déjà résolus, même projection
+// pageid -> qid -> valeur que storeWikiArticleDecades ci-dessous — un article
+// sans QID connu ou sans date à précision jour reste simplement à NULL (pas
+// dans `entries`), voir setWikiArticleEventDates.
+function storeWikiArticleEventDates(pageids, qidByPageid, dateByQid) {
+  const entries = pageids
+    .map((id) => ({ entityId: id, qid: qidByPageid.get(id) }))
+    .filter((e) => e.qid && dateByQid.has(e.qid))
+    .map((e) => ({ entityId: e.entityId, value: dateByQid.get(e.qid) }));
+  if (entries.length > 0) db.setWikiArticleEventDates(entries);
 }
 
 // répartit les années CONNUES en tranches de taille égale en NOMBRE
@@ -756,22 +830,46 @@ async function fetchArticleCountries(qids) {
 // légendaire ou un élément chimique, mais pas besoin de restreindre par
 // catégorie en amont, un article sans P17 connu reste simplement sans code
 // dans ce groupe (même principe que "decennie" ci-dessus).
+//
+// Regroupé par SOUS-RÉGION (même découpage/mêmes libellés FR que "country",
+// voir SUBREGION_LABELS dans pexels-country.js), pas par pays : un filtre
+// par pays (~190 codes ISO distincts vus sur le pool réel) noyait l'écran
+// de filtres sous une case à cocher par pays. La correspondance code ISO
+// (P297, déjà résolu dans countryByQid) -> sous-région vient de la table
+// `country`, déjà peuplée par le crawl country (subregion mledoze) — pas
+// d'appel réseau de plus ici. Dépendance d'ordre douce : si le crawl
+// country n'a pas encore tourné cette passe (première exécution, ou
+// exécution parallèle avec country pas encore fini), ce groupe reste vide
+// jusqu'au prochain passage plutôt que de planter (même tolérance que
+// syncPainterPopularityTiers vis-à-vis du warmLoop tableaux).
 function storeWikiArticleGeography(pageids, qidByPageid, countryByQid) {
-  const countryDefs = new Map(); // code -> label
-  for (const { code, label } of countryByQid.values()) countryDefs.set(code, label);
-  if (countryDefs.size === 0) return;
+  const subregionByIso2 = new Map(
+    db
+      .getAllCountries()
+      .filter((c) => c.subregion)
+      .map((c) => [c.cca2.toLowerCase(), c.subregion]),
+  );
+  const subregionDefs = new Map(); // code (subregion EN) -> libellé FR
+  const subregionByQid = new Map(); // qid -> code subregion EN
+  for (const [qid, { code }] of countryByQid) {
+    const subregion = subregionByIso2.get(code);
+    if (!subregion || !SUBREGION_LABELS[subregion]) continue;
+    subregionByQid.set(qid, subregion);
+    subregionDefs.set(subregion, SUBREGION_LABELS[subregion]);
+  }
+  if (subregionDefs.size === 0) return;
   db.upsertFilters(
     "wiki_article",
     "geographie",
-    [...countryDefs].map(([code, name]) => ({ code, name })),
+    [...subregionDefs].map(([code, name]) => ({ code, name })),
   );
   db.replaceEntityFilters(
     "wiki_article",
     "geographie",
     pageids.map((pageid) => {
       const qid = qidByPageid.get(pageid);
-      const country = qid ? countryByQid.get(qid) : null;
-      return { entityId: pageid, codes: country ? [country.code] : [] };
+      const subregion = qid ? subregionByQid.get(qid) : null;
+      return { entityId: pageid, codes: subregion ? [subregion] : [] };
     }),
   );
 }
@@ -957,4 +1055,60 @@ export async function fetchAndStorePersonWikiPhotosBatch(persons) {
     db.replacePersonImages(person.id, images);
     db.markPersonPhotosChecked(person.id);
   }
+}
+
+// chef d'État actuel d'un pays (questionType "leader" côté server.js) — voir
+// countryLeaderFromDump pour l'extraction depuis l'infobox. Pas de repli API
+// si le dump est indisponible (même choix que fetchWikiArticleEntities pour
+// cette famille de données) : le warmLoop "Pays (chef d'État)" (refresh.js)
+// retentera au passage suivant.
+//
+// La personne découverte devient une vraie ligne `person` taguée
+// role=politician (même bloc de tag que fetchPersonRoleEntities dans
+// wikidata.js) plutôt qu'un simple champ texte sur `country` : elle
+// fusionne automatiquement avec un chef d'État déjà connu par ailleurs
+// (upsertPerson est keyé sur source+external_id) et profite gratuitement du
+// pool/filtre "politicien" existant.
+export async function fetchAndStoreCountryLeader(country) {
+  const useIndex = await ensureFrwikiIndex();
+  const useDump = useIndex && (await ensureMultistreamIndex());
+  if (!useDump) return;
+  const pageId = pageIdFromTitle(country.title);
+  if (pageId == null) return;
+  const leader = await countryLeaderFromDump(pageId);
+  if (!leader) return;
+  // genre (P21) + sitelinks : requêtes à part, un seul QID à la fois (ce
+  // warmLoop traite un pays à la fois, cadence déjà journalière — voir
+  // TTL_MS.countryLeader). genre sert au filtre "gender" du type "statesman"
+  // (getCountryLeaderGenders, voir syncGenderFilters dans util.js), pas de
+  // désambiguïsation de libellé à faire ici (leader.name est un nom propre,
+  // pas une occupation). sitelinks (même signal que painter/politicien, voir
+  // wikidataSitelinksSparql) sert de valeur de notoriété au palier obscur/
+  // niche/populaire/star du type "statesman" (voir syncStatesmanPopularityTiers
+  // dans util.js) — un chef d'État n'a pas d'équivalent "consultations FR"
+  // simple à calculer ici (pas de titre d'article résolu), sitelinks suffit.
+  const gender = (await fetchGenders([leader.qid])).get(leader.qid) ?? null;
+  const sitelinks = (await fetchWikidataSitelinks([leader.qid])).get(leader.qid) ?? null;
+  const personId = db.upsertPerson({
+    source: "wikidata",
+    externalId: leader.qid,
+    name: leader.name,
+    portraitImageUrl: leader.portraitThumbUrl,
+    gender,
+    popularity: sitelinks,
+  });
+  db.upsertFilters("person", "role", [{ code: "politician", name: "Politicien" }]);
+  db.addEntityFilters("person", "role", [{ entityId: personId, codes: ["politician"] }]);
+  db.addTypeItems("person", [personId]);
+  if (leader.portraitThumbUrl) {
+    db.replacePersonImages(personId, [
+      { url: leader.portraitThumbUrl, iso_639_1: null, vote_count: 1, aspect_ratio: 1 },
+    ]);
+  }
+  db.setCountryLeader(country.ccn3, {
+    personId,
+    name: leader.name,
+    portraitUrl: leader.portraitThumbUrl,
+    title: leader.title,
+  });
 }
