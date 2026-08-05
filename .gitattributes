@@ -1,0 +1,4 @@
+# deploy.sh est écrit sous Windows (core.autocrlf=true) mais exécuté par bash
+# sur la VM : sans ça, un checkout en CRLF le rendrait illisible ("\r: command
+# not found" dès le shebang).
+*.sh text eol=lf
