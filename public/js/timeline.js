@@ -157,7 +157,9 @@ export function buildTimeline(
       t += revealMs;
       return;
     }
-    if (m.questionType === "summary" && m.type === "director") {
+    // director/actor : testé sur la présence de `overviews` (voir preload.js,
+    // même remarque) plutôt que sur une liste de types en dur.
+    if (m.questionType === "summary" && Array.isArray(m.overviews)) {
       // plusieurs summary (films différents) cyclés comme des frames,
       // même principe que la boucle m.backdropImgs du mode "image"
       // ci-dessous (itemGuessStart/itemGuessDur pour une barre de

@@ -42,81 +42,110 @@ const DB_PATH = DB_ARG
 
 db.init(DB_PATH);
 
-// id "à offset" exposés au client (contrat inchangé) : centralisés ici.
-// `naturalId` est l'id réel de l'entité (ccn3, id TMDb, numéro extrait du
-// QID Wikidata).
-const COUNTRY_ID_OFFSET_IMAGE = 1_000_000_000_000;
-const PAINTER_ID_OFFSET = 2_000_000_000_000;
-const COUNTRY_ID_OFFSET_FLAG = 3_000_000_000_000;
-// questionType "leader" (deviner le chef d'État actuel du pays) : même
-// naturalId (ccn3) que "image"/"flag"/"map" pour ce pays, donc son propre
-// offset pour ne pas s'écraser si plusieurs questionTypes "country" sont
-// sélectionnés ensemble (même piège que COUNTRY_ID_OFFSET_FLAG).
-const COUNTRY_ID_OFFSET_LEADER = 20_000_000_000_000;
-// type "statesman" (sens inverse de "leader" : pays affiché, deviner le
-// chef d'État — type top-level à part, pas un questionType de "country",
-// voir materializeStatesmanRows) — même naturalId (ccn3) que "country" pour
-// ce pays, donc son propre offset.
-const COUNTRY_ID_OFFSET_STATESMAN = 21_000_000_000_000;
-const SUMMARY_ID_OFFSET = {
-  movie: 4_000_000_000_000,
-  tv: 5_000_000_000_000,
-  game: 8_000_000_000_000,
-};
 // une entrée "person" peut être source wikidata (peintre, rôle "painter" —
 // voir materializePersonRows) : son external_id est un QID ("Q123"), pas un
 // id TMDb numérique — sans cet offset dédié, Number("Q123") vaudrait NaN, et
 // même une fois le "Q" retiré, le nombre obtenu pourrait numériquement
-// entrer en collision avec un vrai id TMDb d'acteur.
+// entrer en collision avec un vrai id TMDb d'acteur. Seul offset à ne PAS
+// vivre dans ID_OFFSET ci-dessous : il s'applique au naturalId lui-même
+// (avant toPoolId), pas au couple type:questionType. Sa valeur (6e12) reste
+// néanmoins réservée dans la même numérotation, pour qu'un futur combo ne
+// la réutilise pas.
 const PERSON_WIKIDATA_ID_OFFSET = 6_000_000_000_000;
-// un réalisateur partage la même ligne `person` (et donc le même id TMDb)
-// que son éventuelle entrée "acteur" (voir materializePersonRows) — sans cet
-// offset dédié, le pool "director" et le pool "person" pourraient exposer le
-// même id pour deux items différents (photo à deviner vs films à deviner),
-// qui s'écraseraient l'un l'autre dans itemsFromSelections si les deux sont
-// sélectionnés ensemble.
-const DIRECTOR_ID_OFFSET = 7_000_000_000_000;
-// même réalisateur, même id TMDb, mais un mode "summary" distinct du mode
-// "image" ci-dessus (DIRECTOR_ID_OFFSET) : sans cet offset propre, les deux
-// s'écraseraient l'un l'autre si director:image et director:summary sont
-// sélectionnés ensemble (même piège que DIRECTOR_ID_OFFSET vs person).
-const DIRECTOR_SUMMARY_ID_OFFSET = 9_000_000_000_000;
-// wiki_article.id (voir db/wikiArticle.js) est le pageid Wikipédia — un
-// nombre a priori "petit" comme les vieux id TMDb, donc lui aussi a besoin
-// de son propre espace d'id disjoint (même piège que painter/director
-// ci-dessus), et de 2 offsets distincts (image vs summary, même principe
-// que director).
-const WIKI_ARTICLE_ID_OFFSET = 10_000_000_000_000;
-const WIKI_ARTICLE_SUMMARY_ID_OFFSET = 11_000_000_000_000;
-// national dex number (id PokeAPI) : un espace d'id minuscule et
-// entièrement dense (1..~1025) — bien plus sujet à collision avec les id
-// TMDb/IGDB "bruts" (movie/tv/game, jamais offsetés eux, voir plus bas)
-// qu'un simple risque théorique : garantit une collision quasi certaine
-// sans cet offset dédié. 3 offsets distincts (image/summary/audio) même
-// principe que director/wiki_article ci-dessus, pour qu'un même pokémon
-// sélectionné sur plusieurs questionTypes à la fois ne s'écrase pas dans
-// itemsFromSelections.
-const POKEMON_ID_OFFSET = 12_000_000_000_000;
-const POKEMON_SUMMARY_ID_OFFSET = 13_000_000_000_000;
-const POKEMON_AUDIO_ID_OFFSET = 14_000_000_000_000;
-// super-héros (superhero-api) : même piège d'id qu'avec Pokémon (id dense,
-// petit entier, voir POKEMON_ID_OFFSET ci-dessus) — 2 offsets (image/
-// summary), pas de 3e "audio" : cette API n'a aucune source sonore.
-const SUPERHERO_ID_OFFSET = 15_000_000_000_000;
-const SUPERHERO_SUMMARY_ID_OFFSET = 16_000_000_000_000;
-// person:image garde son id "brut" (naturalId, éventuellement déjà offseté
-// par PERSON_WIKIDATA_ID_OFFSET) — même piège que director/pokemon/superhero
-// ci-dessus si person:summary partageait cet id : les deux s'écraseraient
-// dans itemsFromSelections si sélectionnés ensemble.
-const PERSON_SUMMARY_ID_OFFSET = 17_000_000_000_000;
-// acteur (type "actor", quiz filmographie via affiches/résumés de ses
-// films — voir materializeActorRow) : même id TMDb que son éventuelle
-// entrée "person"/"director" (une seule ligne `person` par acteur, voir
-// commentaire sur DIRECTOR_ID_OFFSET plus haut), donc même besoin d'un
-// espace d'id disjoint, 2 offsets (image/summary) même principe que
-// director.
-const ACTOR_ID_OFFSET = 18_000_000_000_000;
-const ACTOR_SUMMARY_ID_OFFSET = 19_000_000_000_000;
+
+// ---------- espaces d'id disjoints ----------
+//
+// id "à offset" exposés au client (contrat inchangé) : une entrée par combo
+// `type:questionType` déclaré dans TYPES (voir plus bas). `naturalId` est
+// l'id réel de l'entité (ccn3, id TMDb, pageid Wikipédia, numéro dex, numéro
+// extrait du QID Wikidata) ; l'offset garantit que deux combos ne peuvent
+// jamais exposer le même id pour deux items différents, qui s'écraseraient
+// l'un l'autre dans la Map clée par id d'itemsFromSelections.
+//
+// Table plutôt que la chaîne de `if` qu'il y avait ici : celle-ci se lisait
+// dans l'ordre (le cas `pokemon:summary` devait précéder le cas `pokemon`
+// tout court) et, surtout, laissait tout combo OUBLIÉ retomber sur 0 sans la
+// moindre erreur. C'est comme ça que `country:map` a exposé pendant
+// plusieurs versions son ccn3 brut (4..894), en collision directe avec les
+// id TMDb/IGDB bruts de movie/tv/game — précisément le piège que décrivent
+// les commentaires ci-dessous. Le contrôle d'exhaustivité placé juste après
+// TYPES rend désormais cet oubli impossible.
+const ID_OFFSET = {
+  // movie/tv/game:image gardent leur id TMDb/IGDB brut : c'est l'espace d'id
+  // "de référence" auquel tous les autres doivent rester disjoints.
+  "movie:image": 0,
+  "tv:image": 0,
+  "game:image": 0,
+  "movie:summary": 4_000_000_000_000,
+  "tv:summary": 5_000_000_000_000,
+  "game:summary": 8_000_000_000_000,
+
+  // music:audio garde lui aussi son id brut (trackId iTunes) — sans risque
+  // en pratique, les id iTunes (~1e9) ne croisant pas les id TMDb (~1e6),
+  // mais c'est une propriété observée des deux sources, pas une garantie de
+  // construction comme les offsets ci-dessous.
+  "music:audio": 0,
+
+  // person:image garde son id "brut" (naturalId, éventuellement déjà offseté
+  // par PERSON_WIKIDATA_ID_OFFSET) — d'où un offset propre pour
+  // person:summary : sans lui, les deux s'écraseraient si sélectionnés
+  // ensemble.
+  "person:image": 0,
+  "person:summary": 17_000_000_000_000,
+
+  // les 4 questionTypes "country" partagent le MÊME naturalId (le ccn3 du
+  // pays), donc chacun a besoin de son propre offset pour ne pas s'écraser
+  // quand plusieurs sont sélectionnés ensemble.
+  "country:image": 1_000_000_000_000,
+  "country:flag": 3_000_000_000_000,
+  "country:leader": 20_000_000_000_000,
+  "country:map": 22_000_000_000_000,
+
+  // type "statesman" (sens inverse de "leader" : pays affiché, deviner le
+  // chef d'État — type top-level à part, pas un questionType de "country",
+  // voir materializeStatesmanRows) : même naturalId (ccn3) que "country"
+  // pour ce pays, donc son propre offset.
+  "statesman:statesman": 21_000_000_000_000,
+
+  "painter:image": 2_000_000_000_000,
+
+  // un réalisateur partage la même ligne `person` (et donc le même id TMDb)
+  // que son éventuelle entrée "acteur" (voir materializePersonRows) — sans
+  // offset dédié, les pools "director" et "person" exposeraient le même id
+  // pour deux items différents (photo à deviner vs films à deviner). Idem
+  // entre les deux modes du même réalisateur : director:image et
+  // director:summary s'écraseraient l'un l'autre.
+  "director:image": 7_000_000_000_000,
+  "director:summary": 9_000_000_000_000,
+
+  // acteur (type "actor", quiz filmographie via affiches/résumés de ses
+  // films — voir materializeActorRow) : même id TMDb que son éventuelle
+  // entrée "person"/"director" (une seule ligne `person` par acteur), donc
+  // même besoin, même principe à 2 offsets que director.
+  "actor:image": 18_000_000_000_000,
+  "actor:summary": 19_000_000_000_000,
+
+  // wiki_article.id (voir db/wikiArticle.js) est le pageid Wikipédia — un
+  // nombre a priori "petit" comme les vieux id TMDb, donc lui aussi a besoin
+  // de son propre espace disjoint, et de 2 offsets (image vs summary).
+  "wiki_article:image": 10_000_000_000_000,
+  "wiki_article:summary": 11_000_000_000_000,
+
+  // national dex number (id PokeAPI) : un espace d'id minuscule et
+  // entièrement dense (1..~1025) — bien plus sujet à collision avec les id
+  // TMDb/IGDB bruts ci-dessus qu'un simple risque théorique : sans offset,
+  // la collision est quasi certaine. 3 offsets distincts pour qu'un même
+  // pokémon sélectionné sur plusieurs questionTypes ne s'écrase pas.
+  "pokemon:image": 12_000_000_000_000,
+  "pokemon:summary": 13_000_000_000_000,
+  "pokemon:audio": 14_000_000_000_000,
+
+  // super-héros (superhero-api) : même piège d'id qu'avec Pokémon (id dense,
+  // petit entier) — 2 offsets, pas de 3e "audio" : cette API n'a aucune
+  // source sonore.
+  "superhero:image": 15_000_000_000_000,
+  "superhero:summary": 16_000_000_000_000,
+};
 // en dessous, un summary est jugé trop court pour être une devinette
 // exploitable (ex: "Documentaire.")
 const MIN_SUMMARY_LEN = 30;
@@ -131,35 +160,7 @@ const MIN_SUMMARY_TRUNC_LEN = 100;
 const MAX_SUMMARY_TRUNC_LEN = 1000;
 
 function toPoolId(type, questionType, naturalId) {
-  if (type === "country" && questionType === "image")
-    return COUNTRY_ID_OFFSET_IMAGE + naturalId;
-  if (type === "country" && questionType === "flag")
-    return COUNTRY_ID_OFFSET_FLAG + naturalId;
-  if (type === "country" && questionType === "leader")
-    return COUNTRY_ID_OFFSET_LEADER + naturalId;
-  if (type === "statesman") return COUNTRY_ID_OFFSET_STATESMAN + naturalId;
-  if (type === "director" && questionType === "summary")
-    return DIRECTOR_SUMMARY_ID_OFFSET + naturalId;
-  if (type === "wiki_article" && questionType === "summary")
-    return WIKI_ARTICLE_SUMMARY_ID_OFFSET + naturalId;
-  if (type === "pokemon" && questionType === "audio")
-    return POKEMON_AUDIO_ID_OFFSET + naturalId;
-  if (type === "pokemon" && questionType === "summary")
-    return POKEMON_SUMMARY_ID_OFFSET + naturalId;
-  if (type === "pokemon") return POKEMON_ID_OFFSET + naturalId;
-  if (type === "superhero" && questionType === "summary")
-    return SUPERHERO_SUMMARY_ID_OFFSET + naturalId;
-  if (type === "superhero") return SUPERHERO_ID_OFFSET + naturalId;
-  if (type === "person" && questionType === "summary")
-    return PERSON_SUMMARY_ID_OFFSET + naturalId;
-  if (type === "painter") return PAINTER_ID_OFFSET + naturalId;
-  if (type === "director") return DIRECTOR_ID_OFFSET + naturalId;
-  if (type === "actor" && questionType === "summary")
-    return ACTOR_SUMMARY_ID_OFFSET + naturalId;
-  if (type === "actor") return ACTOR_ID_OFFSET + naturalId;
-  if (type === "wiki_article") return WIKI_ARTICLE_ID_OFFSET + naturalId;
-  if (questionType === "summary") return SUMMARY_ID_OFFSET[type] + naturalId;
-  return naturalId;
+  return ID_OFFSET[`${type}:${questionType}`] + naturalId;
 }
 
 // ---------- matérialisation : SQLite -> pool de quiz ----------
@@ -282,7 +283,7 @@ function materializeMovieLikeRows(rows, type, questionType, maxSummaryLen) {
     const posterUrl = `https://image.tmdb.org/t/p/w500${item.poster_path}`;
     if (questionType === "image") {
       result.push({
-        id: item.id,
+        id: toPoolId(type, "image", item.id),
         title: item.title,
         type,
         questionType: "image",
@@ -323,7 +324,7 @@ function materializeGameRows(rows, questionType, maxSummaryLen) {
     const posterUrl = `https://images.igdb.com/igdb/image/upload/t_cover_big/${g.cover_image_id}.jpg`;
     if (questionType === "image") {
       result.push({
-        id: g.id,
+        id: toPoolId("game", "image", g.id),
         title: g.title,
         type: "game",
         questionType: "image",
@@ -355,7 +356,7 @@ function materializeGameRows(rows, questionType, maxSummaryLen) {
 
 function materializeMusicTrackRow(t) {
   return {
-    id: t.id,
+    id: toPoolId("music", "audio", t.id),
     title: t.title,
     artist: t.artist,
     track: t.track,
@@ -530,7 +531,7 @@ function materializePersonRows(rows, questionType, maxSummaryLen) {
     };
     if (questionType === "image") {
       result.push({
-        id: naturalId,
+        id: toPoolId("person", "image", naturalId),
         title: p.name,
         type: "person",
         questionType: "image",
@@ -765,6 +766,22 @@ function materializeActorRow(p, questionType) {
   };
 }
 
+// affiches des films réalisés/joués, utilisées comme images de devinette
+// pour "director"/"actor" (pas leur portrait — même logique que "painter",
+// voir TYPES) ; aspect_ratio d'affiche (~2:3), volontairement hors de la
+// plage "standard" 16:9 pour ne jamais être écarté par le filtre
+// isStandardRatio de getBackdropsForItem. `title` (extra, ignoré des autres
+// types) survit jusqu'au client via selectItemsWithBackdrops : un poster
+// n'affiche pas toujours son titre de façon lisible.
+function moviePosterBackdrops(posters) {
+  return posters.map((m) => ({
+    url: `https://image.tmdb.org/t/p/w500${m.posterPath}`,
+    title: m.title,
+    vote_count: 1,
+    aspect_ratio: 2 / 3,
+  }));
+}
+
 // un type = quels questionTypes il peut produire (info structurelle fixe,
 // pas dérivée des données — voir /api/catalog), comment lire son pool filtré
 // (db.getXPool(filters), voir db/typeItem.js) et comment matérialiser ce pool en
@@ -778,35 +795,57 @@ const TYPES = {
     getPool: db.getMoviePool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializeMovieLikeRows(rows, "movie", questionType, maxSummaryLen),
+    backdrops: (item) => db.getMovieImages(item.id),
   },
   tv: {
     questionTypes: ["image", "summary"],
     getPool: db.getTvShowPool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializeMovieLikeRows(rows, "tv", questionType, maxSummaryLen),
+    backdrops: (item) => db.getTvShowImages(item.id),
   },
   person: {
     questionTypes: ["image", "summary"],
     getPool: db.getPersonPool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializePersonRows(rows, questionType, maxSummaryLen),
+    backdrops: (item) => db.getPersonImages(item.personId),
+    ratioFree: true,
   },
   game: {
     questionTypes: ["image", "summary"],
     getPool: db.getGamePool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializeGameRows(rows, questionType, maxSummaryLen),
+    // IGDB n'a pas de notion de vote par image : on fixe un ratio 16:9.
+    backdrops: (item) =>
+      db.getGameImages(item.id).map((imageId) => ({
+        url: `https://images.igdb.com/igdb/image/upload/t_1080p/${imageId}.jpg`,
+        vote_count: 1,
+        aspect_ratio: 1.78,
+      })),
   },
   music: {
     questionTypes: ["audio"],
     getPool: db.getMusicTrackPool,
     materialize: (rows) => rows.map(materializeMusicTrackRow),
+    // pas de `backdrops` : aucun questionType "image" (voir
+    // getBackdropsForItem, jamais appelé pour ce type).
   },
   country: {
     questionTypes: ["image", "flag", "map", "leader"],
     getPool: db.getCountryPool,
     materialize: (rows, questionType) =>
       materializeCountryRows(rows, questionType),
+    // seul country:image passe par ici — flag/map/leader ont chacun leur
+    // image unique portée par l'item lui-même. Pexels n'a pas de notion de
+    // vote par image (comme IGDB).
+    backdrops: (item) =>
+      db.getCountryPhotos(item.countryCcn3).map((p) => ({
+        url: p.url,
+        vote_count: p.voteCount,
+        aspect_ratio: p.aspectRatio,
+      })),
   },
   // sens inverse de country:leader — on y devine un CHEF D'ÉTAT (une
   // personne), pas un pays, d'où un type à part plutôt qu'un questionType
@@ -817,6 +856,8 @@ const TYPES = {
     questionTypes: ["statesman"],
     getPool: db.getCountryPool,
     materialize: (rows) => materializeStatesmanRows(rows),
+    // pas de `backdrops` : questionType "statesman" uniquement, ses 2 images
+    // (drapeau + portrait) sont portées par l'item.
   },
   painter: {
     questionTypes: ["image"],
@@ -826,38 +867,103 @@ const TYPES = {
     getPool: (selections) =>
       db.getPainterPool(selections, db.PAINTER_MIN_ARTWORKS),
     materialize: (rows) => rows.map(materializePainterRow),
+    // plusieurs tableaux DIFFÉRENTS du même peintre, URLs déjà finales (pas
+    // le portrait — l'utiliser comme image de devinette montrerait son
+    // visage pendant la phase de jeu).
+    backdrops: (item) =>
+      db.getPainterArtworks(item.personId).map((url) => ({
+        url,
+        vote_count: 1,
+        aspect_ratio: 1,
+      })),
   },
   director: {
     questionTypes: ["image", "summary"],
     getPool: db.getDirectorPool,
     materialize: (rows, questionType) =>
       rows.map((p) => materializeDirectorRow(p, questionType)),
+    backdrops: (item) =>
+      moviePosterBackdrops(db.getDirectorMoviePosters(item.personId)),
   },
   actor: {
     questionTypes: ["image", "summary"],
     getPool: db.getActorPool,
     materialize: (rows, questionType) =>
       rows.map((p) => materializeActorRow(p, questionType)),
+    backdrops: (item) =>
+      moviePosterBackdrops(db.getActorMoviePosters(item.personId)),
   },
   wiki_article: {
     questionTypes: ["image", "summary"],
     getPool: db.getWikiArticlePool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializeWikiArticleRows(rows, questionType, maxSummaryLen),
+    // images embarquées dans l'article, chauffées en tâche de fond (voir
+    // fetchAndStoreWikiArticleImagesBatch) — ratios très variables (portrait,
+    // carte, objet...), d'où ratioFree comme "person".
+    backdrops: (item) =>
+      db.getWikiArticleImages(item.wikiArticleId).map((img) => ({
+        url: img.url,
+        vote_count: img.vote_count,
+        aspect_ratio: img.aspect_ratio,
+      })),
+    ratioFree: true,
   },
   pokemon: {
     questionTypes: ["image", "summary", "audio"],
     getPool: db.getPokemonPool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializePokemonRows(rows, questionType, maxSummaryLen),
+    // un seul sprite officiel connu par espèce (pas de table multi-images
+    // comme movie/tv/game, voir db/pokemon.js) — une seule "backdrop", le
+    // mode image ne cycle donc jamais plusieurs plans pour ce type
+    // (imagesPerItem n'a pas d'effet ici).
+    backdrops: (item) =>
+      item.posterUrl
+        ? [{ url: item.posterUrl, vote_count: 1, aspect_ratio: 1 }]
+        : [],
   },
   superhero: {
     questionTypes: ["image", "summary"],
     getPool: db.getSuperheroPool,
     materialize: (rows, questionType, maxSummaryLen) =>
       materializeSuperheroRows(rows, questionType, maxSummaryLen),
+    // un seul portrait connu par personnage — même cas que "pokemon".
+    // Ratio 3:4 réel des images superhero-api (480x640), hors de la plage
+    // "standard" 16:9 : la bascule ratioPool (standardRatio.length === 0,
+    // voir getBackdropsForItem) retombe donc automatiquement dessus sans
+    // qu'il faille déclarer ratioFree.
+    backdrops: (item) =>
+      item.posterUrl
+        ? [{ url: item.posterUrl, vote_count: 1, aspect_ratio: 3 / 4 }]
+        : [],
   },
 };
+
+// contrôle d'exhaustivité au démarrage : tout combo type:questionType déclaré
+// ci-dessus doit avoir son entrée dans ID_OFFSET. C'est ce qui rend un
+// nouveau `country:map` impossible — un combo oublié échouait auparavant en
+// silence, en retombant sur l'espace d'id brut (voir ID_OFFSET), et ne se
+// manifestait qu'au premier quiz mêlant ce type et un movie/tv/game d'id
+// proche.
+for (const [type, cfg] of Object.entries(TYPES)) {
+  for (const questionType of cfg.questionTypes) {
+    if (ID_OFFSET[`${type}:${questionType}`] === undefined) {
+      throw new Error(
+        `ID_OFFSET manquant pour "${type}:${questionType}" (voir toPoolId)`,
+      );
+    }
+  }
+  // même garde-fou pour le mode image : sans `backdrops`, getBackdropsForItem
+  // renvoyait [] et 100 % des items de ce type étaient écartés du quiz sans
+  // la moindre erreur — seulement visible comme un écart entre /api/pool-size
+  // et ce que /api/quiz-batch livre vraiment.
+  if (cfg.questionTypes.includes("image") && !cfg.backdrops) {
+    throw new Error(
+      `TYPES.${type} déclare questionType "image" sans \`backdrops\` (voir getBackdropsForItem)`,
+    );
+  }
+}
 
 function hasAnyPool() {
   return Object.keys(TYPES).some((t) => db.countTypeItems(t) > 0);
@@ -1030,106 +1136,34 @@ function getCachedMovieDirector(movieId) {
   return db.getMovieDirectorNames(movieId);
 }
 
-// toutes les branches ci-dessous ne font QUE de la lecture SQLite (chauffée
-// par refresh.js) — plus aucun appel réseau ici, et plus aucun filtrage
+// il ne reste ici que ce qui est VRAIMENT commun à tous les types (filtre de
+// ratio, filtre de votes, tirage) — le "où sont les images de ce type" vit
+// désormais dans TYPES[type].backdrops, à côté du reste de la définition du
+// type, plutôt que dans une chaîne de if/else séparée qu'il fallait penser à
+// compléter (un type oublié n'y produisait aucune erreur : juste 100 % de ses
+// items silencieusement écartés du quiz).
+//
+// Chaque `backdrops` ne fait QUE de la lecture SQLite (chauffée par
+// refresh.js) — plus aucun appel réseau ici, et plus aucun filtrage
 // "textless" : refresh.js ne stocke déjà que des images utilisables (voir
 // fetchAndStoreMovieImages/fetchAndStorePersonImages/fetchAndStoreTvImages),
 // ce fichier n'a qu'à les lire. Un item sans image en base est exclu du
-// quiz (voir appelant), exactement comme pour peintures/pays avant cette
-// réorganisation.
+// quiz (voir appelant), exactement comme pour peintures/pays.
 function getBackdropsForItem(item, need) {
-  let backdrops;
-  if (item.type === "movie") {
-    backdrops = db.getMovieImages(item.id);
-  } else if (item.type === "person") {
-    backdrops = db.getPersonImages(item.personId);
-  } else if (item.type === "tv") {
-    backdrops = db.getTvShowImages(item.id);
-  } else if (item.type === "game") {
-    // IGDB n'a pas de notion de vote par image : on fixe un ratio 16:9.
-    backdrops = db.getGameImages(item.id).map((imageId) => ({
-      url: `https://images.igdb.com/igdb/image/upload/t_1080p/${imageId}.jpg`,
-      vote_count: 1,
-      aspect_ratio: 1.78,
-    }));
-  } else if (item.type === "country") {
-    // Pexels n'a pas de notion de vote par image (comme IGDB).
-    backdrops = db.getCountryPhotos(item.countryCcn3).map((p) => ({
-      url: p.url,
-      vote_count: p.voteCount,
-      aspect_ratio: p.aspectRatio,
-    }));
-  } else if (item.type === "painter") {
-    // plusieurs tableaux DIFFÉRENTS du même peintre, URLs déjà finales (pas
-    // le portrait — l'utiliser comme image de devinette montrerait son
-    // visage pendant la phase de jeu).
-    backdrops = db.getPainterArtworks(item.personId).map((url) => ({
-      url,
-      vote_count: 1,
-      aspect_ratio: 1,
-    }));
-  } else if (item.type === "director" || item.type === "actor") {
-    // affiches des films réalisés/joués (pas son portrait — même logique que
-    // "painter" ci-dessus) ; aspect_ratio d'affiche (~2:3), volontairement
-    // hors de la plage "standard" 16:9 pour ne jamais être écarté par le
-    // filtre isStandardRatio plus bas. `title` (extra, ignoré des autres
-    // types) survit jusqu'au client via selectItemsWithBackdrops : un
-    // poster n'affiche pas toujours son titre de façon lisible.
-    const posters =
-      item.type === "director"
-        ? db.getDirectorMoviePosters(item.personId)
-        : db.getActorMoviePosters(item.personId);
-    backdrops = posters.map((m) => ({
-      url: `https://image.tmdb.org/t/p/w500${m.posterPath}`,
-      title: m.title,
-      vote_count: 1,
-      aspect_ratio: 2 / 3,
-    }));
-  } else if (item.type === "pokemon") {
-    // un seul sprite officiel connu par espèce (pas de table multi-images
-    // comme movie/tv/game, voir db/pokemon.js) — une seule "backdrop", le
-    // mode image ne cycle donc jamais plusieurs plans pour ce type,
-    // contrairement à movie/tv/game (imagesPerItem n'a pas d'effet ici).
-    backdrops = item.posterUrl
-      ? [{ url: item.posterUrl, vote_count: 1, aspect_ratio: 1 }]
-      : [];
-  } else if (item.type === "superhero") {
-    // un seul portrait connu par personnage (pas de table multi-images comme
-    // movie/tv/game) — même cas que "pokemon" ci-dessus. Ratio 3:4 réel des
-    // images superhero-api (480x640), hors de la plage "standard" 16:9 : la
-    // bascule ratioPool plus bas (standardRatio.length === 0) retombe donc
-    // automatiquement sur ce portrait sans qu'il faille lister "superhero"
-    // dans l'exception explicite juste en dessous.
-    backdrops = item.posterUrl
-      ? [{ url: item.posterUrl, vote_count: 1, aspect_ratio: 3 / 4 }]
-      : [];
-  } else if (item.type === "wiki_article") {
-    // images embarquées dans l'article, chauffées en tâche de fond (voir
-    // fetchAndStoreWikiArticleImagesBatch) — ratios très variables (portrait,
-    // carte, objet...), voir isStandardRatio ci-dessous.
-    backdrops = db.getWikiArticleImages(item.wikiArticleId).map((img) => ({
-      url: img.url,
-      vote_count: img.vote_count,
-      aspect_ratio: img.aspect_ratio,
-    }));
-  } else {
-    backdrops = [];
-  }
+  const cfg = TYPES[item.type];
+  const backdrops = cfg?.backdrops ? cfg.backdrops(item) : [];
 
   if (backdrops.length === 0) return [];
 
   const isStandardRatio = (b) =>
     b.aspect_ratio >= 1.7 && b.aspect_ratio <= 1.85;
   const standardRatio = backdrops.filter(isStandardRatio);
-  // "person"/"wiki_article" : photos à ratio libre (portraits, cartes,
-  // objets...), contrairement aux backdrops de film (quasi tous 16:9) — un
-  // filtre "ratio standard" écarterait à tort la plupart d'entre elles.
+  // `ratioFree` ("person"/"wiki_article") : photos à ratio libre (portraits,
+  // cartes, objets...), contrairement aux backdrops de film (quasi tous
+  // 16:9) — un filtre "ratio standard" écarterait à tort la plupart d'entre
+  // elles.
   const ratioPool =
-    item.type === "person" ||
-    item.type === "wiki_article" ||
-    standardRatio.length === 0
-      ? backdrops
-      : standardRatio;
+    cfg?.ratioFree || standardRatio.length === 0 ? backdrops : standardRatio;
 
   const voted = ratioPool.filter((b) => b.vote_count > 0);
   const finalPool =

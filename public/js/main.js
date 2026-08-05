@@ -261,7 +261,9 @@ async function generateQuiz(daily = false) {
                 : m.type === "statesman"
                   ? statesmanSec
                   : m.questionType === "summary"
-                    ? m.type === "director"
+                    ? // director/actor : plusieurs summary cyclés (voir
+                      // preload.js, même remarque sur le test)
+                      Array.isArray(m.overviews)
                       ? m.overviews.reduce(
                           (sum, ov) =>
                             sum +

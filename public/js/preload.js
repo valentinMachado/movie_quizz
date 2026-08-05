@@ -228,9 +228,14 @@ export async function preloadAll(
             posterImg,
             reason: m.reason,
             isAnniversary: m.isAnniversary,
-            // director : plusieurs summary (voir timeline.js/seg.frameIdx),
-            // pas un seul m.overview comme movie/tv/game.
-            ...(m.type === "director"
+            // director/actor : plusieurs summary (voir timeline.js/
+            // seg.frameIdx), pas un seul m.overview comme movie/tv/game.
+            // Testé sur la PRÉSENCE de `overviews` (comme drawSummaryGuess,
+            // render/scenes.js) plutôt que sur une liste de types en dur :
+            // celle-ci avait été oubliée à l'ajout du type "actor" (1.2.3),
+            // dont le summary retombait alors sur `m.overview` inexistant —
+            // undefined jusqu'à wrapText, qui plantait le rendu.
+            ...(Array.isArray(m.overviews)
               ? { overviews: m.overviews, movieTitles: m.movieTitles }
               : { overview: m.overview }),
             // sous-titre du reveal "person" (voir personSubtitle,
