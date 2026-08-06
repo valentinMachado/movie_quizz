@@ -1,0 +1,21 @@
+{
+  "appVersion": "1.3.1",
+  "builtAt": "2026-08-06T21:12:14.540Z",
+  "sha256": "fc0eed133aaa112a4c20c9d695a42dcdb8e9220ef1c9d53a73c08a90371c2605",
+  "bytes": 162287616,
+  "gzBytes": 63043205,
+  "counts": {
+    "actor": 22005,
+    "country": 244,
+    "director": 4920,
+    "game": 7591,
+    "movie": 2911,
+    "music": 5301,
+    "painter": 1157,
+    "person": 15121,
+    "pokemon": 1025,
+    "superhero": 563,
+    "tv": 2434,
+    "wiki_article": 8235
+  }
+}

@@ -4,6 +4,7 @@ import { logError, logInfo, logWarn, logDebug, logBanner } from "./refresh/log.j
 import {
   APP_VERSION,
   IGNORE_VERSION,
+  LISTS_ONLY,
   MAX_TYPE_COUNT,
   CATEGORY_FETCH_CONCURRENCY,
   IMAGE_FETCH_CONCURRENCY,
@@ -503,19 +504,40 @@ function syncDerivedPersonFilters() {
   syncStatesmanPopularityTiers();
 }
 
-syncDerivedPersonFilters();
-refreshTypes();
-refreshAllLists({ isStartup: true });
-// recheck bien plus fréquent que TTL_MS.typePool (~1 mois, hors de portée
-// d'un setInterval JS, voir refreshTypes) : le filtre isRefreshFresh à
-// l'intérieur absorbe les appels tant qu'aucun type n'a expiré.
-setInterval(() => refreshTypes(), db.TTL_MS.listPool).unref();
-setInterval(() => refreshAllLists(), db.TTL_MS.listPool).unref();
-// même cadence par défaut que le sleep entre deux passages d'un warmLoop
-// (voir runBackfillLoop) : syncDerivedPersonFilters ne fait aucun appel
-// réseau (contrairement à refreshTypes/refreshAllLists ci-dessus, dont la
-// cadence ménage un vrai coût TMDb) — un run complet ne coûte qu'un
-// aller-retour SQL local, pas la peine de chercher plus fin qu'un intervalle
-// fixe (voir échange avec l'utilisateur sur une éventuelle cadence adaptative).
-setInterval(syncDerivedPersonFilters, 60 * 60 * 1000).unref();
-startWarmLoops();
+// --lists-only (la VM) : tout ce qui suit — crawls de types, warmLoops,
+// filtres dérivés — suppose des heures de réseau et plusieurs Go de disque.
+// Sur la VM, ce travail a déjà été fait ici et voyage par le dépôt (voir
+// db/seed.js) ; il ne reste que la cadence courte des listes.
+if (LISTS_ONLY) {
+  logBanner([
+    "MODE LISTES SEULES — la base est celle livrée par le dépôt (db/seed.js).",
+    "",
+    "Seule l'appartenance aux listes Populaire/Tendances est rafraîchie, toutes",
+    `les ${(db.TTL_MS.listPool / 3600000).toFixed(0)}h. Pas de crawl de types, pas de warmLoops, pas de dumps Wikimedia :`,
+    "pour enrichir le contenu, relancer `npm run refresh` en local puis",
+    "`npm run seed`, pousser, et redéployer.",
+  ]);
+  refreshAllLists({ isStartup: true });
+  // sans .unref(), contrairement aux intervalles du mode complet plus bas :
+  // c'est ici le seul travail programmé du process, un intervalle unref'd le
+  // laisserait sortir dès le premier passage terminé (les warmLoops, qui
+  // tiennent la boucle d'événements ouverte en mode complet, ne tournent pas).
+  setInterval(() => refreshAllLists(), db.TTL_MS.listPool);
+} else {
+  syncDerivedPersonFilters();
+  refreshTypes();
+  refreshAllLists({ isStartup: true });
+  // recheck bien plus fréquent que TTL_MS.typePool (~1 mois, hors de portée
+  // d'un setInterval JS, voir refreshTypes) : le filtre isRefreshFresh à
+  // l'intérieur absorbe les appels tant qu'aucun type n'a expiré.
+  setInterval(() => refreshTypes(), db.TTL_MS.listPool).unref();
+  setInterval(() => refreshAllLists(), db.TTL_MS.listPool).unref();
+  // même cadence par défaut que le sleep entre deux passages d'un warmLoop
+  // (voir runBackfillLoop) : syncDerivedPersonFilters ne fait aucun appel
+  // réseau (contrairement à refreshTypes/refreshAllLists ci-dessus, dont la
+  // cadence ménage un vrai coût TMDb) — un run complet ne coûte qu'un
+  // aller-retour SQL local, pas la peine de chercher plus fin qu'un intervalle
+  // fixe (voir échange avec l'utilisateur sur une éventuelle cadence adaptative).
+  setInterval(syncDerivedPersonFilters, 60 * 60 * 1000).unref();
+  startWarmLoops();
+}

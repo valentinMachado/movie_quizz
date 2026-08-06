@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 #
-# Déploiement sur la VM : swap, dépendances, pm2 (serveur + refresh).
+# Déploiement sur la VM : code, base, swap, dépendances, pm2.
+#
+# La base n'est PAS construite ici — construire les pools coûte des heures de
+# réseau et plusieurs Go de disque, hors de portée de cette machine. Elle est
+# construite en local (`npm run refresh` puis `npm run seed`) et voyage par le
+# dépôt sous forme d'archive Git LFS, que ce script décompresse. Le refresh
+# qui tourne ici ne suit plus que les listes Populaire/Tendances
+# (db/refresh.js --lists-only), la seule donnée qui bouge d'un jour à l'autre.
 #
 # Idempotent — relançable autant de fois qu'on veut, y compris après un
 # reboot. Chaque étape constate l'état avant d'agir.
 #
-#   ./deploy.sh                 # tout : swap, npm, serveur + refresh
-#   ./deploy.sh --no-refresh    # serveur seul (le refresh continue de tourner)
+#   ./deploy.sh                 # tout : code, base, swap, npm, serveur + refresh
+#   ./deploy.sh --no-pull       # ne touche pas au dépôt (déjà à jour à la main)
+#   ./deploy.sh --no-refresh    # serveur seul
+#   ./deploy.sh --force-db      # réinstalle la base même si l'empreinte colle
+#   ./deploy.sh --full-refresh  # crawl complet ICI (ancien mode, très lourd)
 #   ./deploy.sh --skip-swap     # ne touche pas au swap
 #   SWAP_SIZE=4G ./deploy.sh    # swapfile plus gros
 #
@@ -21,31 +31,45 @@ SWAP_FILE="${SWAP_FILE:-/swapfile}"
 # passe son temps à faire des allers-retours disque.
 SWAPPINESS=10
 
-# Tas V8 borné explicitement : sur une VM à 1 Go, V8 déduit sa limite de la
-# RAM PHYSIQUE et ignore complètement le swap. Sans ça il choisit une valeur
-# basse, et une fois le swap en place il refuserait quand même de grandir.
-# 700 Mo laisse de la place au natif (SQLite, Buffers, sous-process bzip2).
-REFRESH_HEAP_MB="${REFRESH_HEAP_MB:-700}"
-
-# Pic disque pendant la construction de l'index frwiki : ~5 Go d'index final,
-# + 5,3 Go pour l'archive de pageviews en cours de téléchargement, + le temp
-# des CREATE INDEX, + le swapfile. Voir db/refresh/frwiki-dump.js.
-NEEDED_DISK_GB=14
-
 APP_NAME="guess_it"
 REFRESH_NAME="guess_it_refresh"
 
 SKIP_SWAP=0
 START_REFRESH=1
+DO_PULL=1
+FULL_REFRESH=0
+SEED_FORCE=""
 for arg in "$@"; do
   case "$arg" in
     --skip-swap) SKIP_SWAP=1 ;;
     --no-refresh) START_REFRESH=0 ;;
+    --no-pull) DO_PULL=0 ;;
+    --force-db) SEED_FORCE="--force" ;;
+    --full-refresh) FULL_REFRESH=1 ;;
     --swap-size=*) SWAP_SIZE="${arg#*=}" ;;
-    -h|--help) sed -n '3,11p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,21p' "$0"; exit 0 ;;
     *) echo "Option inconnue : $arg (voir --help)" >&2; exit 1 ;;
   esac
 done
+
+# Tas V8 borné explicitement : sur une VM à 1 Go, V8 déduit sa limite de la
+# RAM PHYSIQUE et ignore complètement le swap. Sans ça il choisit une valeur
+# basse, et une fois le swap en place il refuserait quand même de grandir.
+# En mode listes, le process ne garde en mémoire qu'une poignée de pages
+# TMDb/IGDB/iTunes ; le mode complet doit en plus loger les dumps Wikimedia,
+# d'où les 700 Mo (qui laissent la place au natif : SQLite, Buffers, bzip2).
+if [ "$FULL_REFRESH" -eq 1 ]; then
+  REFRESH_HEAP_MB="${REFRESH_HEAP_MB:-700}"
+  # Pic disque pendant la construction de l'index frwiki : ~5 Go d'index
+  # final, + 5,3 Go pour l'archive de pageviews en cours de téléchargement,
+  # + le temp des CREATE INDEX, + le swapfile. Voir db/refresh/frwiki-dump.js.
+  NEEDED_DISK_GB=14
+else
+  REFRESH_HEAP_MB="${REFRESH_HEAP_MB:-400}"
+  # l'archive LFS (~60 Mo) + sa copie décompressée dans cache/ (~150 Mo) + le
+  # temporaire de décompression + l'objet LFS gardé dans .git + le swapfile.
+  NEEDED_DISK_GB=3
+fi
 
 # ---------- sortie ----------
 
@@ -76,8 +100,40 @@ fi
 # bzip2 n'est pas une dépendance npm : sans lui, les dumps de consultations et
 # de résumés sont silencieusement abandonnés au profit de l'API MediaWiki,
 # beaucoup plus lente (voir bzip2Available dans db/refresh/frwiki-dump.js).
-command -v bzip2 >/dev/null \
-  || warn "bzip2 introuvable : pageviews et résumés repasseront par l'API (lent). apt install bzip2"
+# Sans intérêt en mode listes, qui ne touche jamais aux dumps.
+if [ "$FULL_REFRESH" -eq 1 ]; then
+  command -v bzip2 >/dev/null \
+    || warn "bzip2 introuvable : pageviews et résumés repasseront par l'API (lent). apt install bzip2"
+fi
+
+# ---------- 0. code + archive de la base ----------
+
+log "Dépôt"
+if [ "$DO_PULL" -eq 0 ]; then
+  ok "laissé tel quel (--no-pull)."
+else
+  # --ff-only : sur la VM le dépôt n'est qu'un miroir, une divergence est une
+  # anomalie qu'il vaut mieux voir échouer ici que résoudre par une fusion
+  # automatique dans le dos.
+  # bash relit le script au fil de son exécution : si le pull réécrit
+  # deploy.sh sous nos pieds, la suite est lue au mauvais offset. On repart
+  # donc proprement sur la nouvelle version (une seule fois, d'où le témoin).
+  deploy_before="$(cksum < "$0")"
+  git -C "$ROOT" pull --ff-only
+  if [ "$deploy_before" != "$(cksum < "$0")" ] && [ "${GUESS_IT_REEXEC:-0}" -eq 0 ]; then
+    log "  deploy.sh a changé — relance de la nouvelle version…"
+    GUESS_IT_REEXEC=1 exec bash "$0" "$@" --no-pull
+  fi
+  # L'archive de la base est un objet LFS (voir .gitattributes) : sans
+  # git-lfs, `git pull` ne ramène qu'un pointeur texte de quelques centaines
+  # d'octets, et db/seed.js s'arrêtera là-dessus avec le message qui va bien.
+  if command -v git-lfs >/dev/null; then
+    git -C "$ROOT" lfs pull
+    ok "code et base à jour ($(git -C "$ROOT" rev-parse --short HEAD))."
+  else
+    warn "git-lfs introuvable : l'archive de la base ne sera pas récupérée. apt install git-lfs"
+  fi
+fi
 
 # ---------- 1. swap ----------
 
@@ -162,8 +218,13 @@ fi
 log "Disque"
 avail_gb=$(( $(df -Pk "$ROOT" | awk 'NR==2 {print $4}') / 1024 / 1024 ))
 if [ "$avail_gb" -lt "$NEEDED_DISK_GB" ]; then
-  warn "$avail_gb Go libres, ~$NEEDED_DISK_GB Go recommandés pour construire l'index frwiki."
-  warn "Le refresh démarrera quand même, mais peut mourir en ENOSPC pendant les dumps."
+  if [ "$FULL_REFRESH" -eq 1 ]; then
+    warn "$avail_gb Go libres, ~$NEEDED_DISK_GB Go recommandés pour construire l'index frwiki."
+    warn "Le refresh démarrera quand même, mais peut mourir en ENOSPC pendant les dumps."
+  else
+    warn "$avail_gb Go libres, ~$NEEDED_DISK_GB Go recommandés pour décompresser la base."
+    warn "L'installation de la base peut mourir en ENOSPC."
+  fi
 else
   ok "$avail_gb Go libres (>= $NEEDED_DISK_GB Go)."
 fi
@@ -184,7 +245,31 @@ if ! command -v pm2 >/dev/null; then
 fi
 ok "pm2 $(pm2 --version)"
 
-# ---------- 4. pm2 ----------
+# ---------- 4. base ----------
+
+# `check` répond par son code de sortie : 0 « à installer », 1 « déjà à jour »
+# (une simple mise à jour de code, sans coupure), 2 « problème » — voir
+# EXIT_PROBLEM dans db/seed.js. `set -e` doit être levé le temps de lire le
+# code, sinon 1 et 2 tueraient tous deux le script sans distinction.
+log "Base"
+set +e
+node db/seed.js check $SEED_FORCE
+seed_rc=$?
+set -e
+case "$seed_rc" in
+  0)
+    # db/seed.js remplace le FICHIER cache/data.sqlite (et supprime les -wal/
+    # -shm de l'ancienne, qui ne décrivent plus rien) : personne ne doit le
+    # tenir ouvert pendant l'opération.
+    pm2 stop "$APP_NAME" "$REFRESH_NAME" >/dev/null 2>&1 || true
+    node db/seed.js install $SEED_FORCE
+    ok "base installée depuis le dépôt."
+    ;;
+  1) ok "base déjà à jour, aucune coupure." ;;
+  *) die "base indisponible (voir ci-dessus) — rien n'a été déployé." ;;
+esac
+
+# ---------- 5. pm2 ----------
 
 # On démarre node DIRECTEMENT plutôt que `pm2 start npm -- run x` : pm2
 # supervise alors le vrai process node (mémoire correctement mesurée,
@@ -193,20 +278,43 @@ ok "pm2 $(pm2 --version)"
 # et cache/ depuis process.cwd().
 start_app() {
   local name="$1"; shift
+  # Tout ce qui suit un `--` est destiné au SCRIPT, pas à pm2 — et pm2 exige
+  # de le trouver en toute FIN de ligne : laissé au milieu, ce sont --name/
+  # --cwd/--time qui partiraient au script au lieu de configurer pm2.
+  local pm2_args=() script_args=()
+  while [ $# -gt 0 ]; do
+    if [ "$1" = "--" ]; then shift; script_args=("$@"); break; fi
+    pm2_args+=("$1"); shift
+  done
   if pm2 describe "$name" >/dev/null 2>&1; then
     pm2 delete "$name" >/dev/null
   fi
-  pm2 start "$@" --name "$name" --cwd "$ROOT" --time
+  if [ ${#script_args[@]} -gt 0 ]; then
+    pm2 start "${pm2_args[@]}" --name "$name" --cwd "$ROOT" --time -- "${script_args[@]}"
+  else
+    pm2 start "${pm2_args[@]}" --name "$name" --cwd "$ROOT" --time
+  fi
 }
 
 if [ "$START_REFRESH" -eq 1 ]; then
-  log "pm2 — $REFRESH_NAME (db/refresh.js)"
+  # --lists-only par défaut : la base arrive construite, ce process ne suit
+  # plus que les listes Populaire/Tendances (voir l'en-tête de ce fichier).
+  # --full-refresh rend l'ancien comportement — crawl complet sur la VM —
+  # qui reste possible mais demande les 14 Go de disque et des heures.
+  if [ "$FULL_REFRESH" -eq 1 ]; then
+    REFRESH_MODE=""
+    log "pm2 — $REFRESH_NAME (db/refresh.js, CRAWL COMPLET)"
+  else
+    REFRESH_MODE="--lists-only"
+    log "pm2 — $REFRESH_NAME (db/refresh.js --lists-only)"
+  fi
   # restart-delay : le refresh boucle indéfiniment, s'il sort c'est une
   # anomalie — on laisse respirer plutôt que de repartir dans la seconde sur
   # la même erreur (réseau coupé, disque plein).
   start_app "$REFRESH_NAME" db/refresh.js \
     --node-args="--max-old-space-size=$REFRESH_HEAP_MB" \
-    --restart-delay=30000
+    --restart-delay=30000 \
+    -- $REFRESH_MODE
   ok "démarré (tas V8 borné à $REFRESH_HEAP_MB Mo)."
 else
   log "pm2 — $REFRESH_NAME laissé tel quel (--no-refresh)."
@@ -241,3 +349,10 @@ log "Terminé."
 echo "    logs serveur : pm2 logs $APP_NAME"
 echo "    logs refresh : pm2 logs $REFRESH_NAME"
 echo "    mémoire/swap : free -h"
+if [ "$FULL_REFRESH" -eq 0 ]; then
+  echo
+  echo "    Pour enrichir le contenu (nouveaux films, images, types…), c'est en local :"
+  echo "      npm run refresh && npm run seed"
+  echo "      git add dist && git commit -m \"seed\" && git push"
+  echo "    puis ./deploy.sh ici. Le refresh d'ici ne suit que les listes."
+fi

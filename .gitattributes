@@ -2,3 +2,10 @@
 # sur la VM : sans ça, un checkout en CRLF le rendrait illisible ("\r: command
 # not found" dès le shebang).
 *.sh text eol=lf
+
+# Instantané de la base construit en local et livré à la VM (voir db/seed.js) :
+# ~57 Mo compressés, donc Git LFS — un blob binaire de cette taille par version
+# dans l'historique git normal le rendrait vite impossible à cloner. `-text`
+# coupe la conversion de fins de ligne, qui corromprait l'archive au checkout
+# (core.autocrlf=true côté Windows).
+dist/data.sqlite.gz filter=lfs diff=lfs merge=lfs -text

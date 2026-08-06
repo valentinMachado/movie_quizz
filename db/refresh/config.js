@@ -62,6 +62,13 @@ export const DB_PATH = DB_ARG
     ? ":memory:"
     : path.join(process.cwd(), "cache", "data.sqlite");
 
+// --lists-only : mode VM. La base arrive construite depuis le dépôt (voir
+// db/seed.js et deploy.sh), ce process ne suit plus que l'appartenance aux
+// listes Populaire/Tendances — la seule donnée qui change vraiment d'un jour
+// à l'autre. Aucun crawl de type, aucun warmLoop, aucun dump Wikimedia :
+// c'est ce qui rend le refresh tenable sur une petite VM.
+export const LISTS_ONLY = process.argv.includes("--lists-only");
+
 // --ignore-version : après un bump de version (package.json), le checkpoint
 // "type" (voir isRefreshFresh(..., APP_VERSION) dans refresh.js) considère
 // tout type comme périmé même s'il est dans son TTL, pour forcer un

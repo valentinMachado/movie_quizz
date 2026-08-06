@@ -4,3 +4,6 @@ stats.json
 scores.json
 cache/
 .claude
+# dist/ EST versionné (l'instantané de la base livré à la VM, voir db/seed.js) —
+# seuls ses fichiers de travail sont exclus.
+dist/*.tmp

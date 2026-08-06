@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "refresh": "node db/refresh.js",
+    "seed": "node db/seed.js build",
     "pm2": "pm2 delete guess_it && pm2 start npm --name \"guess_it\" -- start",
     "pm2:refresh": "pm2 delete guess_it_refresh && pm2 start npm --name \"guess_it_refresh\" -- run refresh"
   },
